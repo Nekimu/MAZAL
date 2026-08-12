@@ -21,32 +21,37 @@ const metaEnv = (import.meta as any).env || {};
 export const SUPABASE_URL: string =
   storedConfig?.supabaseUrl ||
   metaEnv.VITE_SUPABASE_URL ||
-  "https://your-project-ref.supabase.co";
+  "";
 
 export const SUPABASE_ANON_KEY: string =
   storedConfig?.supabaseAnonKey ||
   metaEnv.VITE_SUPABASE_ANON_KEY ||
-  "your-anon-key-here";
+  "";
 
 export const isSupabaseConfigured = Boolean(
   SUPABASE_URL &&
   SUPABASE_ANON_KEY &&
-  SUPABASE_URL.includes("supabase.co")
+  SUPABASE_URL.includes("supabase.co") &&
+  !SUPABASE_URL.includes("placeholder-project")
 );
 
-// Create the Supabase client instance with realtime enabled and auto-refresh
-export const supabase: SupabaseClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
-  auth: {
-    persistSession: true,
-    autoRefreshToken: true,
-    detectSessionInUrl: false
-  },
-  realtime: {
-    params: {
-      eventsPerSecond: 10
-    }
-  }
-});
+// Create the Supabase client instance with realtime enabled (or safe placeholder if not configured)
+export const supabase: SupabaseClient = isSupabaseConfigured
+  ? createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+      auth: {
+        persistSession: true,
+        autoRefreshToken: true,
+        detectSessionInUrl: false
+      },
+      realtime: {
+        params: {
+          eventsPerSecond: 10
+        }
+      }
+    })
+  : createClient("https://placeholder-project.supabase.co", "placeholder-anon-key", {
+      auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false }
+    });
 
 /**
  * Diagnostic function to test the Supabase connection and return detailed status.

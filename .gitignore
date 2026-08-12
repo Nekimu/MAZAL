@@ -1,26 +1,59 @@
-# Node dependencies
+# ==============================================================================
+# MAZAL POS & ERP - GIT IGNORE CONFIGURATION
+# Seguridad y exclusión de datos sensibles para repositorio público
+# ==============================================================================
+
+# Node & Package Manager Dependencies
 node_modules/
 mazal/node_modules/
 .pnp
 .pnp.js
+.yarn/
+package-lock.json.bak
 
-# Testing and coverage
+# Testing, Coverage & Cache
 coverage/
+.nyc_output/
+.cache/
+.parcel-cache/
+.turbo/
 
-# Production build outputs
+# Production Build Outputs
 dist/
 mazal/dist/
 build/
+out/
 
-# Environment files with secrets (keep .env.example)
+# Environment Files & Secrets (NEVER COMMIT SENSITIVE KEYS)
 .env
+.env.*
+!.env.example
 mazal/.env
-.env.local
-.env.development.local
-.env.test.local
-.env.production.local
+mazal/.env.*
+!mazal/.env.example
+*.pem
+*.key
+*.crt
+*.pfx
+*.keystore
 
-# Logs
+# Databases, SQL Dumps & Local Backups
+backups/
+supabase/
+*.sql
+*.sqlite
+*.sqlite3
+*.db
+*.dump
+*.bak
+*.rdb
+
+# User Uploads & Media Assets
+uploads/
+temp_media/
+user_uploads/
+
+# Logs & Debugging
 logs/
 *.log
 npm-debug.log*
@@ -28,7 +61,7 @@ yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
 
-# Editor & OS files
+# Editor & OS Metadata
 .vscode/
 .idea/
 *.suo
@@ -40,9 +73,7 @@ pnpm-debug.log*
 Thumbs.db
 desktop.ini
 
-# Temporary data and local backups
-backups/data_E_raw/
-backups/*.sql
-!backups/README.md
+# Temporary Files & AI IDE Artifacts
 tmp/
+temp/
 .gemini/

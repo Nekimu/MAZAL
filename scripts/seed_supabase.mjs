@@ -11,13 +11,20 @@ import { dirname, join } from "path";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
-// 1. Cargar configuración
-const SUPABASE_URL = process.env.VITE_SUPABASE_URL || "https://your-project-ref.supabase.co";
-const SUPABASE_KEY = process.env.VITE_SUPABASE_ANON_KEY || "your-anon-key-here";
+// 1. Cargar configuración desde variables de entorno (.env)
+const SUPABASE_URL = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL || "";
+const SUPABASE_KEY = process.env.VITE_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY || "";
 
 console.log("=================================================");
 console.log("   MAZAL POS & ERP - MIGRACIÓN A SUPABASE CLOUD  ");
 console.log("=================================================");
+
+if (!SUPABASE_URL || !SUPABASE_KEY) {
+  console.error("❌ ERROR: Debes configurar VITE_SUPABASE_URL y VITE_SUPABASE_ANON_KEY en tu archivo .env o entorno.");
+  console.error("Ejemplo en .env:\nVITE_SUPABASE_URL=https://tu-proyecto.supabase.co\nVITE_SUPABASE_ANON_KEY=tu-anon-key");
+  process.exit(1);
+}
+
 console.log(`URL: ${SUPABASE_URL}`);
 console.log(`Key: ${SUPABASE_KEY.substring(0, 15)}...`);
 
@@ -29,7 +36,7 @@ async function main() {
   
   if (testErr && testErr.code === "PGRST205") {
     console.error("\n❌ ERROR: Las tablas aún no han sido creadas en Supabase.");
-    console.error("👉 Abre el SQL Editor en Supabase (https://supabase.com/dashboard/project/your-project-ref/sql)");
+    console.error("👉 Abre el SQL Editor en tu panel de Supabase.");
     console.error("👉 Pega el contenido de 'supabase_schema.sql' y presiona 'RUN'.");
     process.exit(1);
   } else if (testErr) {
