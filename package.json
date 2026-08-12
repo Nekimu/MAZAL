@@ -4,12 +4,11 @@
   "description": "Sistema MAZAL POS & ERP con Base de Datos en Supabase Cloud y Despliegue en Railway",
   "main": "server.js",
   "scripts": {
-    "postinstall": "npm --prefix mazal install",
+    "postinstall": "node -e \"if (require('fs').existsSync('./mazal/package.json')) { require('child_process').execSync('npm --prefix mazal install', { stdio: 'inherit' }); }\"",
     "build": "npm --prefix mazal run build",
     "start": "node server.js",
     "dev": "npm --prefix mazal run dev",
-    "seed:supabase": "node scripts/seed_supabase.mjs",
-    "test:supabase": "node -e \"const { createClient } = require('@supabase/supabase-js'); const s = createClient('https://your-project-ref.supabase.co', 'your-anon-key-here'); s.from('users').select('*').limit(1).then(console.log);\""
+    "seed:supabase": "node scripts/seed_supabase.mjs"
   },
   "keywords": [
     "pos",
@@ -30,6 +29,6 @@
     "express": "^4.21.2"
   },
   "engines": {
-    "node": ">=18.0.0"
+    "node": ">=22.0.0"
   }
 }

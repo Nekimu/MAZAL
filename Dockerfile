@@ -1,5 +1,5 @@
 # Multi-stage Dockerfile for MAZAL POS & ERP on Railway
-FROM node:20-alpine AS builder
+FROM node:22-alpine AS builder
 
 WORKDIR /app
 
@@ -7,27 +7,30 @@ WORKDIR /app
 COPY package*.json ./
 COPY mazal/package*.json ./mazal/
 
-# Install dependencies
-RUN npm install
+# Install root & frontend dependencies
+RUN npm install --ignore-scripts
 RUN cd mazal && npm install
 
 # Copy application source code
 COPY . .
 
 # Build the frontend bundle
-RUN npm run build
+RUN cd mazal && npm run build
 
 # Production runtime stage
-FROM node:20-alpine AS runner
+FROM node:22-alpine AS runner
 
 WORKDIR /app
 ENV NODE_ENV=production
 ENV PORT=3000
 
+# Install production server dependencies
 COPY package*.json ./
-RUN npm install --omit=dev
+RUN npm install --omit=dev --ignore-scripts
 
+# Copy compiled frontend dist bundle and backend server
 COPY --from=builder /app/mazal/dist ./mazal/dist
+COPY --from=builder /app/mazal/dist ./dist
 COPY --from=builder /app/server.js ./server.js
 COPY --from=builder /app/scripts ./scripts
 
