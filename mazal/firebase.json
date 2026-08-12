@@ -1,0 +1,6 @@
+{
+  "firestore": {
+    "database": "ai-studio-freshmarketerp-4e3378ea-b7b4-4a25-b639-f0ac7cb883df",
+    "rules": "firestore.rules"
+  }
+}

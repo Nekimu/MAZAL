@@ -1,0 +1,14 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Global helper functions
+    function isSignedIn() {
+      return true;
+    }
+
+    // Support any collection (including base collections and branch-specific collections)
+    match /{collection}/{document} {
+      allow read, write: if isSignedIn();
+    }
+  }
+}

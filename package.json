@@ -1,0 +1,35 @@
+{
+  "name": "mazal-pos-erp",
+  "version": "2.5.0",
+  "description": "Sistema MAZAL POS & ERP con Base de Datos en Supabase Cloud y Despliegue en Railway",
+  "main": "server.js",
+  "scripts": {
+    "postinstall": "npm --prefix mazal install",
+    "build": "npm --prefix mazal run build",
+    "start": "node server.js",
+    "dev": "npm --prefix mazal run dev",
+    "seed:supabase": "node scripts/seed_supabase.mjs",
+    "test:supabase": "node -e \"const { createClient } = require('@supabase/supabase-js'); const s = createClient('https://your-project-ref.supabase.co', 'your-anon-key-here'); s.from('users').select('*').limit(1).then(console.log);\""
+  },
+  "keywords": [
+    "pos",
+    "erp",
+    "supabase",
+    "react",
+    "vite",
+    "railway",
+    "retail",
+    "abarrotes"
+  ],
+  "author": "Mazal ERP Team",
+  "license": "ISC",
+  "dependencies": {
+    "@supabase/supabase-js": "^2.49.1",
+    "compression": "^1.8.0",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

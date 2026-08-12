@@ -1,0 +1,468 @@
+{
+  "entities": {
+    "Product": {
+      "title": "Product",
+      "description": "Product in inventory",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "code": { "type": "string" },
+        "barcode": { "type": "string" },
+        "sku": { "type": "string" },
+        "name": { "type": "string" },
+        "brand": { "type": "string" },
+        "category": { "type": "string" },
+        "subcategory": { "type": "string" },
+        "unit": { "type": "string" },
+        "cost": { "type": "number" },
+        "priceMin": { "type": "number" },
+        "priceMed": { "type": "number" },
+        "priceMax": { "type": "number" },
+        "priceSpecial": { "type": "number" },
+        "stock": { "type": "number" },
+        "stockMin": { "type": "number" },
+        "stockMax": { "type": "number" },
+        "location": { "type": "string" },
+        "expiryDate": { "type": "string" },
+        "isCompound": { "type": "boolean" },
+        "imageUrl": { "type": "string" },
+        "supplierId": { "type": "string" }
+      },
+      "required": ["id", "code", "barcode", "sku", "name", "brand", "category", "subcategory", "unit", "cost", "priceMin", "priceMed", "priceMax", "priceSpecial", "stock", "stockMin", "stockMax", "isCompound", "imageUrl", "supplierId"]
+    },
+    "Customer": {
+      "title": "Customer",
+      "description": "Customer record",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "phone": { "type": "string" },
+        "email": { "type": "string" },
+        "address": { "type": "string" },
+        "rfc": { "type": "string" },
+        "role": { "type": "string" },
+        "creditLimit": { "type": "number" },
+        "creditUsed": { "type": "number" },
+        "creditDays": { "type": "number" }
+      },
+      "required": ["id", "name", "phone", "email", "address", "rfc", "role", "creditLimit", "creditUsed", "creditDays"]
+    },
+    "Supplier": {
+      "title": "Supplier",
+      "description": "Supplier record",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "contact": { "type": "string" },
+        "phone": { "type": "string" },
+        "email": { "type": "string" },
+        "address": { "type": "string" },
+        "rfc": { "type": "string" },
+        "outstandingBalance": { "type": "number" }
+      },
+      "required": ["id", "name", "contact", "phone", "email", "address", "rfc", "outstandingBalance"]
+    },
+    "StockMovement": {
+      "title": "StockMovement",
+      "description": "Kárdex stock movement log",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "productId": { "type": "string" },
+        "productName": { "type": "string" },
+        "type": { "type": "string" },
+        "quantity": { "type": "number" },
+        "previousStock": { "type": "number" },
+        "newStock": { "type": "number" },
+        "date": { "type": "string" },
+        "user": { "type": "string" },
+        "notes": { "type": "string" }
+      },
+      "required": ["id", "productId", "productName", "type", "quantity", "previousStock", "newStock", "date", "user"]
+    },
+    "Sale": {
+      "title": "Sale",
+      "description": "Sale record",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "ticketNumber": { "type": "string" },
+        "items": { "type": "array" },
+        "total": { "type": "number" },
+        "costTotal": { "type": "number" },
+        "profit": { "type": "number" },
+        "paymentMethod": { "type": "string" },
+        "customerId": { "type": "string" },
+        "customerName": { "type": "string" },
+        "userId": { "type": "string" },
+        "userName": { "type": "string" },
+        "date": { "type": "string" }
+      },
+      "required": ["id", "ticketNumber", "items", "total", "costTotal", "profit", "paymentMethod", "userId", "userName", "date"]
+    },
+    "CashExpense": {
+      "title": "CashExpense",
+      "description": "Petty cash expense",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "description": { "type": "string" },
+        "amount": { "type": "number" },
+        "category": { "type": "string" },
+        "date": { "type": "string" },
+        "user": { "type": "string" }
+      },
+      "required": ["id", "description", "amount", "category", "date", "user"]
+    },
+    "CashSession": {
+      "title": "CashSession",
+      "description": "Point-of-sale cash register session",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "startTime": { "type": "string" },
+        "endTime": { "type": "string" },
+        "openedBy": { "type": "string" },
+        "initialCash": { "type": "number" },
+        "finalCash": { "type": "number" },
+        "status": { "type": "string" },
+        "salesTotal": { "type": "number" },
+        "expensesTotal": { "type": "number" },
+        "expectedFinalCash": { "type": "number" }
+      },
+      "required": ["id", "startTime", "openedBy", "initialCash", "status", "salesTotal", "expensesTotal"]
+    },
+    "AuditLog": {
+      "title": "AuditLog",
+      "description": "User audit activity log",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "user": { "type": "string" },
+        "role": { "type": "string" },
+        "action": { "type": "string" },
+        "details": { "type": "string" },
+        "timestamp": { "type": "string" },
+        "ip": { "type": "string" },
+        "branch": { "type": "string" }
+      },
+      "required": ["id", "user", "role", "action", "details", "timestamp", "ip", "branch"]
+    },
+    "PurchaseOrder": {
+      "title": "PurchaseOrder",
+      "description": "Supplier purchase order",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "supplierId": { "type": "string" },
+        "supplierName": { "type": "string" },
+        "items": { "type": "array" },
+        "total": { "type": "number" },
+        "status": { "type": "string" },
+        "date": { "type": "string" },
+        "receivedDate": { "type": "string" },
+        "paymentStatus": { "type": "string" }
+      },
+      "required": ["id", "supplierId", "supplierName", "items", "total", "status", "date", "paymentStatus"]
+    },
+    "User": {
+      "title": "User",
+      "description": "App user credential/profile",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "username": { "type": "string" },
+        "name": { "type": "string" },
+        "password": { "type": "string" },
+        "role": { "type": "string" },
+        "status": { "type": "string" },
+        "lastLogin": { "type": "string" }
+      },
+      "required": ["id", "username", "name", "password", "role", "status"]
+    },
+    "CreditHistory": {
+      "title": "CreditHistory",
+      "description": "Credit history movement entry for a customer",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "customerId": { "type": "string" },
+        "customerName": { "type": "string" },
+        "date": { "type": "string" },
+        "time": { "type": "string" },
+        "user": { "type": "string" },
+        "amount": { "type": "number" },
+        "type": { "type": "string" },
+        "notes": { "type": "string" },
+        "previousBalance": { "type": "number" },
+        "newBalance": { "type": "number" }
+      },
+      "required": ["id", "customerId", "customerName", "date", "time", "user", "amount", "type", "previousBalance", "newBalance"]
+    },
+    "BankAccount": {
+      "title": "BankAccount",
+      "description": "Bank account record",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "bankName": { "type": "string" },
+        "accountNumber": { "type": "string" },
+        "type": { "type": "string" },
+        "balance": { "type": "number" },
+        "initialBalance": { "type": "number" },
+        "currency": { "type": "string" },
+        "status": { "type": "string" },
+        "branch": { "type": "string" }
+      },
+      "required": ["id", "bankName", "accountNumber", "type", "balance", "initialBalance", "currency", "status"]
+    },
+    "BankMovement": {
+      "title": "BankMovement",
+      "description": "Bank transaction/movement log",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "bankAccountId": { "type": "string" },
+        "type": { "type": "string" },
+        "amount": { "type": "number" },
+        "date": { "type": "string" },
+        "description": { "type": "string" },
+        "category": { "type": "string" },
+        "reference": { "type": "string" },
+        "sourceAccount": { "type": "string" },
+        "targetAccount": { "type": "string" },
+        "user": { "type": "string" }
+      },
+      "required": ["id", "bankAccountId", "type", "amount", "date", "description", "category", "reference", "user"]
+    },
+    "Budget": {
+      "title": "Budget",
+      "description": "Branch/department category budget definition",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "branch": { "type": "string" },
+        "department": { "type": "string" },
+        "category": { "type": "string" },
+        "amount": { "type": "number" },
+        "month": { "type": "number" },
+        "year": { "type": "number" },
+        "notes": { "type": "string" }
+      },
+      "required": ["id", "branch", "department", "category", "amount", "month", "year"]
+    },
+    "CostCenter": {
+      "title": "CostCenter",
+      "description": "Enterprise cost center",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "code": { "type": "string" },
+        "name": { "type": "string" },
+        "description": { "type": "string" },
+        "department": { "type": "string" },
+        "status": { "type": "string" }
+      },
+      "required": ["id", "code", "name", "description", "department", "status"]
+    },
+    "Vehicle": {
+      "title": "Vehicle",
+      "description": "Fleet vehicle record",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "plates": { "type": "string" },
+        "model": { "type": "string" },
+        "brand": { "type": "string" },
+        "driver": { "type": "string" },
+        "mileage": { "type": "number" },
+        "insuranceExpiry": { "type": "string" },
+        "verificationExpiry": { "type": "string" },
+        "teneciaPaid": { "type": "boolean" },
+        "maintenanceIntervalKm": { "type": "number" },
+        "lastMaintenanceMileage": { "type": "number" },
+        "monthlyCost": { "type": "number" },
+        "annualCost": { "type": "number" },
+        "costPerKm": { "type": "number" },
+        "status": { "type": "string" },
+        "history": { "type": "array" }
+      },
+      "required": ["id", "plates", "model", "brand", "driver", "mileage", "insuranceExpiry", "teneciaPaid", "maintenanceIntervalKm", "lastMaintenanceMileage", "status"]
+    },
+    "Branch": {
+      "title": "Branch",
+      "description": "Store or warehouse branch location",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "code": { "type": "string" },
+        "address": { "type": "string" },
+        "phone": { "type": "string" },
+        "manager": { "type": "string" },
+        "status": { "type": "string" }
+      },
+      "required": ["id", "name", "code", "status"]
+    },
+    "BranchInventoryItem": {
+      "title": "BranchInventoryItem",
+      "description": "Product stock balance per branch",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "productId": { "type": "string" },
+        "productName": { "type": "string" },
+        "code": { "type": "string" },
+        "sucursal": { "type": "string" },
+        "stock": { "type": "number" },
+        "stockMin": { "type": "number" },
+        "stockMax": { "type": "number" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["id", "productId", "productName", "code", "sucursal", "stock"]
+    },
+    "DistributionRecord": {
+      "title": "DistributionRecord",
+      "description": "Distribution movement from Central Warehouse to Branch",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "code": { "type": "string" },
+        "date": { "type": "string" },
+        "user": { "type": "string" },
+        "items": { "type": "array" },
+        "totalItems": { "type": "number" },
+        "totalUnits": { "type": "number" },
+        "status": { "type": "string" }
+      },
+      "required": ["id", "code", "date", "user", "items", "totalItems", "totalUnits", "status"]
+    },
+    "TransferRecord": {
+      "title": "TransferRecord",
+      "description": "Inter-branch stock transfer",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "code": { "type": "string" },
+        "date": { "type": "string" },
+        "user": { "type": "string" },
+        "sourceBranch": { "type": "string" },
+        "destinationBranch": { "type": "string" },
+        "items": { "type": "array" },
+        "status": { "type": "string" }
+      },
+      "required": ["id", "code", "date", "user", "sourceBranch", "destinationBranch", "items", "status"]
+    },
+    "ReplenishmentRequest": {
+      "title": "ReplenishmentRequest",
+      "description": "Branch inventory replenishment request to Central Warehouse",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "code": { "type": "string" },
+        "branch": { "type": "string" },
+        "requestDate": { "type": "string" },
+        "requestedBy": { "type": "string" },
+        "items": { "type": "array" },
+        "status": { "type": "string" }
+      },
+      "required": ["id", "code", "branch", "requestDate", "requestedBy", "items", "status"]
+    }
+  },
+  "firestore": {
+    "/products/{productId}": {
+      "schema": "Product",
+      "description": "Product collection"
+    },
+    "/almacen_general/{productId}": {
+      "schema": "Product",
+      "description": "Central warehouse master product inventory"
+    },
+    "/inventario_sucursal/{invId}": {
+      "schema": "BranchInventoryItem",
+      "description": "Branch specific product stock items"
+    },
+    "/movimientos_inventario/{movId}": {
+      "schema": "StockMovement",
+      "description": "Complete audit trail of all central and branch movements"
+    },
+    "/distribuciones/{distId}": {
+      "schema": "DistributionRecord",
+      "description": "Central warehouse distributions to branches"
+    },
+    "/transferencias/{trfId}": {
+      "schema": "TransferRecord",
+      "description": "Branch-to-branch stock transfers"
+    },
+    "/solicitudes_reabastecimiento/{reqId}": {
+      "schema": "ReplenishmentRequest",
+      "description": "Branch replenishment requests"
+    },
+    "/sucursales/{branchId}": {
+      "schema": "Branch",
+      "description": "Enterprise branches catalog"
+    },
+    "/customers/{customerId}": {
+      "schema": "Customer",
+      "description": "Customers collection"
+    },
+    "/suppliers/{supplierId}": {
+      "schema": "Supplier",
+      "description": "Suppliers collection"
+    },
+    "/movements/{movementId}": {
+      "schema": "StockMovement",
+      "description": "Stock movements collection"
+    },
+    "/sales/{saleId}": {
+      "schema": "Sale",
+      "description": "Sales records"
+    },
+    "/expenses/{expenseId}": {
+      "schema": "CashExpense",
+      "description": "Expenses collection"
+    },
+    "/cashSessions/{sessionId}": {
+      "schema": "CashSession",
+      "description": "Cash register sessions"
+    },
+    "/auditLogs/{logId}": {
+      "schema": "AuditLog",
+      "description": "Audit logging collection"
+    },
+    "/purchaseOrders/{orderId}": {
+      "schema": "PurchaseOrder",
+      "description": "Purchase orders"
+    },
+    "/users/{userId}": {
+      "schema": "User",
+      "description": "User profiles"
+    },
+    "/creditHistory/{entryId}": {
+      "schema": "CreditHistory",
+      "description": "Credit history movements"
+    },
+    "/bankAccounts/{accountId}": {
+      "schema": "BankAccount",
+      "description": "Bank accounts"
+    },
+    "/bankMovements/{movementId}": {
+      "schema": "BankMovement",
+      "description": "Bank movements"
+    },
+    "/budgets/{budgetId}": {
+      "schema": "Budget",
+      "description": "Budgets"
+    },
+    "/costCenters/{centerId}": {
+      "schema": "CostCenter",
+      "description": "Cost centers"
+    },
+    "/vehicles/{vehicleId}": {
+      "schema": "Vehicle",
+      "description": "Vehicles"
+    }
+  }
+}

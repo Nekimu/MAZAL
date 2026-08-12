@@ -1,0 +1,11 @@
+{
+  "projectId": "your-firebase-project-id",
+  "appId": "1:365494061805:web:3860cd064f9d09bd115ae4",
+  "apiKey": "your-firebase-api-key-here",
+  "authDomain": "your-firebase-project-id.firebaseapp.com",
+  "firestoreDatabaseId": "ai-studio-freshmarketerp-4e3378ea-b7b4-4a25-b639-f0ac7cb883df",
+  "storageBucket": "your-firebase-project-id.firebasestorage.app",
+  "messagingSenderId": "365494061805",
+  "measurementId": "",
+  "oAuthClientId": "your-oauth-client-id.apps.googleusercontent.com"
+}

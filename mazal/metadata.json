@@ -1,0 +1,6 @@
+{
+  "name": "Mazal tienda de abarrotes",
+  "description": "Sistema de gestión ERP intuitivo y visualmente atractivo para tiendas de abarrotes, que incluye POS rápido, control de inventario, créditos, compras, reportes financieros y un centro técnico interactivo de documentación de arquitectura.",
+  "requestFramePermissions": ["camera"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
