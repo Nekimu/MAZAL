@@ -757,36 +757,6 @@ export default function FinanceModule({ currentUser }: { currentUser: { name: st
         </div>
       </div>
 
-      {/* Primary Sub-navigation Tabs (MOVED TO TOP) */}
-      <div className="flex overflow-x-auto gap-1.5 p-1.5 bg-slate-100 dark:bg-slate-900 rounded-2xl border border-gray-200 dark:border-slate-800 shadow-2xs">
-        {[
-          { id: "ventas", label: "Historial Ventas", icon: TrendingUp },
-          { id: "gastos", label: "Registro de Gastos", icon: FileText },
-          { id: "caja", label: "Caja y Cortes", icon: Wallet },
-          { id: "cobrar", label: "Cuentas por Cobrar", icon: Users },
-          { id: "pagar", label: "Cuentas por Pagar", icon: Users },
-          { id: "utilidad", label: "Utilidad Contable", icon: DollarSign },
-          { id: "reportes", label: "Reportes Tradicionales", icon: Printer }
-        ].map(tab => {
-          const Icon = tab.icon;
-          const isAct = activeSubTab === tab.id;
-          return (
-            <button
-              key={tab.id}
-              onClick={() => setActiveSubTab(tab.id as any)}
-              className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-extrabold whitespace-nowrap transition-all cursor-pointer ${
-                isAct 
-                  ? "bg-white dark:bg-slate-800 text-emerald-600 dark:text-emerald-400 shadow-sm border border-gray-200/80 dark:border-slate-700" 
-                  : "text-gray-500 dark:text-slate-400 hover:text-gray-800 dark:hover:text-slate-200 hover:bg-white/60 dark:hover:bg-slate-800/40"
-              }`}
-            >
-              <Icon className="h-4 w-4" />
-              {tab.label}
-            </button>
-          );
-        })}
-      </div>
-
       {/* Main KPI Widgets Cards Panel */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <div className={cardClass}>
@@ -1044,6 +1014,36 @@ export default function FinanceModule({ currentUser }: { currentUser: { name: st
             </div>
           </div>
         )}
+      </div>
+
+      {/* Primary Sub-navigation Tabs (MOVED TO TOP) */}
+      <div className="flex overflow-x-auto gap-1.5 p-1.5 bg-slate-100 dark:bg-slate-900 rounded-2xl border border-gray-200 dark:border-slate-800 shadow-2xs">
+        {[
+          { id: "ventas", label: "Historial Ventas", icon: TrendingUp },
+          { id: "gastos", label: "Registro de Gastos", icon: FileText },
+          { id: "caja", label: "Caja y Cortes", icon: Wallet },
+          { id: "cobrar", label: "Cuentas por Cobrar", icon: Users },
+          { id: "pagar", label: "Cuentas por Pagar", icon: Users },
+          { id: "utilidad", label: "Utilidad Contable", icon: DollarSign },
+          { id: "reportes", label: "Reportes Tradicionales", icon: Printer }
+        ].map(tab => {
+          const Icon = tab.icon;
+          const isAct = activeSubTab === tab.id;
+          return (
+            <button
+              key={tab.id}
+              onClick={() => setActiveSubTab(tab.id as any)}
+              className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-extrabold whitespace-nowrap transition-all cursor-pointer ${
+                isAct 
+                  ? "bg-white dark:bg-slate-800 text-emerald-600 dark:text-emerald-400 shadow-sm border border-gray-200/80 dark:border-slate-700" 
+                  : "text-gray-500 dark:text-slate-400 hover:text-gray-800 dark:hover:text-slate-200 hover:bg-white/60 dark:hover:bg-slate-800/40"
+              }`}
+            >
+              <Icon className="h-4 w-4" />
+              {tab.label}
+            </button>
+          );
+        })}
       </div>
 
       {/* --- PANEL RENDERERS --- */}

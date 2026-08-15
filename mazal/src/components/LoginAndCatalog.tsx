@@ -260,7 +260,7 @@ export default function LoginAndCatalog({
           </div>
           
           {/* Responsive adaptive action buttons */}
-          <div className="flex flex-wrap items-center gap-1.5 sm:gap-2 justify-end">
+          <div className="flex flex-wrap items-center gap-1.5 sm:gap-2 justify-start">
             
             {/* Theme switcher */}
             {onToggleTheme && (
@@ -355,33 +355,35 @@ export default function LoginAndCatalog({
           </div>
         </div>
 
-        {/* 1. Main Search Bar - STICKY ONLY TO SEARCH BAR */}
-        <div className="sticky top-[60px] sm:top-[68px] z-30 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md p-3.5 sm:p-4 rounded-2xl border border-gray-200/90 dark:border-slate-800/90 shadow-md transition-all duration-200">
-          <div className="flex flex-col sm:flex-row gap-3">
-            <div className="relative flex-1">
-              <Search className="absolute left-3.5 top-3 h-4 w-4 text-gray-400" />
-              <input
-                type="text"
-                placeholder="¿Qué producto buscas hoy? Escribe nombre, marca o código de barras..."
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                className="w-full text-xs md:text-sm pl-10 pr-10 py-2.5 bg-slate-50 dark:bg-slate-950 border border-gray-200 dark:border-slate-800 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500 text-slate-800 dark:text-white"
-                id="catalog-search-input"
-              />
-              {searchTerm && (
-                <button
-                  onClick={() => setSearchTerm("")}
-                  className="absolute right-3 top-3 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 cursor-pointer"
-                >
-                  <X className="h-4 w-4" />
-                </button>
-              )}
-            </div>
+        {/* 1. Main Search Bar - STICKY ONLY TO SEARCH BAR WITH SAFE VERTICAL PADDING */}
+        <div className="sticky top-[56px] sm:top-[62px] z-30 py-2 -my-2 bg-[#f4f6f0]/95 dark:bg-slate-950/95 backdrop-blur-md transition-all duration-200">
+          <div className="bg-white dark:bg-slate-900 p-3.5 sm:p-4 rounded-2xl border border-gray-200 dark:border-slate-800 shadow-md">
+            <div className="flex flex-col sm:flex-row gap-3">
+              <div className="relative flex-1">
+                <Search className="absolute left-3.5 top-3 h-4 w-4 text-gray-400" />
+                <input
+                  type="text"
+                  placeholder="¿Qué producto buscas hoy? Escribe nombre, marca o código de barras..."
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  className="w-full text-xs md:text-sm pl-10 pr-10 py-2.5 bg-slate-50 dark:bg-slate-950 border border-gray-200 dark:border-slate-800 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500 text-slate-800 dark:text-white"
+                  id="catalog-search-input"
+                />
+                {searchTerm && (
+                  <button
+                    onClick={() => setSearchTerm("")}
+                    className="absolute right-3 top-3 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 cursor-pointer"
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                )}
+              </div>
 
-            {/* Quick Result Counter */}
-            <div className="px-4 py-2.5 bg-emerald-50 dark:bg-emerald-950/40 text-emerald-800 dark:text-emerald-300 border border-emerald-100 dark:border-emerald-900/30 rounded-xl text-xs font-bold text-center shrink-0 flex items-center justify-center gap-2">
-              <Grid className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
-              <span>{totalItems} artículos encontrados</span>
+              {/* Quick Result Counter */}
+              <div className="px-4 py-2.5 bg-emerald-50 dark:bg-emerald-950/40 text-emerald-800 dark:text-emerald-300 border border-emerald-100 dark:border-emerald-900/30 rounded-xl text-xs font-bold text-center shrink-0 flex items-center justify-center gap-2">
+                <Grid className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
+                <span>{totalItems} artículos encontrados</span>
+              </div>
             </div>
           </div>
         </div>

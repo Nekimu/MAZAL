@@ -1170,7 +1170,7 @@ export default function SecurityModule({ currentUser, onChangeRole }: SecurityMo
                 )}
               </div>
 
-              <form onSubmit={handleUserSubmit} className="space-y-3 flex-1 flex flex-col justify-between">
+              <form onSubmit={handleSaveUser} className="space-y-3 flex-1 flex flex-col justify-between">
                 <div className="space-y-3">
                   <div className="space-y-1">
                     <label className="text-xs font-bold text-gray-600 dark:text-slate-400 block">
