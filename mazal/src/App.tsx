@@ -467,33 +467,23 @@ export default function App() {
               {/* 1. Botón 'En Línea' (Abre ventana emergente) */}
               <OfflineStatusIndicator />
 
-              {/* 2. Botón 'Instalar App' */}
-              <button
-                onClick={() => setShowPwaModal(true)}
-                className="h-8.5 px-2.5 py-1 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 text-xs font-bold transition-all flex items-center gap-1.5 shadow-2xs cursor-pointer"
-                title="Configuración e Instrucciones de App Offline en Netlify"
-              >
-                <Download className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" />
-                <span className="hidden md:inline">Instalar App</span>
-              </button>
-
               {!onlyPOSMode ? (
                 <>
-                  {/* 3. Sesión de Caja Activa / Cerrada */}
+                  {/* 2. Abrir / Cerrar Turno de Caja */}
                   <button 
                     onClick={handleToggleCashSession}
-                    className={`h-8.5 px-2.5 py-1 rounded-xl border text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer shadow-2xs ${
+                    className={`h-8.5 px-2.5 sm:px-3 py-1 rounded-xl border text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer shadow-2xs ${
                       cashSessionActive 
                         ? "bg-emerald-50 dark:bg-emerald-950/30 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-900/50 hover:bg-emerald-100/80" 
                         : "bg-amber-50 dark:bg-amber-950/30 text-amber-700 dark:text-amber-300 border-amber-200 dark:border-amber-900/50 hover:bg-amber-100/80"
                     }`}
-                    title="Haz clic para abrir o cerrar sesión de caja"
+                    title="Haz clic para abrir o cerrar sesión de caja y corte de turno"
                   >
                     <Clock className={`h-3.5 w-3.5 ${cashSessionActive ? "text-emerald-500 animate-pulse" : "text-amber-500"}`} />
-                    <span className="hidden sm:inline">{cashSessionActive ? "Sesión Activa" : "Caja Cerrada"}</span>
+                    <span className="hidden sm:inline">{cashSessionActive ? "Caja Abierta (Cerrar Turno)" : "Caja Cerrada (Abrir Turno)"}</span>
                   </button>
 
-                  {/* 4. Usuario con Rol */}
+                  {/* 3. Usuario con Rol */}
                   <div className="h-8.5 flex items-center gap-1.5 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl px-2.5 py-1 text-xs font-semibold text-slate-700 dark:text-slate-300 shadow-2xs">
                     <User className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" />
                     <span className="font-bold max-w-[90px] truncate">{currentUser.name}</span>
@@ -784,13 +774,15 @@ export default function App() {
               </div>
 
               {/* SECTION HEADER FOR MOSAIC */}
-              <div className="pt-4 border-t border-[#e2e6dd] dark:border-slate-800">
-                <h2 className="text-lg font-extrabold text-slate-900 dark:text-white flex items-center gap-2">
-                  <span className="inline-block h-2.5 w-2.5 rounded-full bg-emerald-600" />
-                  Panel Principal de Operaciones (Mosaico de Módulos)
-                </h2>
-                <p className="text-xs text-gray-500 dark:text-slate-400 mt-1">
-                  Selecciona la ficha correspondiente para entrar a operar o administrar el sistema de abarrotes Mazal.
+              <div className="pt-6 border-t border-[#e2e6dd] dark:border-slate-800 space-y-1.5">
+                <div className="flex items-center gap-3">
+                  <span className="inline-block h-3.5 w-3.5 rounded-full bg-emerald-600 shadow-sm ring-4 ring-emerald-500/20" />
+                  <h2 className="text-xl sm:text-2xl lg:text-3xl font-black tracking-tight text-slate-900 dark:text-white">
+                    Panel Principal de Operaciones
+                  </h2>
+                </div>
+                <p className="text-xs sm:text-sm text-gray-500 dark:text-slate-400 font-medium pl-6.5">
+                  Selecciona el módulo correspondiente para operar o administrar el sistema de abarrotes Mazal.
                 </p>
               </div>
 
@@ -901,6 +893,11 @@ export default function App() {
 
         </div>
 
+        {/* Global Application Footer */}
+        <footer className="mt-8 pt-4 pb-6 text-center text-xs text-slate-400 dark:text-slate-500 border-t border-[#e2e6dd] dark:border-slate-800">
+          <p>Mazal Distribuidora de productos desechables, plásticos y comestibles - 2026</p>
+        </footer>
+
       </main>
 
       {/* --- PWA NETLIFY OFFLINE MODAL --- */}
@@ -920,7 +917,7 @@ export default function App() {
               </div>
               <div>
                 <h3 className="text-base font-black text-slate-900 dark:text-white uppercase tracking-tight">
-                  Funcionamiento Offline en Netlify (PWA)
+                  Funcionamiento Offline (PWA)
                 </h3>
                 <p className="text-xs text-slate-500 dark:text-slate-400">
                   Sistema Dual: Trabaja con o sin Internet en tu tienda
@@ -935,7 +932,7 @@ export default function App() {
                   1. Service Worker & Caché Local
                 </span>
                 <p className="text-slate-600 dark:text-slate-400 text-[11.5px]">
-                  El archivo <code className="bg-slate-200 dark:bg-slate-900 px-1 py-0.5 rounded font-mono">sw.js</code> y <code className="bg-slate-200 dark:bg-slate-900 px-1 py-0.5 rounded font-mono">manifest.json</code> incluidos guardan todos los archivos web en la memoria de tu navegador cuando estás en línea. Por eso, al perder conexión, Netlify se abre instantáneamente de forma local.
+                  El sistema guarda los archivos necesarios en la memoria del navegador para abrir de forma instantánea aún sin conexión a internet.
                 </p>
               </div>
 
@@ -945,7 +942,7 @@ export default function App() {
                   2. Instala la App en PC o Celular (PWA)
                 </span>
                 <p className="text-slate-600 dark:text-slate-400 text-[11.5px]">
-                  Abre tu enlace de Netlify en Chrome, Edge o Safari. En la barra de dirección haz clic en <strong>"Instalar aplicación"</strong> o <strong>"Agregar a pantalla de inicio"</strong>. Tendrás un icono de la tienda que abre el POS 100% sin internet.
+                  En la barra de direcciones de tu navegador haz clic en <strong>"Instalar aplicación"</strong> o <strong>"Agregar a pantalla de inicio"</strong> para tener el acceso directo en tu escritorio o celular.
                 </p>
               </div>
 
@@ -955,7 +952,7 @@ export default function App() {
                   3. Inventario y Sincronización Automática
                 </span>
                 <p className="text-slate-600 dark:text-slate-400 text-[11.5px]">
-                  Cada cobro descuenta el inventario de inmediato en la base de datos local. Al regresar la conexión a Internet, el botón arriba cambiará a <strong>"Sincronizando..."</strong> y actualizará la nube en Firebase sin duplicar datos.
+                  Cada cobro descuenta el inventario de inmediato. Al recuperar la conexión a Internet, el sistema sincroniza automáticamente los cambios con la nube.
                 </p>
               </div>
             </div>

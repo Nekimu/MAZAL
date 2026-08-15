@@ -585,21 +585,21 @@ export default function SecurityModule({ currentUser, onChangeRole }: SecurityMo
 
   const handleSavePermissions = async () => {
     if (!isAdmin) return;
-    if (window.confirm("¿Estás seguro de guardar los cambios realizados en la Matriz de Permisos por Rol en la Base de Datos MySQL (mazal_bd)?")) {
+    if (window.confirm("¿Estás seguro de guardar los cambios realizados en la Matriz de Permisos por Rol?")) {
       setIsSavingDb(true);
       try {
         const res = await saveRolePermissionsToDB(rolePermissions);
         logAction(
           currentUser.name,
           currentUser.role as UserRole,
-          "MATRIZ_PERMISOS_GUARDADA_BD",
-          "Se actualizaron y guardaron los permisos por rol de forma persistente en MySQL (mazal_bd.roles_permisos)."
+          "MATRIZ_PERMISOS_GUARDADA",
+          "Se actualizaron y guardaron los permisos por rol en el sistema."
         );
         setHasUnsavedPerms(false);
-        setPermsSaveSuccess(res.message || "¡Matriz de Permisos guardada con éxito en la Base de Datos MySQL (mazal_bd)!");
+        setPermsSaveSuccess(res.message || "¡Matriz de Permisos guardada con éxito!");
         setTimeout(() => setPermsSaveSuccess(""), 5000);
       } catch (err) {
-        alert("Error al guardar la matriz de permisos en la base de datos: " + String(err));
+        alert("Error al guardar la matriz de permisos: " + String(err));
       } finally {
         setIsSavingDb(false);
       }
@@ -1052,20 +1052,24 @@ export default function SecurityModule({ currentUser, onChangeRole }: SecurityMo
     <div className="space-y-6" id="security-module-container">
       
       {/* Title Header Banner */}
-      <div className="bg-gradient-to-r from-slate-900 to-blue-950 p-6 rounded-2xl border border-slate-800 text-white shadow-md">
+      <div className="p-5 rounded-2xl bg-white dark:bg-slate-900 border border-gray-150 dark:border-slate-800 shadow-sm text-slate-800 dark:text-slate-100">
         <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
-          <div className="space-y-1">
-            <h2 className="text-xl font-extrabold flex items-center gap-2 tracking-tight">
-              <ShieldCheck className="h-6 w-6 text-emerald-400" /> 
-              Consola de Cuentas, Auditoría y Seguridad Integral
-            </h2>
-            <p className="text-xs text-slate-300">
-              Administración central de colaboradores, contraseñas de accesos y auditoría de eventos de almacén y ventas en tiempo real.
-            </p>
+          <div className="flex items-center gap-4">
+            <div className="h-12 w-12 rounded-xl bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 flex items-center justify-center">
+              <ShieldCheck className="h-6 w-6" />
+            </div>
+            <div>
+              <h2 className="text-xl font-extrabold tracking-tight font-sans text-slate-900 dark:text-white">
+                Consola de Cuentas, Auditoría y Seguridad Integral
+              </h2>
+              <p className="text-xs text-slate-500 dark:text-slate-400 font-mono">
+                Administración central de colaboradores, contraseñas de accesos y auditoría de eventos en tiempo real.
+              </p>
+            </div>
           </div>
-          <div className="flex items-center gap-2 bg-slate-800/80 px-3.5 py-1.5 rounded-xl border border-slate-700 text-xs font-mono">
+          <div className="flex items-center gap-2 bg-slate-100 dark:bg-slate-800 px-3.5 py-1.5 rounded-xl border border-gray-200 dark:border-slate-700 text-xs font-mono text-slate-700 dark:text-slate-200">
             <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse inline-block" />
-            <span>Operador Activo: <strong>{currentUser.name}</strong></span>
+            <span>Operador Activo: <strong className="text-slate-900 dark:text-white">{currentUser.name}</strong></span>
           </div>
         </div>
       </div>
@@ -1074,7 +1078,7 @@ export default function SecurityModule({ currentUser, onChangeRole }: SecurityMo
       <div className="flex border-b border-gray-200 dark:border-slate-800 gap-1 overflow-x-auto pb-px">
         <button
           onClick={() => setActiveTab("users")}
-          className={`px-4 py-2.5 text-xs font-bold border-b-2 transition-all flex items-center gap-2 whitespace-nowrap ${
+          className={`px-4 py-2.5 text-xs font-bold border-b-2 transition-all flex items-center gap-2 whitespace-nowrap cursor-pointer ${
             activeTab === "users"
               ? "border-emerald-600 text-emerald-600 dark:text-emerald-400"
               : "border-transparent text-gray-500 dark:text-slate-400 hover:text-gray-700 dark:hover:text-slate-200"
@@ -1087,7 +1091,7 @@ export default function SecurityModule({ currentUser, onChangeRole }: SecurityMo
 
         <button
           onClick={() => setActiveTab("audit")}
-          className={`px-4 py-2.5 text-xs font-bold border-b-2 transition-all flex items-center gap-2 whitespace-nowrap ${
+          className={`px-4 py-2.5 text-xs font-bold border-b-2 transition-all flex items-center gap-2 whitespace-nowrap cursor-pointer ${
             activeTab === "audit"
               ? "border-emerald-600 text-emerald-600 dark:text-emerald-400"
               : "border-transparent text-gray-500 dark:text-slate-400 hover:text-gray-700 dark:hover:text-slate-200"
@@ -1100,7 +1104,7 @@ export default function SecurityModule({ currentUser, onChangeRole }: SecurityMo
 
         <button
           onClick={() => setActiveTab("login")}
-          className={`px-4 py-2.5 text-xs font-bold border-b-2 transition-all flex items-center gap-2 whitespace-nowrap ${
+          className={`px-4 py-2.5 text-xs font-bold border-b-2 transition-all flex items-center gap-2 whitespace-nowrap cursor-pointer ${
             activeTab === "login"
               ? "border-emerald-600 text-emerald-600 dark:text-emerald-400"
               : "border-transparent text-gray-500 dark:text-slate-400 hover:text-gray-700 dark:hover:text-slate-200"
@@ -1113,7 +1117,7 @@ export default function SecurityModule({ currentUser, onChangeRole }: SecurityMo
 
         <button
           onClick={() => setActiveTab("branches")}
-          className={`px-4 py-2.5 text-xs font-bold border-b-2 transition-all flex items-center gap-2 whitespace-nowrap ${
+          className={`px-4 py-2.5 text-xs font-bold border-b-2 transition-all flex items-center gap-2 whitespace-nowrap cursor-pointer ${
             activeTab === "branches"
               ? "border-emerald-600 text-emerald-600 dark:text-emerald-400"
               : "border-transparent text-gray-500 dark:text-slate-400 hover:text-gray-700 dark:hover:text-slate-200"
@@ -1126,7 +1130,7 @@ export default function SecurityModule({ currentUser, onChangeRole }: SecurityMo
 
         <button
           onClick={() => setActiveTab("database")}
-          className={`px-4 py-2.5 text-xs font-bold border-b-2 transition-all flex items-center gap-2 whitespace-nowrap ${
+          className={`px-4 py-2.5 text-xs font-bold border-b-2 transition-all flex items-center gap-2 whitespace-nowrap cursor-pointer ${
             activeTab === "database"
               ? "border-emerald-600 text-emerald-600 dark:text-emerald-400"
               : "border-transparent text-gray-500 dark:text-slate-400 hover:text-gray-700 dark:hover:text-slate-200"
@@ -1134,129 +1138,135 @@ export default function SecurityModule({ currentUser, onChangeRole }: SecurityMo
           id="security-tab-database"
         >
           <Database className="h-4 w-4 text-emerald-500" />
-          Base de Datos, Respaldos & Sincronización Nube
+          Respaldos & Sincronización Nube
         </button>
       </div>
 
       {/* TAB CONTENT 1: GESTIÓN DE USUARIOS */}
       {activeTab === "users" && (
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 animate-fadeIn">
+        <div className="space-y-6 animate-fadeIn">
           
-          {/* Form to Add/Edit User */}
-          <div className="space-y-4">
-            <div className="p-5 bg-white dark:bg-slate-900 border border-gray-150 dark:border-slate-800 rounded-2xl shadow-xs">
-              <h3 className="font-extrabold text-gray-800 dark:text-slate-100 text-sm flex items-center gap-2 border-b pb-3.5 mb-4">
-                <UserPlus className="h-4.5 w-4.5 text-emerald-600 dark:text-emerald-400" />
-                {isEditing ? "Editar Colaborador" : "Agregar Nuevo Colaborador"}
-              </h3>
+          {/* TOP ROW: Side-by-Side User Form and User List with Equal Heights */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-stretch">
+            
+            {/* Card 1: Form to Add/Edit User */}
+            <div className="p-5 bg-white dark:bg-slate-900 border border-gray-150 dark:border-slate-800 rounded-2xl shadow-xs h-[520px] flex flex-col justify-between">
+              <div>
+                <h3 className="font-extrabold text-gray-800 dark:text-slate-100 text-sm flex items-center gap-2 border-b border-gray-100 dark:border-slate-800 pb-3 mb-3">
+                  <UserPlus className="h-4.5 w-4.5 text-emerald-600 dark:text-emerald-400" />
+                  {isEditing ? "Editar Colaborador" : "Agregar Nuevo Colaborador"}
+                </h3>
 
-              {userSuccessMessage && (
-                <div className="mb-4 p-3 bg-emerald-50 dark:bg-emerald-950/20 text-emerald-700 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-900/40 rounded-xl text-xs font-medium">
-                  {userSuccessMessage}
-                </div>
-              )}
+                {userSuccessMessage && (
+                  <div className="mb-3 p-2.5 bg-emerald-50 dark:bg-emerald-950/20 text-emerald-700 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-900/40 rounded-xl text-xs font-medium">
+                    {userSuccessMessage}
+                  </div>
+                )}
 
-              {userErrorMessage && (
-                <div className="mb-4 p-3 bg-red-50 dark:bg-red-950/20 text-red-700 dark:text-red-400 border border-red-200 dark:border-red-900/40 rounded-xl text-xs font-medium">
-                  {userErrorMessage}
-                </div>
-              )}
+                {userErrorMessage && (
+                  <div className="mb-3 p-2.5 bg-red-50 dark:bg-red-950/20 text-red-700 dark:text-red-400 border border-red-200 dark:border-red-900/40 rounded-xl text-xs font-medium">
+                    {userErrorMessage}
+                  </div>
+                )}
+              </div>
 
-              <form onSubmit={handleSaveUser} className="space-y-4">
-                <div className="space-y-1">
-                  <label className="text-xs font-bold text-gray-600 dark:text-slate-400 block">
-                    Nombre Completo
-                  </label>
-                  <input
-                    type="text"
-                    name="name"
-                    value={formData.name}
-                    onChange={handleUserInputChange}
-                    placeholder="Ej. Pedro Pérez"
-                    className="w-full text-xs p-2.5 border border-gray-200 dark:border-slate-850 rounded-xl focus:outline-none focus:ring-1 focus:ring-emerald-500 bg-transparent"
-                    required
-                  />
-                </div>
-
-                <div className="grid grid-cols-2 gap-3">
+              <form onSubmit={handleUserSubmit} className="space-y-3 flex-1 flex flex-col justify-between">
+                <div className="space-y-3">
                   <div className="space-y-1">
                     <label className="text-xs font-bold text-gray-600 dark:text-slate-400 block">
-                      Nombre de Usuario
+                      Nombre Completo
                     </label>
                     <input
                       type="text"
-                      name="username"
-                      value={formData.username}
+                      name="name"
+                      placeholder="Ej. Juan Pérez"
+                      value={formData.name}
                       onChange={handleUserInputChange}
-                      placeholder="Ej. pperez"
-                      className="w-full text-xs p-2.5 border border-gray-200 dark:border-slate-850 rounded-xl focus:outline-none focus:ring-1 focus:ring-emerald-500 bg-transparent"
+                      className="w-full text-xs p-2.5 border border-gray-200 dark:border-slate-800 rounded-xl focus:outline-none focus:ring-1 focus:ring-emerald-500 bg-transparent"
                       required
                     />
                   </div>
 
-                  <div className="space-y-1">
-                    <label className="text-xs font-bold text-gray-600 dark:text-slate-400 block">
-                      Contraseña
-                    </label>
-                    <div className="relative">
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="space-y-1">
+                      <label className="text-xs font-bold text-gray-600 dark:text-slate-400 block">
+                        Usuario (Login)
+                      </label>
                       <input
-                        type={showFormPassword ? "text" : "password"}
-                        name="password"
-                        value={formData.password}
+                        type="text"
+                        name="username"
+                        placeholder="ej. jperez"
+                        value={formData.username}
                         onChange={handleUserInputChange}
-                        placeholder="Introduce contraseña..."
-                        className="w-full text-xs p-2.5 pr-9 border border-gray-200 dark:border-slate-850 rounded-xl focus:outline-none focus:ring-1 focus:ring-emerald-500 bg-transparent font-mono"
+                        className="w-full text-xs p-2.5 border border-gray-200 dark:border-slate-800 rounded-xl focus:outline-none focus:ring-1 focus:ring-emerald-500 bg-transparent font-mono"
                         required
                       />
-                      <button
-                        type="button"
-                        onClick={() => setShowFormPassword(!showFormPassword)}
-                        className="absolute right-2.5 top-2.5 text-gray-400 hover:text-gray-600 dark:hover:text-slate-200"
-                        title={showFormPassword ? "Ocultar Contraseña" : "Ver Contraseña"}
+                    </div>
+
+                    <div className="space-y-1">
+                      <label className="text-xs font-bold text-gray-600 dark:text-slate-400 block">
+                        Contraseña
+                      </label>
+                      <div className="relative">
+                        <input
+                          type={showFormPassword ? "text" : "password"}
+                          name="password"
+                          placeholder="Mínimo 4 caracteres"
+                          value={formData.password}
+                          onChange={handleUserInputChange}
+                          className="w-full text-xs p-2.5 pr-9 border border-gray-200 dark:border-slate-800 rounded-xl focus:outline-none focus:ring-1 focus:ring-emerald-500 bg-transparent font-mono"
+                          required
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setShowFormPassword(!showFormPassword)}
+                          className="absolute right-2.5 top-2.5 text-gray-400 hover:text-gray-600 dark:hover:text-slate-200"
+                          title={showFormPassword ? "Ocultar Contraseña" : "Ver Contraseña"}
+                        >
+                          {showFormPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="space-y-1">
+                      <label className="text-xs font-bold text-gray-600 dark:text-slate-400 block">
+                        Rol de Permisos
+                      </label>
+                      <select
+                        name="role"
+                        value={formData.role}
+                        onChange={handleUserInputChange}
+                        className="w-full text-xs p-2.5 border border-gray-200 dark:border-slate-800 rounded-xl focus:outline-none focus:ring-1 focus:ring-emerald-500 bg-white dark:bg-slate-900"
                       >
-                        {showFormPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                      </button>
+                        {Object.values(UserRole).map(role => (
+                          <option key={role} value={role}>{role}</option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div className="space-y-1">
+                      <label className="text-xs font-bold text-gray-600 dark:text-slate-400 block">
+                        Estado Inicial
+                      </label>
+                      <select
+                        name="status"
+                        value={formData.status}
+                        onChange={handleUserInputChange}
+                        className="w-full text-xs p-2.5 border border-gray-200 dark:border-slate-800 rounded-xl focus:outline-none focus:ring-1 focus:ring-emerald-500 bg-white dark:bg-slate-900"
+                      >
+                        <option value="Activo">Activo (Habilitado)</option>
+                        <option value="Inactivo">Inactivo (Suspendido)</option>
+                      </select>
                     </div>
                   </div>
                 </div>
 
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="space-y-1">
-                    <label className="text-xs font-bold text-gray-600 dark:text-slate-400 block">
-                      Rol de Permisos
-                    </label>
-                    <select
-                      name="role"
-                      value={formData.role}
-                      onChange={handleUserInputChange}
-                      className="w-full text-xs p-2.5 border border-gray-200 dark:border-slate-850 rounded-xl focus:outline-none focus:ring-1 focus:ring-emerald-500 bg-white dark:bg-slate-900"
-                    >
-                      {Object.values(UserRole).map(role => (
-                        <option key={role} value={role}>{role}</option>
-                      ))}
-                    </select>
-                  </div>
-
-                  <div className="space-y-1">
-                    <label className="text-xs font-bold text-gray-600 dark:text-slate-400 block">
-                      Estado Inicial
-                    </label>
-                    <select
-                      name="status"
-                      value={formData.status}
-                      onChange={handleUserInputChange}
-                      className="w-full text-xs p-2.5 border border-gray-200 dark:border-slate-850 rounded-xl focus:outline-none focus:ring-1 focus:ring-emerald-500 bg-white dark:bg-slate-900"
-                    >
-                      <option value="Activo">Activo (Habilitado)</option>
-                      <option value="Inactivo">Inactivo (Suspendido)</option>
-                    </select>
-                  </div>
-                </div>
-
-                <div className="flex gap-2 pt-2">
+                <div className="flex gap-2 pt-3 border-t border-gray-100 dark:border-slate-800">
                   <button
                     type="submit"
-                    className="flex-1 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition-all"
+                    className="flex-1 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition-all cursor-pointer shadow-xs"
                   >
                     {isEditing ? "Guardar Cambios" : "Agregar Colaborador"}
                   </button>
@@ -1274,7 +1284,7 @@ export default function SecurityModule({ currentUser, onChangeRole }: SecurityMo
                         });
                         setIsEditing(false);
                       }}
-                      className="px-4 py-2.5 bg-gray-100 dark:bg-slate-800 hover:bg-gray-200 dark:hover:bg-slate-700 text-gray-600 dark:text-slate-300 rounded-xl text-xs font-bold"
+                      className="px-4 py-2.5 bg-gray-100 dark:bg-slate-800 hover:bg-gray-200 dark:hover:bg-slate-700 text-gray-600 dark:text-slate-300 rounded-xl text-xs font-bold cursor-pointer"
                     >
                       Cancelar
                     </button>
@@ -1283,271 +1293,274 @@ export default function SecurityModule({ currentUser, onChangeRole }: SecurityMo
               </form>
             </div>
 
-            {/* Matrix preview & editing */}
-            <div className="p-4 bg-gray-50 dark:bg-slate-900/60 border border-gray-150 dark:border-slate-800 rounded-2xl text-xs space-y-3">
-              <div className="flex flex-wrap items-center justify-between gap-1.5">
-                <h4 className="font-bold text-gray-700 dark:text-slate-300 flex items-center gap-1.5">
-                  <Lock className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" />
-                  Matriz de Permisos por Rol
-                </h4>
-                <div className="flex items-center gap-1.5">
-                  <span className="text-[9px] bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-900/50 px-2 py-0.5 rounded-full font-mono font-bold">
-                    🗄️ MySQL: mazal_bd
-                  </span>
-                  {isAdmin ? (
-                    <span className="text-[9px] bg-emerald-100 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300 px-2 py-0.5 rounded-full font-bold uppercase">
-                      Modo Edición (Admin)
-                    </span>
-                  ) : (
-                    <span className="text-[9px] bg-amber-100 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300 px-2 py-0.5 rounded-full font-bold uppercase">
-                      Solo Lectura
-                    </span>
-                  )}
+            {/* Card 2: List of Users with Internal Scroll */}
+            <div className="p-5 bg-white dark:bg-slate-900 border border-gray-150 dark:border-slate-800 rounded-2xl shadow-xs h-[520px] flex flex-col">
+              <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-3 border-b border-gray-100 dark:border-slate-800 pb-3 mb-3 shrink-0">
+                <div>
+                  <h3 className="font-extrabold text-gray-800 dark:text-slate-100 text-sm flex items-center gap-2">
+                    <UserIcon className="h-4.5 w-4.5 text-emerald-600 dark:text-emerald-400" />
+                    Cuentas de Colaboradores Registradas
+                  </h3>
+                  <p className="text-[10px] text-gray-400">Total de personal para control de turnos y seguridad.</p>
+                </div>
+
+                {/* Search user */}
+                <div className="relative w-full sm:w-52">
+                  <Search className="absolute left-2.5 top-2 h-3.5 w-3.5 text-gray-400" />
+                  <input
+                    type="text"
+                    placeholder="Buscar colaborador..."
+                    value={userSearch}
+                    onChange={(e) => setUserSearch(e.target.value)}
+                    className="w-full text-xs pl-8 pr-3 py-1.5 border border-gray-200 dark:border-slate-800 rounded-lg focus:outline-none focus:ring-1 focus:ring-emerald-500 bg-transparent"
+                  />
                 </div>
               </div>
 
-              {!isAdmin && (
-                <p className="text-[10px] text-amber-600 dark:text-amber-400 italic bg-amber-50 dark:bg-amber-950/20 p-2 rounded-lg border border-amber-200/40">
-                  🔒 Únicamente el usuario con rol de Administrador puede modificar los roles y permisos del sistema guardados en la BD.
-                </p>
-              )}
+              {/* Table layout of users with Internal Scrolling */}
+              <div className="flex-1 overflow-y-auto overflow-x-auto pr-1">
+                <table className="w-full text-left text-xs">
+                  <thead className="sticky top-0 bg-white dark:bg-slate-900 z-10">
+                    <tr className="border-b border-gray-150 dark:border-slate-800 text-gray-400 uppercase text-[9px] font-mono tracking-wider">
+                      <th className="py-2.5 font-bold">Colaborador</th>
+                      <th className="py-2.5 font-bold">Usuario</th>
+                      <th className="py-2.5 font-bold">Contraseña</th>
+                      <th className="py-2.5 font-bold">Rol</th>
+                      <th className="py-2.5 font-bold">Estado</th>
+                      <th className="py-2.5 font-bold text-right">Acciones</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100 dark:divide-slate-850">
+                    {(db.users || []).filter((u: User) => {
+                      const s = (userSearch || "").toLowerCase();
+                      if (!s) return true;
+                      return (
+                        (u.name || "").toLowerCase().includes(s) ||
+                        (u.username || "").toLowerCase().includes(s) ||
+                        (u.role || "").toLowerCase().includes(s)
+                      );
+                    }).map((user: User) => {
+                      const isSelf = user.name === currentUser.name;
+                      const showPassword = !!showPasswordMap[user.id];
 
-              {permsSaveSuccess && (
-                <div className="p-2 bg-emerald-500/10 border border-emerald-500/30 text-emerald-700 dark:text-emerald-300 text-[11px] rounded-lg font-bold animate-fadeIn">
-                  {permsSaveSuccess}
-                </div>
-              )}
-
-              <div className="space-y-2.5 text-[11px] font-mono">
-                {Object.entries(rolePermissions).map(([role, perms]) => {
-                  const roleKey = role as UserRole;
-                  const isRoleAdmin = roleKey === UserRole.ADMIN || role === "Administrador";
-                  const moduleList: Array<{ key: "pos" | "inventory" | "customers" | "purchases" | "reports" | "security"; label: string }> = [
-                    { key: "pos", label: "POS" },
-                    { key: "inventory", label: "INV" },
-                    { key: "customers", label: "CLI" },
-                    { key: "purchases", label: "COMP" },
-                    { key: "reports", label: "REP" },
-                    { key: "security", label: "SEC" }
-                  ];
-
-                  return (
-                    <div key={role} className="p-3 bg-white dark:bg-slate-950 rounded-xl border border-gray-150 dark:border-slate-850 space-y-2">
-                      <div className="flex justify-between items-center border-b border-gray-100 dark:border-slate-850/60 pb-1.5">
-                        <span className="font-bold text-gray-800 dark:text-slate-200 text-xs flex items-center gap-1.5">
-                          {role}
-                          {isRoleAdmin && (
-                            <span className="text-[8px] bg-purple-100 dark:bg-purple-950/60 text-purple-700 dark:text-purple-300 px-1.5 py-0.2 rounded font-bold uppercase tracking-wider">
-                              Protegido
-                            </span>
-                          )}
-                        </span>
-                        <span className="text-[9px] text-gray-400 font-sans">
-                          {isRoleAdmin ? "Acceso Total Garantizado" : "Haz clic en cada interruptor para encender/apagar"}
-                        </span>
-                      </div>
-
-                      <div className="grid grid-cols-6 gap-1">
-                        {moduleList.map(mod => {
-                          const isActive = isRoleAdmin ? true : !!perms[mod.key];
-                          const canEdit = isAdmin && !isRoleAdmin;
-
-                          return (
-                            <div key={mod.key} className="flex flex-col items-center gap-1 p-1 bg-gray-50/60 dark:bg-slate-900/50 rounded-lg border border-gray-100 dark:border-slate-800/40">
-                              <span className="text-[8px] font-bold text-gray-600 dark:text-slate-400">{mod.label}</span>
+                      return (
+                        <tr key={user.id} className="hover:bg-gray-50/60 dark:hover:bg-slate-850/50">
+                          <td className="py-2.5">
+                            <div className="flex items-center gap-2">
+                              <div className="h-7 w-7 rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center font-bold text-gray-600 dark:text-slate-300 shrink-0">
+                                {user.name.substring(0, 2).toUpperCase()}
+                              </div>
+                              <div className="truncate max-w-[130px]">
+                                <p className="font-bold text-gray-800 dark:text-slate-200 truncate" title={user.name}>
+                                  {user.name}
+                                </p>
+                                {isSelf && (
+                                  <span className="text-[7.5px] bg-emerald-100 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300 px-1 py-0.2 rounded font-mono font-bold uppercase">Mí Cuenta</span>
+                                )}
+                              </div>
+                            </div>
+                          </td>
+                          <td className="py-2.5 font-mono font-bold text-gray-700 dark:text-slate-400 text-[11px]">
+                            @{user.username}
+                          </td>
+                          <td className="py-2.5 font-mono">
+                            <div className="flex items-center gap-1">
+                              <span className="text-gray-700 dark:text-slate-400 text-[11px]">
+                                {showPassword ? user.password : "••••••"}
+                              </span>
                               <button
-                                type="button"
-                                onClick={() => handleTogglePermission(roleKey, mod.key)}
-                                disabled={!canEdit || isSavingDb}
-                                className={`relative inline-flex h-4.5 w-7 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
-                                  isActive ? "bg-emerald-500" : "bg-gray-300 dark:bg-slate-700"
-                                } ${!canEdit ? "opacity-75 cursor-not-allowed" : "hover:scale-105 active:scale-95"}`}
-                                title={
-                                  isRoleAdmin 
-                                    ? "Rol Administrador protegido"
-                                    : isAdmin 
-                                    ? `Cambiar ${mod.label} para ${role}` 
-                                    : "Requiere Administrador"
-                                }
+                                onClick={() => toggleShowPassword(user.id)}
+                                className="text-gray-400 hover:text-gray-600 dark:hover:text-slate-200 cursor-pointer"
+                                title={showPassword ? "Ocultar Contraseña" : "Ver Contraseña"}
                               >
-                                <span
-                                  className={`pointer-events-none inline-block h-3.5 w-3.5 transform rounded-full bg-white shadow-xs ring-0 transition duration-200 ease-in-out ${
-                                    isActive ? "translate-x-2.5" : "translate-x-0"
-                                  }`}
-                                />
+                                {showPassword ? <EyeOff className="h-3 w-3" /> : <Eye className="h-3 w-3" />}
                               </button>
                             </div>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  );
-                })}
+                          </td>
+                          <td className="py-2.5">
+                            <span className={`px-2 py-0.5 rounded-full text-[9px] font-semibold border ${
+                              user.role === UserRole.ADMIN 
+                                ? "bg-purple-50 text-purple-700 border-purple-100 dark:bg-purple-950/20 dark:text-purple-400 dark:border-purple-900/30"
+                                : user.role === UserRole.MANAGER
+                                ? "bg-blue-50 text-blue-700 border-blue-100 dark:bg-blue-950/20 dark:text-blue-400 dark:border-blue-900/30"
+                                : "bg-teal-50 text-teal-700 border-teal-100 dark:bg-teal-950/20 dark:text-teal-400 dark:border-teal-900/30"
+                            }`}>
+                              {user.role}
+                            </span>
+                          </td>
+                          <td className="py-2.5">
+                            <button
+                              onClick={() => handleToggleStatus(user.id)}
+                              className={`px-2 py-0.5 rounded-full text-[9px] font-semibold flex items-center gap-1 border transition-all cursor-pointer ${
+                                user.status === "Activo"
+                                  ? "bg-emerald-50 text-emerald-700 border-emerald-100 hover:bg-emerald-100/50 dark:bg-emerald-950/20 dark:text-emerald-400 dark:border-emerald-900/30"
+                                  : "bg-red-50 text-red-700 border-red-100 hover:bg-red-100/50 dark:bg-red-950/20 dark:text-red-400 dark:border-red-900/30"
+                              }`}
+                              title="Cambiar estado"
+                            >
+                              <span className={`h-1 w-1 rounded-full ${user.status === "Activo" ? "bg-emerald-500" : "bg-red-500"}`} />
+                              {user.status}
+                            </button>
+                          </td>
+                          <td className="py-2.5 text-right">
+                            <div className="flex justify-end gap-1">
+                              <button
+                                onClick={() => handleEditClick(user)}
+                                className="p-1 text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-950/30 rounded cursor-pointer"
+                                title="Editar"
+                              >
+                                <Edit className="h-3.5 w-3.5" />
+                              </button>
+                              <button
+                                onClick={() => handleDeleteUser(user.id, user.username, user.name)}
+                                className={`p-1 rounded cursor-pointer ${isSelf ? "text-gray-300 cursor-not-allowed" : "text-red-600 hover:bg-red-50 dark:hover:bg-red-950/30"}`}
+                                disabled={isSelf}
+                                title="Eliminar permanentemente"
+                              >
+                                <Trash2 className="h-3.5 w-3.5" />
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
               </div>
-
-              {isAdmin && (
-                <div className="pt-2">
-                  <button
-                    type="button"
-                    onClick={handleSavePermissions}
-                    disabled={isSavingDb}
-                    className={`w-full py-2.5 px-3 rounded-xl font-bold text-xs flex items-center justify-center gap-2 transition-all shadow-xs cursor-pointer ${
-                      isSavingDb
-                        ? "bg-emerald-700 text-white opacity-80 cursor-wait"
-                        : hasUnsavedPerms
-                        ? "bg-emerald-600 hover:bg-emerald-700 text-white animate-pulse"
-                        : "bg-gray-800 hover:bg-gray-900 dark:bg-slate-800 dark:hover:bg-slate-700 text-white"
-                    }`}
-                  >
-                    <ShieldCheck className={`h-4 w-4 ${isSavingDb ? "animate-spin" : ""}`} />
-                    <span>
-                      {isSavingDb
-                        ? "Guardando en MySQL (mazal_bd)..."
-                        : hasUnsavedPerms
-                        ? "Guardar Cambios en BD MySQL (mazal_bd)"
-                        : "Guardar Matriz en BD MySQL"}
-                    </span>
-                  </button>
-                </div>
-              )}
             </div>
+
           </div>
 
-          {/* List of Users */}
-          <div className="lg:col-span-2 p-5 bg-white dark:bg-slate-900 border border-gray-150 dark:border-slate-800 rounded-2xl shadow-xs space-y-4">
-            <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-3 border-b pb-3.5">
-              <div>
-                <h3 className="font-extrabold text-gray-800 dark:text-slate-100 text-sm flex items-center gap-2">
-                  <UserIcon className="h-4.5 w-4.5 text-emerald-600 dark:text-emerald-400" />
-                  Cuentas de Colaboradores Registradas
-                </h3>
-                <p className="text-[10px] text-gray-400">Total de personal para control de turnos y seguridad.</p>
+          {/* BOTTOM ROW: Full-Width Matriz de Permisos por Rol */}
+          <div className="w-full p-5 bg-white dark:bg-slate-900 border border-gray-150 dark:border-slate-800 rounded-2xl shadow-xs space-y-4">
+            <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-2 border-b border-gray-100 dark:border-slate-800 pb-3">
+              <div className="flex items-center gap-2">
+                <Lock className="h-5 w-5 text-emerald-600 dark:text-emerald-400" />
+                <div>
+                  <h4 className="font-extrabold text-base text-gray-800 dark:text-slate-100">
+                    Matriz de Permisos por Rol
+                  </h4>
+                  <p className="text-xs text-gray-400 font-sans">
+                    Configuración de módulos accesibles para cada categoría de colaborador en el sistema.
+                  </p>
+                </div>
               </div>
-
-              {/* Search user */}
-              <div className="relative w-full sm:w-60">
-                <Search className="absolute left-3 top-2 h-3.5 w-3.5 text-gray-400" />
-                <input
-                  type="text"
-                  placeholder="Buscar colaborador..."
-                  value={userSearch}
-                  onChange={(e) => setUserSearch(e.target.value)}
-                  className="w-full text-xs pl-8.5 pr-3 py-1.5 border border-gray-200 dark:border-slate-800 rounded-lg focus:outline-none focus:ring-1 focus:ring-emerald-500 bg-transparent"
-                />
+              <div className="flex items-center gap-2">
+                {isAdmin ? (
+                  <span className="text-[10px] bg-emerald-100 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300 px-2.5 py-1 rounded-full font-bold uppercase tracking-wider">
+                    Modo Edición (Admin)
+                  </span>
+                ) : (
+                  <span className="text-[10px] bg-amber-100 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300 px-2.5 py-1 rounded-full font-bold uppercase tracking-wider">
+                    Solo Lectura
+                  </span>
+                )}
               </div>
             </div>
 
-            {/* Table layout of users */}
-            <div className="overflow-x-auto">
-              <table className="w-full text-left text-xs">
-                <thead>
-                  <tr className="border-b border-gray-100 dark:border-slate-800 text-gray-400 uppercase text-[9px] font-mono tracking-wider">
-                    <th className="py-2.5 font-bold">Colaborador</th>
-                    <th className="py-2.5 font-bold">Usuario</th>
-                    <th className="py-2.5 font-bold">Contraseña</th>
-                    <th className="py-2.5 font-bold">Rol</th>
-                    <th className="py-2.5 font-bold">Estado</th>
-                    <th className="py-2.5 font-bold text-right">Acciones</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-50 dark:divide-slate-850">
-                  {(db.users || []).filter((u: User) => {
-                    const s = (userSearch || "").toLowerCase();
-                    if (!s) return true;
-                    return (
-                      (u.name || "").toLowerCase().includes(s) ||
-                      (u.username || "").toLowerCase().includes(s) ||
-                      (u.role || "").toLowerCase().includes(s)
-                    );
-                  }).map((user: User) => {
-                    const isSelf = user.name === currentUser.name;
-                    const showPassword = !!showPasswordMap[user.id];
+            {!isAdmin && (
+              <p className="text-xs text-amber-700 dark:text-amber-300 italic bg-amber-50 dark:bg-amber-950/20 p-2.5 rounded-xl border border-amber-200/40">
+                🔒 Únicamente el usuario con rol de Administrador puede modificar los roles y permisos del sistema.
+              </p>
+            )}
 
-                    return (
-                      <tr key={user.id} className="hover:bg-gray-50/50 dark:hover:bg-slate-850/50">
-                        <td className="py-3">
-                          <div className="flex items-center gap-2">
-                            <div className="h-7 w-7 rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center font-bold text-gray-600 dark:text-slate-300">
-                              {user.name.substring(0, 2).toUpperCase()}
-                            </div>
-                            <div>
-                              <p className="font-bold text-gray-800 dark:text-slate-200">
-                                {user.name}
-                                {isSelf && (
-                                  <span className="ml-1.5 text-[8px] bg-emerald-100 dark:bg-slate-800 text-emerald-800 dark:text-emerald-300 px-1 py-0.2 rounded font-mono font-bold uppercase">Mí Cuenta</span>
-                                )}
-                              </p>
-                              <p className="text-[9px] text-gray-400 font-mono">ID: {user.id}</p>
-                            </div>
-                          </div>
-                        </td>
-                        <td className="py-3 font-mono font-bold text-gray-700 dark:text-slate-400">
-                          @{user.username}
-                        </td>
-                        <td className="py-3 font-mono">
-                          <div className="flex items-center gap-1.5">
-                            <span className="text-gray-700 dark:text-slate-400">
-                              {showPassword ? user.password : "•••••••"}
-                            </span>
-                            <button
-                              onClick={() => toggleShowPassword(user.id)}
-                              className="text-gray-400 hover:text-gray-600"
-                              title={showPassword ? "Ocultar Contraseña" : "Ver Contraseña"}
-                            >
-                              {showPassword ? <EyeOff className="h-3 w-3" /> : <Eye className="h-3 w-3" />}
-                            </button>
-                          </div>
-                        </td>
-                        <td className="py-3">
-                          <span className={`px-2 py-0.5 rounded-full text-[10px] font-semibold border ${
-                            user.role === UserRole.ADMIN 
-                              ? "bg-purple-50 text-purple-700 border-purple-100 dark:bg-purple-950/20 dark:text-purple-400 dark:border-purple-900/30"
-                              : user.role === UserRole.MANAGER
-                              ? "bg-blue-50 text-blue-700 border-blue-100 dark:bg-blue-950/20 dark:text-blue-400 dark:border-blue-900/30"
-                              : "bg-teal-50 text-teal-700 border-teal-100 dark:bg-teal-950/20 dark:text-teal-400 dark:border-teal-900/30"
-                          }`}>
-                            {user.role}
+            {permsSaveSuccess && (
+              <div className="p-3 bg-emerald-500/10 border border-emerald-500/30 text-emerald-700 dark:text-emerald-300 text-xs rounded-xl font-bold animate-fadeIn">
+                {permsSaveSuccess}
+              </div>
+            )}
+
+            {/* Grid of Roles Distributed Evenly Across Full Width */}
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+              {Object.entries(rolePermissions).map(([role, perms]) => {
+                const roleKey = role as UserRole;
+                const isRoleAdmin = roleKey === UserRole.ADMIN || role === "Administrador";
+                const moduleList: Array<{ key: "pos" | "inventory" | "customers" | "purchases" | "reports" | "security"; label: string; fullLabel: string }> = [
+                  { key: "pos", label: "POS", fullLabel: "Ventas / POS" },
+                  { key: "inventory", label: "INV", fullLabel: "Inventario" },
+                  { key: "customers", label: "CLI", fullLabel: "Clientes & Créditos" },
+                  { key: "purchases", label: "COMP", fullLabel: "Compras Proveedor" },
+                  { key: "reports", label: "REP", fullLabel: "Finanzas & Reportes" },
+                  { key: "security", label: "SEC", fullLabel: "Seguridad & Accesos" }
+                ];
+
+                return (
+                  <div key={role} className="p-4 bg-slate-50 dark:bg-slate-850/50 rounded-2xl border border-gray-150 dark:border-slate-800 space-y-3">
+                    <div className="flex justify-between items-center border-b border-gray-200/80 dark:border-slate-750 pb-2">
+                      <span className="font-extrabold text-gray-800 dark:text-slate-100 text-sm flex items-center gap-1.5">
+                        {role}
+                        {isRoleAdmin && (
+                          <span className="text-[8px] bg-purple-100 dark:bg-purple-950/60 text-purple-700 dark:text-purple-300 px-1.5 py-0.2 rounded font-bold uppercase tracking-wider">
+                            Protegido
                           </span>
-                        </td>
-                        <td className="py-3">
-                          <button
-                            onClick={() => handleToggleStatus(user.id)}
-                            className={`px-2 py-0.5 rounded-full text-[10px] font-semibold flex items-center gap-1 border transition-all ${
-                              user.status === "Activo"
-                                ? "bg-emerald-50 text-emerald-700 border-emerald-100 hover:bg-emerald-100/50 dark:bg-emerald-950/20 dark:text-emerald-400 dark:border-emerald-900/30"
-                                : "bg-red-50 text-red-700 border-red-100 hover:bg-red-100/50 dark:bg-red-950/20 dark:text-red-400 dark:border-red-900/30"
-                            }`}
-                            title="Cambiar estado"
+                        )}
+                      </span>
+                      <span className="text-[10px] text-gray-400 font-mono">
+                        {isRoleAdmin ? "Total" : `${Object.values(perms).filter(Boolean).length}/6 activos`}
+                      </span>
+                    </div>
+
+                    <div className="grid grid-cols-3 gap-2">
+                      {moduleList.map(mod => {
+                        const isActive = isRoleAdmin ? true : !!perms[mod.key];
+                        const canEdit = isAdmin && !isRoleAdmin;
+
+                        return (
+                          <div 
+                            key={mod.key} 
+                            onClick={() => {
+                              if (canEdit && !isSavingDb) {
+                                handleTogglePermission(roleKey, mod.key);
+                              }
+                            }}
+                            className={`flex flex-col items-center gap-1.5 p-2 rounded-xl border transition-all ${
+                              isActive 
+                                ? "bg-emerald-50/60 dark:bg-emerald-950/30 border-emerald-200/60 dark:border-emerald-900/40 text-emerald-800 dark:text-emerald-300" 
+                                : "bg-white dark:bg-slate-900 border-gray-150 dark:border-slate-800 text-gray-400 dark:text-slate-500"
+                            } ${canEdit ? "cursor-pointer hover:border-emerald-400 active:scale-98" : ""}`}
                           >
-                            <span className={`h-1 w-1 rounded-full ${user.status === "Activo" ? "bg-emerald-500" : "bg-red-500"}`} />
-                            {user.status}
-                          </button>
-                        </td>
-                        <td className="py-3 text-right">
-                          <div className="flex justify-end gap-1.5">
-                            <button
-                              onClick={() => handleEditClick(user)}
-                              className="p-1 text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-950/30 rounded"
-                              title="Editar"
-                            >
-                              <Edit className="h-3.5 w-3.5" />
-                            </button>
-                            <button
-                              onClick={() => handleDeleteUser(user.id, user.username, user.name)}
-                              className={`p-1 rounded ${isSelf ? "text-gray-300 cursor-not-allowed" : "text-red-600 hover:bg-red-50 dark:hover:bg-red-950/30"}`}
-                              disabled={isSelf}
-                              title="Eliminar permanentemente"
-                            >
-                              <Trash2 className="h-3.5 w-3.5" />
-                            </button>
+                            <span className="text-[9px] font-extrabold uppercase tracking-wider">{mod.label}</span>
+                            <span className={`text-[8px] font-bold px-1.5 py-0.5 rounded-md ${
+                              isActive 
+                                ? "bg-emerald-500 text-white" 
+                                : "bg-gray-200 dark:bg-slate-800 text-gray-600 dark:text-slate-400"
+                            }`}>
+                              {isActive ? "Activo" : "Off"}
+                            </span>
                           </div>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
+              })}
             </div>
+
+            {isAdmin && (
+              <div className="pt-3 flex justify-end">
+                <button
+                  type="button"
+                  onClick={handleSavePermissions}
+                  disabled={isSavingDb}
+                  className={`py-2.5 px-6 rounded-xl font-bold text-xs flex items-center justify-center gap-2 transition-all shadow-xs cursor-pointer ${
+                    isSavingDb
+                      ? "bg-emerald-700 text-white opacity-80 cursor-wait"
+                      : hasUnsavedPerms
+                      ? "bg-emerald-600 hover:bg-emerald-700 text-white animate-pulse"
+                      : "bg-gray-800 hover:bg-gray-900 dark:bg-slate-800 dark:hover:bg-slate-700 text-white"
+                  }`}
+                >
+                  <ShieldCheck className={`h-4 w-4 ${isSavingDb ? "animate-spin" : ""}`} />
+                  <span>
+                    {isSavingDb
+                      ? "Guardando cambios..."
+                      : hasUnsavedPerms
+                      ? "Guardar Cambios de Permisos"
+                      : "Guardar Matriz de Permisos"}
+                  </span>
+                </button>
+              </div>
+            )}
           </div>
 
         </div>
@@ -1733,7 +1746,7 @@ export default function SecurityModule({ currentUser, onChangeRole }: SecurityMo
               </div>
             )}
 
-            <form onSubmit={handleLoginSubmit} className="space-y-4">
+            <form onSubmit={handleLoginSubmit} className="space-y-4" autoComplete="off">
               <div className="space-y-1">
                 <label className="text-xs font-bold text-gray-600 dark:text-slate-400 block">
                   Nombre de Usuario (Username)
@@ -1742,7 +1755,11 @@ export default function SecurityModule({ currentUser, onChangeRole }: SecurityMo
                   type="text"
                   value={loginUsername}
                   onChange={(e) => setLoginUsername(e.target.value)}
-                  placeholder="Ingresa usuario..."
+                  placeholder="Usuario"
+                  autoComplete="off"
+                  autoCorrect="off"
+                  autoCapitalize="none"
+                  spellCheck={false}
                   className="w-full text-xs p-3 border border-gray-200 dark:border-slate-800 rounded-xl focus:outline-none focus:ring-1 focus:ring-emerald-500 bg-transparent font-mono"
                   required
                 />
@@ -1757,6 +1774,10 @@ export default function SecurityModule({ currentUser, onChangeRole }: SecurityMo
                   value={loginPassword}
                   onChange={(e) => setLoginPassword(e.target.value)}
                   placeholder="••••••••"
+                  autoComplete="new-password"
+                  autoCorrect="off"
+                  autoCapitalize="none"
+                  spellCheck={false}
                   className="w-full text-xs p-3 border border-gray-200 dark:border-slate-800 rounded-xl focus:outline-none focus:ring-1 focus:ring-emerald-500 bg-transparent font-mono"
                   required
                 />
@@ -1834,6 +1855,10 @@ export default function SecurityModule({ currentUser, onChangeRole }: SecurityMo
                     value={branchPasswords.Norte || ""}
                     onChange={(e) => setBranchPasswords(prev => ({ ...prev, Norte: e.target.value }))}
                     placeholder="Contraseña para MAZAL 1..."
+                    autoComplete="new-password"
+                    autoCorrect="off"
+                    autoCapitalize="none"
+                    spellCheck={false}
                     className="w-full text-xs p-2.5 pr-10 border border-gray-200 dark:border-slate-800 rounded-lg bg-white dark:bg-slate-900 font-mono text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-1 focus:ring-teal-500"
                     required
                   />
@@ -1866,6 +1891,10 @@ export default function SecurityModule({ currentUser, onChangeRole }: SecurityMo
                     value={branchPasswords.Sur || ""}
                     onChange={(e) => setBranchPasswords(prev => ({ ...prev, Sur: e.target.value }))}
                     placeholder="Contraseña para MAZAL 2..."
+                    autoComplete="new-password"
+                    autoCorrect="off"
+                    autoCapitalize="none"
+                    spellCheck={false}
                     className="w-full text-xs p-2.5 pr-10 border border-gray-200 dark:border-slate-800 rounded-lg bg-white dark:bg-slate-900 font-mono text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-1 focus:ring-blue-500"
                     required
                   />
@@ -1902,22 +1931,22 @@ export default function SecurityModule({ currentUser, onChangeRole }: SecurityMo
               <div>
                 <h3 className="font-extrabold text-gray-800 dark:text-slate-100 text-sm flex items-center gap-2">
                   <Database className="h-4.5 w-4.5 text-emerald-600 dark:text-emerald-400" />
-                  Conectar tu Propia Base de Datos de Firestore
+                  Configuración de Sincronización en la Nube
                 </h3>
                 <p className="text-xs text-gray-400 mt-1">
-                  Usa tus propias credenciales de Firebase para almacenar los datos de tu ERP en tu propia cuenta de Google Cloud de forma exclusiva.
+                  Configura las credenciales de respaldo en la nube para sincronizar la información del sistema en tiempo real.
                 </p>
               </div>
               <div className="flex items-center gap-2 text-xs font-bold">
                 {isFirebaseOverridden ? (
                   <span className="px-2.5 py-1 rounded-full bg-emerald-100 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400 flex items-center gap-1.5 border border-emerald-200 dark:border-emerald-900/50">
                     <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
-                    Base de Datos Propia Activa
+                    Sincronización Activa
                   </span>
                 ) : (
                   <span className="px-2.5 py-1 rounded-full bg-blue-100 dark:bg-blue-950/40 text-blue-700 dark:text-blue-400 flex items-center gap-1.5 border border-blue-200 dark:border-blue-900/50">
                     <span className="h-2 w-2 rounded-full bg-blue-500 animate-pulse" />
-                    Base de Datos de AI Studio
+                    Servidor Nube Principal
                   </span>
                 )}
               </div>
@@ -2047,7 +2076,7 @@ export default function SecurityModule({ currentUser, onChangeRole }: SecurityMo
                   className="px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer shadow-xs"
                 >
                   <RefreshCw className="h-4 w-4" />
-                  <span>Guardar y Conectar Base de Datos</span>
+                  <span>Guardar Configuración de Sincronización</span>
                 </button>
               </div>
             </form>
@@ -2293,7 +2322,7 @@ export default function SecurityModule({ currentUser, onChangeRole }: SecurityMo
             )}
           </div>
 
-          {/* SECTION 3: CLOUD-HOSTED BACKUPS HISTORY (FIRESTORE) */}
+          {/* SECTION 3: CLOUD-HOSTED BACKUPS HISTORY */}
           <div className="p-6 bg-white dark:bg-slate-900 border border-gray-150 dark:border-slate-800 rounded-2xl shadow-xs space-y-6">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
               <div>
@@ -2302,7 +2331,7 @@ export default function SecurityModule({ currentUser, onChangeRole }: SecurityMo
                   Historial de Respaldos Completos en la Nube
                 </h3>
                 <p className="text-xs text-gray-400 mt-1">
-                  Crea y almacena copias de seguridad completas directamente en Firestore. Puedes restaurar cualquier punto anterior o eliminar respaldos antiguos.
+                  Crea y almacena copias de seguridad completas directamente en la nube y servidor local. Puedes restaurar cualquier punto anterior o eliminar respaldos antiguos.
                 </p>
               </div>
               <button
@@ -2369,22 +2398,20 @@ export default function SecurityModule({ currentUser, onChangeRole }: SecurityMo
             <div className="p-4 bg-slate-50 dark:bg-slate-850/40 rounded-xl border border-gray-150 dark:border-slate-800 space-y-2.5">
               <div className="flex items-center justify-between">
                 <span className="text-xs font-extrabold text-gray-700 dark:text-slate-200 flex items-center gap-1.5">
-                  <FileText className="h-4 w-4 text-slate-500" />
-                  Visor de Copia de Seguridad Manual (JSON Completo)
+                  <FileText className="h-4 w-4 text-emerald-600" />
+                  Visor y Exportador de Respaldo Local en Formato JSON
                 </span>
                 <button
-                  onClick={() => handleExportDatabase("all")}
-                  className="py-1 px-2 rounded bg-slate-200 hover:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 text-[10px] font-bold cursor-pointer transition-colors"
+                  onClick={handleGenerateManualExport}
+                  className="py-1 px-2.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-[10px] cursor-pointer transition-colors flex items-center gap-1"
                 >
-                  Generar Respaldo Completo Local (.json)
+                  <Download className="h-3 w-3" />
+                  <span>Generar Respaldo Completo Local</span>
                 </button>
               </div>
-              <p className="text-[10px] text-gray-400 leading-relaxed">
-                Si tu navegador restringe la descarga automática de archivos, al hacer clic arriba se cargará el JSON completo del ERP aquí abajo para que lo copies manualmente.
-              </p>
 
               {showManualExport ? (
-                <div className="space-y-2">
+                <div className="space-y-2 animate-fadeIn">
                   <textarea
                     readOnly
                     value={manualExportText}
@@ -2430,7 +2457,7 @@ export default function SecurityModule({ currentUser, onChangeRole }: SecurityMo
               <div className="space-y-1">
                 <h4 className="text-xs font-bold text-rose-800 dark:text-rose-400">🚨 ZONA DE PELIGRO EXTREMO: RESTABLECER ERP COMPLETO</h4>
                 <p className="text-[10px] text-rose-700/80 dark:text-rose-400/70 leading-relaxed">
-                  ¿Deseas purgar todas las colecciones (catálogos de productos, ventas, inventarios, gastos, clientes y sesiones)? Esta acción borrará de forma permanente e irreversible toda la información del ERP en la nube Firebase Firestore, permitiéndote arrancar el sistema 100% limpio y listo para su uso en producción.
+                  ¿Deseas purgar todas las colecciones (catálogos de productos, ventas, inventarios, gastos, clientes y sesiones)? Esta acción borrará de forma permanente la información operativa, permitiéndote arrancar el sistema 100% limpio y sincronizado con MySQL y Supabase.
                 </p>
                 <p className="text-[10px] text-rose-600 dark:text-rose-500 font-semibold font-mono">
                   * Las cuentas de usuarios administradores se preservan para evitar la pérdida de accesos al sistema.
@@ -2449,7 +2476,7 @@ export default function SecurityModule({ currentUser, onChangeRole }: SecurityMo
                   className="w-full py-2.5 px-4 rounded-xl bg-rose-600 hover:bg-rose-700 disabled:bg-rose-400 text-white text-[11px] font-extrabold cursor-pointer transition-colors flex items-center justify-center gap-1.5"
                 >
                   <Trash2 className="h-4 w-4" />
-                  <span>Vaciar y Limpiar Absolutamente Todo el ERP en la Nube</span>
+                  <span>Vaciar y Limpiar Absolutamente Todo el ERP</span>
                 </button>
               </div>
             )}
@@ -2510,7 +2537,7 @@ export default function SecurityModule({ currentUser, onChangeRole }: SecurityMo
                   </button>
                 </div>
                 <p className="text-[10px] text-rose-900 dark:text-rose-350 font-bold leading-relaxed">
-                  ¿Estás COMPLETAMENTE seguro? Esta acción borrará de forma permanente e irreversible toda la información de productos, inventarios, ventas, gastos y sesiones de tu base de datos en la nube Firebase Firestore. ¡No podrás recuperar estos datos!
+                  ¿Estás COMPLETAMENTE seguro? Esta acción borrará de forma permanente e irreversible toda la información de productos, inventarios, ventas, gastos y sesiones de tu base de datos. ¡No podrás recuperar estos datos!
                 </p>
                 <button
                   onClick={handleDeleteAllData}
@@ -2520,7 +2547,7 @@ export default function SecurityModule({ currentUser, onChangeRole }: SecurityMo
                   {isResetting ? (
                     <>
                       <div className="h-3 w-3 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                      Purgando base de datos en Firestore...
+                      Purgando base de datos...
                     </>
                   ) : (
                     <>

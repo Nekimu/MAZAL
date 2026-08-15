@@ -29,7 +29,8 @@ interface CustomersModuleProps {
 
 export default function CustomersModule({ currentUser }: CustomersModuleProps) {
   const [db, setDb] = useState(getDatabase());
-  const isAdmin = String(currentUser?.role || "").toUpperCase() === "ADMIN";
+  const roleUpper = String(currentUser?.role || "").toUpperCase();
+  const isAdmin = roleUpper === "ADMIN" || roleUpper === "ADMINISTRADOR" || roleUpper.includes("ADMIN") || currentUser?.role === UserRole.ADMIN;
   
   useEffect(() => {
     return subscribeToDb((updatedDb) => {

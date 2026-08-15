@@ -179,7 +179,11 @@ export default function BranchGate({ onBranchSelect, theme = "light", onToggleTh
                   type={showPassword ? "text" : "password"}
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  placeholder={`Clave de acceso sucursal ${selected.toLowerCase()}`}
+                  placeholder="Introduce la contraseña de acceso"
+                  autoComplete="new-password"
+                  autoCorrect="off"
+                  autoCapitalize="none"
+                  spellCheck={false}
                   className="w-full pl-10 pr-10 py-3 text-sm bg-slate-50 dark:bg-slate-950 border border-gray-200 dark:border-slate-800 rounded-xl text-slate-900 dark:text-white placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/40 focus:border-emerald-500 transition-all font-mono"
                   required
                   autoFocus
@@ -232,7 +236,7 @@ export default function BranchGate({ onBranchSelect, theme = "light", onToggleTh
       {/* Footer copyright info */}
       <footer className="w-full max-w-5xl text-center py-2">
         <p className="text-[11px] text-gray-500 dark:text-slate-500">
-          Distribuidora de Abarrotes Mazal ERP &bull; Seguridad Multi-Sucursal Criptográfica Activa
+          Mazal Distribuidora de productos desechables, plásticos y comestibles - 2026
         </p>
       </footer>
     </div>

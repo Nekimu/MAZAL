@@ -615,7 +615,7 @@ export async function saveRolePermissionsToDB(permissions: Record<string, RolePe
     if (res.ok) {
       const data = await res.json();
       if (data.success) {
-        return { success: true, message: "Permisos guardados exitosamente en la base de datos MySQL (mazal_bd)." };
+        return { success: true, message: "Permisos guardados exitosamente en el sistema." };
       }
     }
   } catch (e) {

@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from "react";
+import { createPortal } from "react-dom";
 import {
   Wifi,
   WifiOff,
@@ -91,14 +92,14 @@ export const OfflineSyncPanelModal: React.FC<Props> = ({ isOpen, onClose }) => {
     }
   };
 
-  return (
+  return createPortal(
     <div 
-      className="fixed inset-0 z-[9999] flex items-center justify-center bg-slate-950/70 backdrop-blur-sm p-4 overflow-y-auto transition-all"
+      className="fixed inset-0 z-[999999] flex items-center justify-center bg-slate-950/80 backdrop-blur-md p-4 sm:p-6 overflow-y-auto transition-all"
       onClick={(e) => {
         if (e.target === e.currentTarget) onClose();
       }}
     >
-      <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800 w-full max-w-3xl overflow-hidden flex flex-col max-h-[90vh] animate-in fade-in zoom-in-95 duration-150">
+      <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800 w-full max-w-3xl overflow-hidden flex flex-col max-h-[88vh] my-auto animate-in fade-in zoom-in-95 duration-150">
         {/* Modal Header */}
         <div className="flex items-center justify-between px-6 py-4 bg-slate-900 text-white border-b border-slate-800">
           <div className="flex items-center gap-3">
@@ -307,40 +308,40 @@ export const OfflineSyncPanelModal: React.FC<Props> = ({ isOpen, onClose }) => {
                 <div className="flex items-center justify-between">
                   <div className="font-black flex items-center gap-2 text-sm text-sky-800 dark:text-sky-300">
                     <Cloud className="h-4 w-4 text-sky-600 dark:text-sky-400" />
-                    Base de Datos en Línea: Supabase Cloud
+                    Servidor en la Nube: Sincronización en Tiempo Real
                   </div>
                   <span className="bg-emerald-100 text-emerald-800 dark:bg-emerald-900/50 dark:text-emerald-300 px-2 py-0.5 rounded-full font-bold text-[10px]">
-                    🟢 {isSupabaseConfigured ? "Configurado" : "Pendiente"}
+                    🟢 {isSupabaseConfigured ? "Conectado" : "Pendiente"}
                   </span>
                 </div>
                 <p className="leading-relaxed text-slate-600 dark:text-slate-400">
-                  Alojamiento en la nube activo en <span className="font-mono font-bold text-sky-600 dark:text-sky-400">{SUPABASE_URL}</span>. Permite ver y editar los datos desde cualquier dispositivo en tiempo real.
+                  Alojamiento y respaldo en la nube activo. Permite consultar y sincronizar los datos de ventas e inventarios desde cualquier dispositivo en tiempo real.
                 </p>
                 <div className="flex flex-wrap gap-2 pt-1">
                   <button
                     onClick={async () => {
                       setIsSyncingManual(true);
-                      setSyncMessage("Probando conexión con Supabase Cloud...");
+                      setSyncMessage("Probando conexión con la nube...");
                       const res = await testSupabaseConnection();
-                      setSyncMessage(res.message);
+                      setSyncMessage(res.message ? "Conexión con la nube verificada correctamente." : "Error de conexión.");
                       setIsSyncingManual(false);
                       setTimeout(() => setSyncMessage(null), 6000);
                     }}
                     disabled={isSyncingManual}
                     className="bg-white dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 border border-slate-300 dark:border-slate-700 font-bold px-3 py-1.5 rounded-lg text-xs flex items-center gap-1.5 cursor-pointer shadow-xs transition-all"
                   >
-                    <Server className="h-3.5 w-3.5 text-sky-500" /> Probar Conexión Supabase
+                    <Server className="h-3.5 w-3.5 text-sky-500" /> Probar Conexión Nube
                   </button>
 
                   <button
                     onClick={async () => {
                       setIsSyncingManual(true);
-                      setSyncMessage("Sincronizando base de datos completa con Supabase...");
+                      setSyncMessage("Sincronizando información completa con la nube...");
                       const res = await syncDatabaseWithSupabase();
                       if (res.success) {
-                        setSyncMessage(res.message || "Sincronizado con Supabase exitosamente.");
+                        setSyncMessage("Información sincronizada con la nube exitosamente.");
                       } else {
-                        setSyncMessage("Aviso: " + (res.error || "Error al subir a Supabase"));
+                        setSyncMessage("Aviso: " + (res.error || "Error al sincronizar con la nube"));
                       }
                       setIsSyncingManual(false);
                       setTimeout(() => setSyncMessage(null), 6000);
@@ -348,103 +349,74 @@ export const OfflineSyncPanelModal: React.FC<Props> = ({ isOpen, onClose }) => {
                     disabled={isSyncingManual}
                     className="bg-sky-600 hover:bg-sky-500 text-white font-bold px-3 py-1.5 rounded-lg text-xs flex items-center gap-1.5 cursor-pointer shadow-xs transition-all"
                   >
-                    <RefreshCw className={`h-3.5 w-3.5 ${isSyncingManual ? "animate-spin" : ""}`} /> Subir Todo a Supabase
+                    <RefreshCw className={`h-3.5 w-3.5 ${isSyncingManual ? "animate-spin" : ""}`} /> Subir Todo a la Nube
                   </button>
 
                   <button
                     onClick={async () => {
                       setIsSyncingManual(true);
-                      setSyncMessage("Descargando datos actualizados desde Supabase...");
+                      setSyncMessage("Descargando datos actualizados desde la nube...");
                       await loadDatabaseFromSupabase();
-                      setSyncMessage("Datos recargados desde Supabase Cloud con éxito.");
+                      setSyncMessage("Datos recargados desde la nube con éxito.");
                       setIsSyncingManual(false);
                       setTimeout(() => setSyncMessage(null), 5000);
                     }}
                     disabled={isSyncingManual}
                     className="bg-emerald-600 hover:bg-emerald-500 text-white font-bold px-3 py-1.5 rounded-lg text-xs flex items-center gap-1.5 cursor-pointer shadow-xs transition-all"
                   >
-                    <Database className="h-3.5 w-3.5" /> Descargar de Supabase
+                    <RefreshCw className={`h-3.5 w-3.5 ${isSyncingManual ? "animate-spin" : ""}`} /> Descargar de la Nube
                   </button>
                 </div>
               </div>
 
-              {/* Architecture & Flow Banner */}
-              <div className="bg-emerald-50 dark:bg-emerald-950/20 border border-emerald-200 dark:border-emerald-900/40 rounded-xl p-4 text-xs text-emerald-900 dark:text-emerald-200 space-y-2">
-                <div className="font-black flex items-center gap-2 text-sm text-emerald-800 dark:text-emerald-300">
-                  <Database className="h-4 w-4 text-emerald-600" />
-                  Arquitectura Offline First Garantizada
+              {/* Status feedback banner */}
+              {syncMessage && (
+                <div className="p-3 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-850 rounded-xl text-xs text-emerald-800 dark:text-emerald-300 font-bold flex items-center gap-2 animate-fadeIn">
+                  <RefreshCw className="h-4 w-4 animate-spin text-emerald-600" />
+                  <span>{syncMessage}</span>
                 </div>
-                <p className="leading-relaxed">
-                  El sistema opera sin interrupciones aunque se pierda el internet o se apague la computadora.
-                  Las ventas, cortes de caja y movimientos se registran al instante en la base local y se suben
-                  en orden estricto de prioridad al detectar conexión.
-                </p>
-              </div>
+              )}
             </div>
           )}
 
           {activeTab === "queue" && (
             <div className="space-y-4">
               <div className="flex items-center justify-between">
-                <span className="text-xs font-bold text-slate-500">
-                  Cola de Operaciones Pendientes ({syncState.pendingCount})
-                </span>
+                <div>
+                  <h4 className="text-xs font-bold text-slate-700 dark:text-slate-300">
+                    Cola de Eventos Pendientes ({syncState.pendingOperations?.length || 0})
+                  </h4>
+                  <p className="text-[11px] text-slate-500">
+                    Operaciones registradas localmente en cola de envío.
+                  </p>
+                </div>
                 {syncState.pendingCount > 0 && (
                   <button
-                    onClick={() => {
-                      if (confirm("¿Seguro que deseas vaciar la cola local de pendientes?")) {
-                        clearPendingQueue();
+                    onClick={async () => {
+                      if (window.confirm("¿Seguro que deseas descartar la cola de pendientes?")) {
+                        await clearPendingQueue();
                       }
                     }}
-                    className="text-xs text-rose-600 hover:text-rose-700 font-bold flex items-center gap-1 cursor-pointer"
+                    className="px-3 py-1.5 bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/40 text-rose-600 dark:text-rose-400 border border-rose-200 dark:border-rose-900 rounded-lg text-xs font-bold transition-all"
                   >
-                    <Trash2 className="h-3.5 w-3.5" /> Vaciar Cola Local
+                    Vaciar Cola
                   </button>
                 )}
               </div>
 
               {syncState.pendingCount === 0 ? (
-                <div className="text-center py-12 bg-slate-50 dark:bg-slate-800/30 rounded-xl border border-dashed border-slate-300 dark:border-slate-700">
-                  <CheckCircle2 className="h-10 w-10 text-emerald-500 mx-auto mb-2" />
-                  <p className="text-sm font-bold text-slate-800 dark:text-slate-200">
-                    ¡Todo sincronizado con la nube!
-                  </p>
-                  <p className="text-xs text-slate-400">
-                    No hay operaciones pendientes de envío en este dispositivo.
-                  </p>
+                <div className="p-8 text-center bg-slate-50 dark:bg-slate-900/50 border border-dashed border-slate-200 dark:border-slate-800 rounded-xl">
+                  <CheckCircle2 className="h-8 w-8 text-emerald-500 mx-auto mb-2 opacity-80" />
+                  <p className="text-xs font-bold text-slate-700 dark:text-slate-300">Sin Operaciones Pendientes</p>
+                  <p className="text-[11px] text-slate-400 mt-1">Todos tus registros están actualizados con la nube.</p>
                 </div>
               ) : (
-                <div className="space-y-2">
-                  {syncState.conflicts.map((op) => (
-                    <div
-                      key={op.id}
-                      className="p-3 bg-rose-50 dark:bg-rose-950/30 border border-rose-300 dark:border-rose-900 rounded-xl text-xs space-y-1.5"
-                    >
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-2">
-                          {getOpBadge(op.type)}
-                          <span className="font-mono font-bold text-slate-800 dark:text-slate-200">{op.docId}</span>
-                        </div>
-                        <span className="bg-rose-600 text-white text-[10px] font-bold px-2 py-0.5 rounded-full">
-                          CONFLITO DETECTADO
-                        </span>
-                      </div>
-                      <p className="text-slate-600 dark:text-slate-300">
-                        Sucursal: <strong className="text-slate-900 dark:text-white">{op.branch}</strong> | Usuario: {op.user}
-                      </p>
+                <div className="space-y-2 max-h-64 overflow-y-auto pr-1">
+                  <div className="divide-y divide-slate-200 dark:divide-slate-800 border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden bg-white dark:bg-slate-900">
+                    <div className="p-4 text-center text-xs text-slate-500">
+                      Hay {syncState.pendingCount} registro(s) encolados listos para sincronizarse.
                     </div>
-                  ))}
-
-                  {/* Regular Pending Queue */}
-                  {syncState.pendingByType && (
-                    <div className="divide-y divide-slate-200 dark:divide-slate-800 border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden bg-white dark:bg-slate-900">
-                      {syncState.pendingCount > 0 && (
-                        <div className="p-4 text-center text-xs text-slate-500">
-                          Hay {syncState.pendingCount} registro(s) encolados listos para sincronizarse.
-                        </div>
-                      )}
-                    </div>
-                  )}
+                  </div>
                 </div>
               )}
             </div>
@@ -523,7 +495,7 @@ export const OfflineSyncPanelModal: React.FC<Props> = ({ isOpen, onClose }) => {
         <div className="px-6 py-4 bg-slate-50 dark:bg-slate-900 border-t border-slate-200 dark:border-slate-800 flex items-center justify-between text-xs text-slate-500">
           <div className="flex items-center gap-2">
             <Server className="h-4 w-4 text-emerald-500" />
-            <span>Motor Sync: Firebase Firestore Enterprise + IndexedDB Local</span>
+            <span>Mazal Distribuidora de productos desechables, plásticos y comestibles - 2026</span>
           </div>
           <button
             onClick={onClose}
@@ -533,6 +505,7 @@ export const OfflineSyncPanelModal: React.FC<Props> = ({ isOpen, onClose }) => {
           </button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 };

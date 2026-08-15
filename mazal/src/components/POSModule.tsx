@@ -23,7 +23,9 @@ import {
   DollarSign,
   Info,
   X,
-  Printer
+  Printer,
+  ChevronLeft,
+  ChevronRight
 } from "lucide-react";
 import { 
   Product, 
@@ -89,6 +91,22 @@ export default function POSModule({
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>(PaymentMethod.CASH);
   const [amountPaid, setAmountPaid] = useState<number>(0);
+  const [rawAmountPaid, setRawAmountPaid] = useState<string>("");
+  const [currentPage, setCurrentPage] = useState<number>(1);
+  const ITEMS_PER_PAGE = 24;
+
+  const handleRawAmountPaidChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    let val = e.target.value.replace(/[^0-9.]/g, "");
+    const parts = val.split(".");
+    if (parts.length > 2) {
+      val = parts[0] + "." + parts.slice(1).join("");
+    }
+    if (parts[1] && parts[1].length > 2) {
+      val = parts[0] + "." + parts[1].substring(0, 2);
+    }
+    setRawAmountPaid(val);
+    setAmountPaid(parseFloat(val) || 0);
+  };
   
   // Scanners / fast entry
   const [scanCode, setScanCode] = useState("");
@@ -173,6 +191,17 @@ export default function POSModule({
 
     return matchesSearch && matchesDepartment && matchesCategory && matchesUnitType;
   });
+
+  // Reset page when search or filters change
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchTerm, selectedDepartment, selectedCategory, selectedUnitType]);
+
+  const totalPages = Math.max(1, Math.ceil(filteredProducts.length / ITEMS_PER_PAGE));
+  const paginatedProducts = filteredProducts.slice(
+    (currentPage - 1) * ITEMS_PER_PAGE,
+    currentPage * ITEMS_PER_PAGE
+  );
 
   // Calculate dynamic price based on rules
   const getDynamicPrice = (product: Product, quantity: number, customer: Customer | null): { price: number; type: string } => {
@@ -611,6 +640,7 @@ export default function POSModule({
     setShowReceipt(true);
     setCart([]);
     setAmountPaid(0);
+    setRawAmountPaid("");
   };
 
   return (
@@ -774,8 +804,8 @@ export default function POSModule({
             </div>
 
             {/* Catalog Grid View */}
-            <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-4 gap-3 overflow-y-auto max-h-[60vh] lg:max-h-[70vh] pr-1">
-              {filteredProducts.map((prod) => (
+            <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-4 gap-3 overflow-y-auto max-h-[60vh] lg:max-h-[66vh] pr-1">
+              {paginatedProducts.map((prod) => (
                 <div
                   key={prod.id}
                   onClick={() => addToCart(prod)}
@@ -903,6 +933,41 @@ export default function POSModule({
                 </div>
               )}
             </div>
+
+            {/* Pagination Controls */}
+            {totalPages > 1 && (
+              <div className="flex flex-wrap items-center justify-between gap-3 p-3 bg-white dark:bg-slate-900 border border-gray-150 dark:border-slate-800 rounded-xl text-xs">
+                <span className="text-gray-500 dark:text-slate-400 font-mono text-[11px]">
+                  Mostrando {((currentPage - 1) * ITEMS_PER_PAGE) + 1} - {Math.min(currentPage * ITEMS_PER_PAGE, filteredProducts.length)} de {filteredProducts.length} productos
+                </span>
+                
+                <div className="flex items-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
+                    disabled={currentPage === 1}
+                    className="p-1.5 rounded-lg border border-gray-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-700 dark:text-slate-200 disabled:opacity-40 disabled:cursor-not-allowed hover:bg-slate-100 dark:hover:bg-slate-750 transition-colors cursor-pointer"
+                    title="Página Anterior"
+                  >
+                    <ChevronLeft className="h-4 w-4" />
+                  </button>
+
+                  <span className="px-2.5 py-1 rounded-lg bg-emerald-50 dark:bg-emerald-950/40 text-emerald-800 dark:text-emerald-300 font-bold font-mono text-xs border border-emerald-200/60 dark:border-emerald-800/50">
+                    {currentPage} / {totalPages}
+                  </span>
+
+                  <button
+                    type="button"
+                    onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
+                    disabled={currentPage === totalPages}
+                    className="p-1.5 rounded-lg border border-gray-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-700 dark:text-slate-200 disabled:opacity-40 disabled:cursor-not-allowed hover:bg-slate-100 dark:hover:bg-slate-750 transition-colors cursor-pointer"
+                    title="Página Siguiente"
+                  >
+                    <ChevronRight className="h-4 w-4" />
+                  </button>
+                </div>
+              </div>
+            )}
           </>
         )}
       </div>
@@ -1262,17 +1327,31 @@ export default function POSModule({
               <div className="mt-3.5 space-y-2 p-3.5 rounded-xl bg-slate-50 dark:bg-slate-950/20 border border-gray-150 dark:border-slate-800">
                 <div className="flex justify-between items-center text-xs">
                   <span className="text-gray-500 font-bold">Monto Recibido:</span>
-                  <div className="relative w-32">
-                    <span className="absolute left-2.5 top-1.5 font-mono text-[11px] text-gray-400">$</span>
-                    <input
-                      type="number"
-                      step="0.01"
-                      min="0"
-                      value={amountPaid || ""}
-                      onChange={(e) => setAmountPaid(parseFloat(e.target.value) || 0)}
-                      className="w-full text-right pl-6 pr-2 py-1.5 text-xs font-mono font-bold rounded bg-white dark:bg-slate-850 dark:text-white border border-gray-200 dark:border-slate-700 focus:outline-none focus:ring-1 focus:ring-emerald-500"
-                      placeholder="0.00"
-                    />
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const exactStr = total.toFixed(2);
+                        setRawAmountPaid(exactStr);
+                        setAmountPaid(total);
+                      }}
+                      className="px-1.5 py-1 text-[9px] font-bold rounded bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/40 dark:hover:bg-emerald-900/50 text-emerald-700 dark:text-emerald-300 border border-emerald-200/60 dark:border-emerald-800/50 transition-colors cursor-pointer"
+                      title="Cobro exacto sin cambio"
+                    >
+                      Exacto
+                    </button>
+                    <div className="relative w-28">
+                      <span className="absolute left-2.5 top-1.5 font-mono text-[11px] text-gray-400">$</span>
+                      <input
+                        type="text"
+                        inputMode="decimal"
+                        autoComplete="off"
+                        value={rawAmountPaid}
+                        onChange={handleRawAmountPaidChange}
+                        className="w-full text-right pl-6 pr-2 py-1.5 text-xs font-mono font-bold rounded bg-white dark:bg-slate-850 dark:text-white border border-gray-200 dark:border-slate-700 focus:outline-none focus:ring-1 focus:ring-emerald-500 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                        placeholder="0.00"
+                      />
+                    </div>
                   </div>
                 </div>
                 {amountPaid > 0 && (

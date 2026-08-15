@@ -240,34 +240,34 @@ export default function LoginAndCatalog({
 
   return (
     <div className="min-h-screen bg-[#f4f6f0] dark:bg-slate-950 flex flex-col font-sans transition-colors duration-300" id="login-and-catalog-container">
-      
-      {/* ========================================================================= */}
+       {/* ========================================================================= */}
       {/* 1. TOP NAVBAR / HEADER */}
       {/* ========================================================================= */}
-      <header className="bg-white/95 dark:bg-slate-900/95 backdrop-blur-md border-b border-gray-200 dark:border-slate-800 py-2.5 px-4 sm:px-6 sticky top-0 z-40 shadow-xs">
-        <div className="max-w-[1720px] mx-auto w-full flex flex-col sm:flex-row items-center justify-between gap-3 sm:gap-4">
+      <header className="bg-white/95 dark:bg-slate-900/95 backdrop-blur-md border-b border-gray-200 dark:border-slate-800 py-2.5 px-3 sm:px-6 sticky top-0 z-40 shadow-xs">
+        <div className="max-w-[1720px] mx-auto w-full flex flex-wrap items-center justify-between gap-3">
           
-          <div className="flex flex-col sm:flex-row items-center gap-3 sm:gap-4 text-center sm:text-left">
+          <div className="flex items-center gap-3 sm:gap-4">
             <MazalLogo size="md" showSubtitle={false} />
-            <div className="flex flex-col sm:border-l sm:border-gray-200 sm:dark:border-slate-800 sm:pl-4">
-              <h1 className="text-sm font-black tracking-tight text-slate-900 dark:text-white flex items-center gap-2 justify-center sm:justify-start">
+            <div className="flex flex-col border-l border-gray-200 dark:border-slate-800 pl-3 sm:pl-4">
+              <h1 className="text-sm font-black tracking-tight text-slate-900 dark:text-white flex items-center gap-2">
                 <span className="text-[11px] bg-emerald-100 dark:bg-emerald-950/70 text-emerald-800 dark:text-emerald-300 font-extrabold px-3 py-0.5 rounded-full uppercase tracking-wider font-mono flex items-center gap-1.5 border border-emerald-200/60 dark:border-emerald-800/60 shadow-2xs">
                   <Store className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" />
-                  Sucursal {currentBranch || "Norte"} &bull; Catálogo Mayorista
+                  {currentBranch === "Sur" ? "Mazal 2" : "Mazal 1"} &bull; Catálogo Mayorista
                 </span>
               </h1>
-              <p className="text-[11px] text-gray-500 dark:text-slate-400 mt-0.5">Precios transparentes de menudeo, medio mayoreo y mayoreo para clientes</p>
+              <p className="text-[11px] text-gray-500 dark:text-slate-400 mt-0.5 hidden sm:block">Precios transparentes de menudeo, medio mayoreo y mayoreo para clientes</p>
             </div>
           </div>
           
-          <div className="flex flex-wrap items-center justify-center sm:justify-end gap-2 sm:gap-3">
+          {/* Responsive adaptive action buttons */}
+          <div className="flex flex-wrap items-center gap-1.5 sm:gap-2 justify-end">
             
             {/* Theme switcher */}
             {onToggleTheme && (
               <button
                 onClick={onToggleTheme}
                 id="catalog-theme-toggle"
-                className="h-9 px-3 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-750 text-slate-700 dark:text-slate-300 text-xs font-bold border border-gray-200 dark:border-slate-750 transition-all flex items-center gap-1.5 cursor-pointer shadow-2xs"
+                className="h-9 px-2.5 sm:px-3 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-750 text-slate-700 dark:text-slate-300 text-xs font-bold border border-gray-200 dark:border-slate-750 transition-all flex items-center gap-1.5 cursor-pointer shadow-2xs shrink-0"
                 title={theme === "light" ? "Cambiar a Modo Oscuro" : "Cambiar a Modo Claro"}
                 aria-label="Alternar modo claro/oscuro"
               >
@@ -290,11 +290,11 @@ export default function LoginAndCatalog({
               <button
                 onClick={onBackToBranch}
                 id="btn-cambiar-sucursal"
-                className="h-9 px-3.5 bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/40 dark:hover:bg-emerald-900/50 text-emerald-700 dark:text-emerald-300 text-xs font-extrabold rounded-xl border border-emerald-200 dark:border-emerald-800/60 transition-colors flex items-center gap-1.5 cursor-pointer shadow-2xs"
+                className="h-9 px-2.5 sm:px-3.5 bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/40 dark:hover:bg-emerald-900/50 text-emerald-700 dark:text-emerald-300 text-xs font-extrabold rounded-xl border border-emerald-200 dark:border-emerald-800/60 transition-colors flex items-center gap-1.5 cursor-pointer shadow-2xs shrink-0"
                 title="Cambiar sucursal con contraseña de acceso"
               >
                 <Store className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" />
-                <span>Cambiar Sucursal</span>
+                <span className="hidden sm:inline">Cambiar Sucursal</span>
               </button>
             )}
 
@@ -305,7 +305,7 @@ export default function LoginAndCatalog({
                 logAction(quickUser.name, quickUser.role, "Acceso Rápido POS", "Inició sesión directa en modo exclusivo de Punto de Venta.");
                 onLoginSuccess(quickUser, true);
               }}
-              className="h-9 px-3.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-750 text-slate-700 dark:text-slate-200 text-xs font-bold rounded-xl border border-gray-200 dark:border-slate-750 transition-colors flex items-center gap-1.5 cursor-pointer shadow-2xs"
+              className="h-9 px-2.5 sm:px-3.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-750 text-slate-700 dark:text-slate-200 text-xs font-bold rounded-xl border border-gray-200 dark:border-slate-750 transition-colors flex items-center gap-1.5 cursor-pointer shadow-2xs shrink-0"
               title="Acceso directo a terminal de cobro"
             >
               <ShoppingBag className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" />
@@ -316,11 +316,11 @@ export default function LoginAndCatalog({
             <button
               onClick={() => setShowStaffDrawer(true)}
               id="open-staff-drawer-btn"
-              className="h-9 px-4 bg-gradient-to-r from-emerald-600 to-teal-700 hover:from-emerald-700 hover:to-teal-800 active:from-emerald-800 active:to-teal-900 text-white text-xs font-black rounded-xl shadow-xs transition-all flex items-center gap-2 cursor-pointer ring-2 ring-emerald-500/20 hover:ring-emerald-500/40"
+              className="h-9 px-3 sm:px-4 bg-gradient-to-r from-emerald-600 to-teal-700 hover:from-emerald-700 hover:to-teal-800 active:from-emerald-800 active:to-teal-900 text-white text-xs font-black rounded-xl shadow-xs transition-all flex items-center gap-1.5 sm:gap-2 cursor-pointer ring-2 ring-emerald-500/20 hover:ring-emerald-500/40 shrink-0"
             >
               <Lock className="h-3.5 w-3.5 text-emerald-200" />
               <span>Acceso Colaboradores</span>
-              <ArrowRight className="h-3 w-3 text-emerald-300" />
+              <ArrowRight className="h-3 w-3 text-emerald-300 hidden sm:inline" />
             </button>
           </div>
         </div>
@@ -355,10 +355,8 @@ export default function LoginAndCatalog({
           </div>
         </div>
 
-        {/* Search, Filter and Sorting Toolbar - Anchored Sticky Header on Scroll with generous padding */}
-        <div className="sticky top-[64px] sm:top-[70px] z-30 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md p-4 sm:p-5 rounded-2xl border border-gray-200/90 dark:border-slate-800/90 space-y-3.5 shadow-md transition-all duration-200">
-          
-          {/* Main Search Bar */}
+        {/* 1. Main Search Bar - STICKY ONLY TO SEARCH BAR */}
+        <div className="sticky top-[60px] sm:top-[68px] z-30 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md p-3.5 sm:p-4 rounded-2xl border border-gray-200/90 dark:border-slate-800/90 shadow-md transition-all duration-200">
           <div className="flex flex-col sm:flex-row gap-3">
             <div className="relative flex-1">
               <Search className="absolute left-3.5 top-3 h-4 w-4 text-gray-400" />
@@ -373,7 +371,7 @@ export default function LoginAndCatalog({
               {searchTerm && (
                 <button
                   onClick={() => setSearchTerm("")}
-                  className="absolute right-3 top-3 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200"
+                  className="absolute right-3 top-3 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 cursor-pointer"
                 >
                   <X className="h-4 w-4" />
                 </button>
@@ -386,9 +384,11 @@ export default function LoginAndCatalog({
               <span>{totalItems} artículos encontrados</span>
             </div>
           </div>
+        </div>
 
-          {/* Filters Row */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5 pt-1 text-xs">
+        {/* 2. Filters Row - NON STICKY (Omitidos del sticky) */}
+        <div className="bg-white dark:bg-slate-900 p-3 sm:p-4 rounded-2xl border border-gray-200 dark:border-slate-800 shadow-2xs">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5 text-xs">
             
             {/* Department Select */}
             <div className="flex items-center gap-2 bg-slate-50 dark:bg-slate-950 px-3 py-2 rounded-xl border border-gray-200 dark:border-slate-800">
@@ -448,12 +448,11 @@ export default function LoginAndCatalog({
                 <option value="stock-desc" className="bg-white dark:bg-slate-900">Mayor Existencia</option>
               </select>
             </div>
-
           </div>
 
           {/* Active Filter Badges */}
           {(searchTerm || selectedDepartment !== "Todos" || selectedCategory !== "Todos" || selectedUnitType !== "Todos") && (
-            <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-gray-100 dark:border-slate-800 text-xs">
+            <div className="flex flex-wrap items-center gap-2 pt-3 mt-3 border-t border-gray-100 dark:border-slate-800 text-xs">
               <span className="text-[11px] text-gray-400 font-medium">Filtros activos:</span>
               {searchTerm && (
                 <span className="px-2.5 py-1 bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400 rounded-lg font-semibold flex items-center gap-1">
@@ -492,7 +491,6 @@ export default function LoginAndCatalog({
               </button>
             </div>
           )}
-
         </div>
 
         {/* ========================================================================= */}
@@ -691,7 +689,7 @@ export default function LoginAndCatalog({
       {/* 5. FOOTER */}
       {/* ========================================================================= */}
       <footer className="bg-white dark:bg-slate-900 border-t border-gray-200 dark:border-slate-800 py-4 px-6 text-center text-xs text-gray-400 dark:text-slate-500 mt-auto">
-        <p>© 2026 Abarrotes Mazal ERP & Punto de Venta • Catálogo Mayorista • Toluca, Estado de México.</p>
+        <p>Mazal Distribuidora de productos desechables, plásticos y comestibles - 2026</p>
       </footer>
 
       {/* ========================================================================= */}
@@ -723,7 +721,7 @@ export default function LoginAndCatalog({
                 Portal de Colaboradores
               </h2>
               <p className="text-[11px] text-gray-500 dark:text-slate-400 mt-0.5">
-                Ingreso al ERP y administración del sistema
+                Ingreso al sistema administrativo
               </p>
             </div>
           </div>
@@ -742,10 +740,10 @@ export default function LoginAndCatalog({
           
           <div className="p-3.5 bg-emerald-50/60 dark:bg-emerald-950/30 border border-emerald-100 dark:border-emerald-900/30 rounded-xl text-xs text-emerald-800 dark:text-emerald-300">
             <p className="font-bold flex items-center gap-1.5">
-              <Store className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" /> Sucursal Activa: Norte (Principal)
+              <Store className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" /> Sucursal: {activeBranch === "Sur" ? "MAZAL 2 (Sur)" : "MAZAL 1 (Norte)"}
             </p>
             <p className="text-[11px] text-emerald-700/80 dark:text-emerald-400/80 mt-1">
-              Las credenciales se validan y persisten directamente en la base de datos MySQL local.
+              Acceso seguro para personal autorizado.
             </p>
           </div>
 
@@ -762,7 +760,7 @@ export default function LoginAndCatalog({
             </div>
           )}
 
-          <form onSubmit={handleLoginSubmit} className="space-y-4">
+          <form onSubmit={handleLoginSubmit} className="space-y-4" autoComplete="off">
             
             <div className="space-y-1">
               <label className="text-[10px] font-extrabold text-gray-500 dark:text-slate-400 uppercase block tracking-wider">
@@ -772,7 +770,11 @@ export default function LoginAndCatalog({
                 type="text"
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
-                placeholder="Ej. admin"
+                placeholder="Usuario"
+                autoComplete="off"
+                autoCorrect="off"
+                autoCapitalize="none"
+                spellCheck={false}
                 className="w-full text-xs p-3 bg-slate-50 dark:bg-slate-950 border border-gray-200 dark:border-slate-800 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500 text-slate-800 dark:text-white font-mono"
                 required
                 autoFocus
@@ -788,7 +790,11 @@ export default function LoginAndCatalog({
                   type={showPassword ? "text" : "password"}
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  placeholder="Ingresa tu contraseña"
+                  placeholder="Contraseña"
+                  autoComplete="new-password"
+                  autoCorrect="off"
+                  autoCapitalize="none"
+                  spellCheck={false}
                   className="w-full text-xs p-3 pr-10 bg-slate-50 dark:bg-slate-950 border border-gray-200 dark:border-slate-800 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500 text-slate-800 dark:text-white font-mono"
                   required
                 />
@@ -806,7 +812,7 @@ export default function LoginAndCatalog({
               type="submit"
               className="w-full py-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition-all shadow-sm flex items-center justify-center gap-2 cursor-pointer"
             >
-              <span>Validar e Ingresar al ERP</span>
+              <span>Validar e Ingresar</span>
               <ArrowRight className="h-4 w-4" />
             </button>
           </form>
@@ -837,7 +843,7 @@ export default function LoginAndCatalog({
         {/* Drawer Footer */}
         <div className="p-4 border-t border-gray-150 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950/40 text-center">
           <p className="text-[10px] text-gray-400 dark:text-slate-500">
-            Mazal ERP v6 Enterprise • Conectado a MySQL local
+            Mazal Distribuidora de productos desechables, plásticos y comestibles - 2026
           </p>
         </div>
       </aside>

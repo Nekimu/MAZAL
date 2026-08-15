@@ -487,6 +487,34 @@ export default function FinanceModule({ currentUser }: { currentUser: { name: st
 
   const maxSaleValue = maxSaleDay ? maxSaleDay.total : 1;
 
+  // Daily financial performance timeline for multi-line comparison chart
+  const performanceTrendList = sortedSalesDates.map(date => {
+    const daySales = (filteredSales || []).filter(s => (s.date || "").substring(0, 10) === date);
+    const daySalesTotal = daySales.reduce((sum, s) => sum + s.total, 0);
+    const dayCostTotal = daySales.reduce((sum, s) => sum + (s.costTotal || 0), 0);
+    const dayExpenses = (filteredExpenses || []).filter(e => e.date === date);
+    const dayExpenseTotal = dayExpenses.reduce((sum, e) => sum + e.amount, 0);
+    const dayNet = daySalesTotal - dayCostTotal - dayExpenseTotal;
+    const shortDate = date.length >= 10 ? `${date.substring(8, 10)}/${date.substring(5, 7)}` : date;
+    return {
+      date,
+      shortDate,
+      ventas: Number(daySalesTotal.toFixed(2)),
+      costos: Number(dayCostTotal.toFixed(2)),
+      gastos: Number(dayExpenseTotal.toFixed(2)),
+      utilidad: Number(dayNet.toFixed(2))
+    };
+  });
+
+  // Balance General Structure line chart data points
+  const balanceChartData = [
+    { name: "Inventarios", valor: Math.max(0, inventoryTotalValuation), tipo: "Activo" },
+    { name: "Cuentas x Cobrar", valor: Math.max(0, totalReceivables), tipo: "Activo" },
+    { name: "Efectivo / Caja", valor: Math.max(0, cashInStore), tipo: "Activo" },
+    { name: "Deuda Proveedor", valor: Math.max(0, totalLiabilities), tipo: "Pasivo" },
+    { name: "Patrimonio Neto", valor: Math.max(0, netEquity), tipo: "Capital" }
+  ];
+
   // Uniquely identify sellers/cashiers in database for filter dropdowns
   const uniqueSellers = Array.from(new Set(rawSalesList.map((s: Sale) => s.userName).filter(Boolean)));
 
@@ -666,47 +694,47 @@ export default function FinanceModule({ currentUser }: { currentUser: { name: st
   return (
     <div className="space-y-6">
       {/* Top Banner Ribbon */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 p-5 rounded-2xl bg-teal-950 dark:bg-slate-900 text-white shadow-md border border-emerald-900/30 dark:border-slate-800">
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 p-5 rounded-2xl bg-white dark:bg-slate-900 border border-gray-150 dark:border-slate-800 shadow-sm text-slate-800 dark:text-slate-100">
         <div className="flex items-center gap-4">
-          <div className="h-12 w-12 rounded-xl bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 flex items-center justify-center">
+          <div className="h-12 w-12 rounded-xl bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 flex items-center justify-center">
             <Activity className="h-6 w-6" />
           </div>
           <div>
-            <h1 className="text-xl font-extrabold tracking-tight font-sans">Módulo Financiero Mazal</h1>
-            <p className="text-xs text-emerald-300/80 dark:text-slate-400 font-mono">Consolidación Contable, Caja Chica y Reportes sin Inteligencia Artificial</p>
+            <h1 className="text-xl font-extrabold tracking-tight font-sans text-slate-900 dark:text-white">Módulo Financiero Mazal</h1>
+            <p className="text-xs text-slate-500 dark:text-slate-400 font-mono">Consolidación Contable, Caja Chica y Reportes Operativos</p>
           </div>
         </div>
 
         {/* Global Controls */}
         <div className="flex flex-wrap items-center gap-2.5">
           <div className="flex flex-col">
-            <span className="text-[10px] text-emerald-300/60 uppercase font-bold tracking-wider mb-1">Sucursal</span>
+            <span className="text-[10px] text-gray-500 dark:text-slate-400 uppercase font-bold tracking-wider mb-1">Sucursal</span>
             <select 
               value={branchFilter} 
               onChange={e => setBranchFilter(e.target.value)} 
-              className="px-2.5 py-1.5 rounded-lg text-xs bg-teal-900/50 text-white border border-teal-800/80 focus:ring-1 focus:ring-emerald-400 focus:outline-none animate-none"
+              className="px-2.5 py-1.5 rounded-lg text-xs bg-slate-50 dark:bg-slate-800 text-slate-800 dark:text-slate-200 border border-gray-200 dark:border-slate-700 focus:ring-1 focus:ring-emerald-500 focus:outline-none cursor-pointer"
             >
-              {sucursales.map(s => <option key={s} value={s} className="bg-teal-950">{s}</option>)}
+              {sucursales.map(s => <option key={s} value={s} className="bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-200">{s}</option>)}
             </select>
           </div>
 
           <div className="flex flex-col">
-            <span className="text-[10px] text-emerald-300/60 uppercase font-bold tracking-wider mb-1">Desde</span>
+            <span className="text-[10px] text-gray-500 dark:text-slate-400 uppercase font-bold tracking-wider mb-1">Desde</span>
             <input 
               type="date" 
               value={dateStartFilter} 
               onChange={e => setDateStartFilter(e.target.value)} 
-              className="px-2.5 py-1 rounded-lg text-xs bg-teal-900/50 text-white border border-teal-800/80 focus:ring-1 focus:ring-emerald-400 focus:outline-none"
+              className="px-2.5 py-1 rounded-lg text-xs bg-slate-50 dark:bg-slate-800 text-slate-800 dark:text-slate-200 border border-gray-200 dark:border-slate-700 focus:ring-1 focus:ring-emerald-500 focus:outline-none"
             />
           </div>
 
           <div className="flex flex-col">
-            <span className="text-[10px] text-emerald-300/60 uppercase font-bold tracking-wider mb-1">Hasta</span>
+            <span className="text-[10px] text-gray-500 dark:text-slate-400 uppercase font-bold tracking-wider mb-1">Hasta</span>
             <input 
               type="date" 
               value={dateEndFilter} 
               onChange={e => setDateEndFilter(e.target.value)} 
-              className="px-2.5 py-1 rounded-lg text-xs bg-teal-900/50 text-white border border-teal-800/80 focus:ring-1 focus:ring-emerald-400 focus:outline-none"
+              className="px-2.5 py-1 rounded-lg text-xs bg-slate-50 dark:bg-slate-800 text-slate-800 dark:text-slate-200 border border-gray-200 dark:border-slate-700 focus:ring-1 focus:ring-emerald-500 focus:outline-none"
             />
           </div>
 
@@ -720,13 +748,43 @@ export default function FinanceModule({ currentUser }: { currentUser: { name: st
                 setBranchFilter("Todas");
                 setUserFilter("Todos");
               }} 
-              className="p-1.5 bg-teal-900 hover:bg-teal-800 rounded-lg text-emerald-300 transition-colors"
+              className="p-1.5 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-lg text-slate-600 dark:text-slate-300 transition-colors cursor-pointer"
               title="Restablecer Filtros"
             >
               <RefreshCw className="h-4 w-4" />
             </button>
           </div>
         </div>
+      </div>
+
+      {/* Primary Sub-navigation Tabs (MOVED TO TOP) */}
+      <div className="flex overflow-x-auto gap-1.5 p-1.5 bg-slate-100 dark:bg-slate-900 rounded-2xl border border-gray-200 dark:border-slate-800 shadow-2xs">
+        {[
+          { id: "ventas", label: "Historial Ventas", icon: TrendingUp },
+          { id: "gastos", label: "Registro de Gastos", icon: FileText },
+          { id: "caja", label: "Caja y Cortes", icon: Wallet },
+          { id: "cobrar", label: "Cuentas por Cobrar", icon: Users },
+          { id: "pagar", label: "Cuentas por Pagar", icon: Users },
+          { id: "utilidad", label: "Utilidad Contable", icon: DollarSign },
+          { id: "reportes", label: "Reportes Tradicionales", icon: Printer }
+        ].map(tab => {
+          const Icon = tab.icon;
+          const isAct = activeSubTab === tab.id;
+          return (
+            <button
+              key={tab.id}
+              onClick={() => setActiveSubTab(tab.id as any)}
+              className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-extrabold whitespace-nowrap transition-all cursor-pointer ${
+                isAct 
+                  ? "bg-white dark:bg-slate-800 text-emerald-600 dark:text-emerald-400 shadow-sm border border-gray-200/80 dark:border-slate-700" 
+                  : "text-gray-500 dark:text-slate-400 hover:text-gray-800 dark:hover:text-slate-200 hover:bg-white/60 dark:hover:bg-slate-800/40"
+              }`}
+            >
+              <Icon className="h-4 w-4" />
+              {tab.label}
+            </button>
+          );
+        })}
       </div>
 
       {/* Main KPI Widgets Cards Panel */}
@@ -796,80 +854,54 @@ export default function FinanceModule({ currentUser }: { currentUser: { name: st
 
       {/* --- VISUAL CHARTS & BALANCE GENERAL GRAPHICS PANEL --- */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
-        {/* CHART 1: Balance General Structure (Activos vs Pasivos & Patrimonio) */}
+        {/* CHART 1: Balance General Structure (Line Chart) */}
         <div className="p-5 rounded-2xl bg-white dark:bg-slate-900 border border-gray-150 dark:border-slate-800 shadow-xs space-y-4">
           <div className="flex justify-between items-center border-b border-gray-100 dark:border-slate-850 pb-3">
             <div>
               <h4 className="font-extrabold text-sm text-gray-800 dark:text-slate-100 flex items-center gap-2">
                 <BarChart3 className="h-4.5 w-4.5 text-emerald-600 dark:text-emerald-400" />
-                Balance General Ilustrativo
+                Balance General
               </h4>
               <p className="text-[10px] text-gray-400 font-mono">Estructura Patrimonial: Activos, Pasivos y Capital</p>
             </div>
-            <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400 border border-emerald-100 dark:border-emerald-900/30">
+            <span className="px-2.5 py-1 rounded-lg text-[10px] font-bold bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400 border border-emerald-200/60 dark:border-emerald-900/40">
               Patrimonio: ${netEquity.toLocaleString("es-MX", { maximumFractionDigits: 0 })}
             </span>
           </div>
 
-          <div className="space-y-3.5 text-xs">
-            {/* Activos Stack Bar */}
-            <div>
-              <div className="flex justify-between text-[11px] font-bold mb-1">
-                <span className="text-emerald-700 dark:text-emerald-400">Total Activos (Recursos)</span>
-                <span className="font-mono text-gray-900 dark:text-white">${totalAssets.toLocaleString("es-MX", { minimumFractionDigits: 2 })}</span>
-              </div>
-              <div className="h-3 w-full bg-gray-100 dark:bg-slate-800 rounded-full overflow-hidden flex">
-                <div 
-                  className="bg-emerald-500 h-full transition-all" 
-                  style={{ width: `${totalAssets > 0 ? Math.min(100, (inventoryTotalValuation / totalAssets) * 100) : 0}%` }}
-                  title={`Inventarios: $${inventoryTotalValuation.toFixed(2)}`}
+          <div className="h-44 w-full pt-1">
+            <ResponsiveContainer width="100%" height="100%">
+              <LineChart data={balanceChartData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" opacity={0.15} />
+                <XAxis dataKey="name" tick={{ fontSize: 9, fill: "#888888" }} interval={0} />
+                <YAxis tick={{ fontSize: 9, fill: "#888888" }} tickFormatter={(v) => `$${v >= 1000 ? (v/1000).toFixed(0) + 'k' : v}`} />
+                <RechartsTooltip 
+                  formatter={(value: any) => [`$${Number(value || 0).toLocaleString("es-MX", { minimumFractionDigits: 2 })} MXN`, "Monto"]}
+                  contentStyle={{ backgroundColor: "#0f172a", borderRadius: "8px", border: "1px solid #334155", color: "#ffffff", fontSize: "11px" }}
                 />
-                <div 
-                  className="bg-blue-500 h-full transition-all" 
-                  style={{ width: `${totalAssets > 0 ? Math.min(100, (totalReceivables / totalAssets) * 100) : 0}%` }}
-                  title={`Cuentas por Cobrar: $${totalReceivables.toFixed(2)}`}
-                />
-                <div 
-                  className="bg-teal-400 h-full transition-all" 
-                  style={{ width: `${totalAssets > 0 ? Math.min(100, (cashInStore / totalAssets) * 100) : 0}%` }}
-                  title={`Efectivo en Caja/Fluido: $${cashInStore.toFixed(2)}`}
-                />
-              </div>
-            </div>
+                <Line type="monotone" dataKey="valor" stroke="#10b981" strokeWidth={2.5} dot={{ r: 4, fill: "#10b981" }} activeDot={{ r: 6 }} />
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
 
-            {/* Pasivos Stack Bar */}
-            <div>
-              <div className="flex justify-between text-[11px] font-bold mb-1">
-                <span className="text-rose-600 dark:text-rose-400">Total Pasivos (Deudas Proveedores)</span>
-                <span className="font-mono text-rose-600 dark:text-rose-400">${totalLiabilities.toLocaleString("es-MX", { minimumFractionDigits: 2 })}</span>
-              </div>
-              <div className="h-2.5 w-full bg-gray-100 dark:bg-slate-800 rounded-full overflow-hidden">
-                <div 
-                  className="bg-rose-500 h-full transition-all" 
-                  style={{ width: `${totalAssets > 0 ? Math.min(100, (totalLiabilities / totalAssets) * 100) : 0}%` }}
-                />
-              </div>
+          {/* Asset Item Breakdown Grid */}
+          <div className="grid grid-cols-3 gap-2 pt-2 border-t border-gray-100 dark:border-slate-850 text-[10px]">
+            <div className="bg-emerald-50/50 dark:bg-emerald-950/20 p-2 rounded-lg border border-emerald-100/40">
+              <span className="text-emerald-700 dark:text-emerald-400 font-bold block">📦 Inventarios</span>
+              <span className="font-mono font-bold text-gray-800 dark:text-slate-200">${inventoryTotalValuation.toLocaleString("es-MX", { maximumFractionDigits: 0 })}</span>
             </div>
-
-            {/* Asset Item Breakdown Grid */}
-            <div className="grid grid-cols-3 gap-2 pt-2 border-t border-gray-100 dark:border-slate-850 text-[10px]">
-              <div className="bg-emerald-50/50 dark:bg-emerald-950/20 p-2 rounded-lg border border-emerald-100/40">
-                <span className="text-emerald-700 dark:text-emerald-400 font-bold block">📦 Inventarios</span>
-                <span className="font-mono font-bold text-gray-800 dark:text-slate-200">${inventoryTotalValuation.toLocaleString("es-MX", { maximumFractionDigits: 0 })}</span>
-              </div>
-              <div className="bg-blue-50/50 dark:bg-blue-950/20 p-2 rounded-lg border border-blue-100/40">
-                <span className="text-blue-700 dark:text-blue-400 font-bold block">👥 CxC Clientes</span>
-                <span className="font-mono font-bold text-gray-800 dark:text-slate-200">${totalReceivables.toLocaleString("es-MX", { maximumFractionDigits: 0 })}</span>
-              </div>
-              <div className="bg-rose-50/50 dark:bg-rose-950/20 p-2 rounded-lg border border-rose-100/40">
-                <span className="text-rose-700 dark:text-rose-400 font-bold block">🏭 CxP Proveed.</span>
-                <span className="font-mono font-bold text-gray-800 dark:text-slate-200">${totalLiabilities.toLocaleString("es-MX", { maximumFractionDigits: 0 })}</span>
-              </div>
+            <div className="bg-blue-50/50 dark:bg-blue-950/20 p-2 rounded-lg border border-blue-100/40">
+              <span className="text-blue-700 dark:text-blue-400 font-bold block">👥 CxC Clientes</span>
+              <span className="font-mono font-bold text-gray-800 dark:text-slate-200">${totalReceivables.toLocaleString("es-MX", { maximumFractionDigits: 0 })}</span>
+            </div>
+            <div className="bg-rose-50/50 dark:bg-rose-950/20 p-2 rounded-lg border border-rose-100/40">
+              <span className="text-rose-700 dark:text-rose-400 font-bold block">🏭 CxP Proveed.</span>
+              <span className="font-mono font-bold text-gray-800 dark:text-slate-200">${totalLiabilities.toLocaleString("es-MX", { maximumFractionDigits: 0 })}</span>
             </div>
           </div>
         </div>
 
-        {/* CHART 2: Performance Comparison (Ventas vs COGS vs Gastos vs Utilidad Neta) */}
+        {/* CHART 2: Performance Comparison Line Chart */}
         <div className="p-5 rounded-2xl bg-white dark:bg-slate-900 border border-gray-150 dark:border-slate-800 shadow-xs space-y-4">
           <div className="flex justify-between items-center border-b border-gray-100 dark:border-slate-850 pb-3">
             <div>
@@ -881,60 +913,33 @@ export default function FinanceModule({ currentUser }: { currentUser: { name: st
             </div>
           </div>
 
-          <div className="space-y-2.5 text-xs">
-            {/* Sales Bar */}
-            <div>
-              <div className="flex justify-between text-[11px] mb-1">
-                <span className="font-semibold text-gray-600 dark:text-slate-400">Ventas Totales (Ingresos)</span>
-                <span className="font-mono font-bold text-emerald-600 dark:text-emerald-400">${totalSalesAmount.toLocaleString("es-MX", { minimumFractionDigits: 2 })}</span>
-              </div>
-              <div className="h-2.5 w-full bg-gray-100 dark:bg-slate-800 rounded-full overflow-hidden">
-                <div className="bg-emerald-500 h-full w-full rounded-full" />
-              </div>
-            </div>
-
-            {/* COGS Bar */}
-            <div>
-              <div className="flex justify-between text-[11px] mb-1">
-                <span className="font-semibold text-gray-600 dark:text-slate-400">Costo de Ventas (COGS)</span>
-                <span className="font-mono text-amber-600 dark:text-amber-400">-${totalSalesCost.toLocaleString("es-MX", { minimumFractionDigits: 2 })}</span>
-              </div>
-              <div className="h-2.5 w-full bg-gray-100 dark:bg-slate-800 rounded-full overflow-hidden">
-                <div 
-                  className="bg-amber-500 h-full rounded-full" 
-                  style={{ width: `${totalSalesAmount > 0 ? Math.min(100, (totalSalesCost / totalSalesAmount) * 100) : 0}%` }}
+          <div className="h-44 w-full pt-1">
+            <ResponsiveContainer width="100%" height="100%">
+              <LineChart data={performanceTrendList.length > 0 ? performanceTrendList : [{ shortDate: "Hoy", ventas: totalSalesAmount, costos: totalSalesCost, gastos: totalExpensesAmount, utilidad: totalNetProfit }]} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" opacity={0.15} />
+                <XAxis dataKey="shortDate" tick={{ fontSize: 9, fill: "#888888" }} />
+                <YAxis tick={{ fontSize: 9, fill: "#888888" }} tickFormatter={(v) => `$${v >= 1000 ? (v/1000).toFixed(0) + 'k' : v}`} />
+                <RechartsTooltip 
+                  formatter={(value: any, name: any) => [`$${Number(value || 0).toLocaleString("es-MX", { minimumFractionDigits: 2 })} MXN`, name === "ventas" ? "Ventas" : name === "costos" ? "Costos" : name === "gastos" ? "Gastos" : "Utilidad"]}
+                  contentStyle={{ backgroundColor: "#0f172a", borderRadius: "8px", border: "1px solid #334155", color: "#ffffff", fontSize: "11px" }}
                 />
-              </div>
-            </div>
+                <Legend wrapperStyle={{ fontSize: "9px" }} formatter={(value) => value === "ventas" ? "Ventas" : value === "costos" ? "Costos" : value === "gastos" ? "Gastos" : "Utilidad"} />
+                <Line type="monotone" dataKey="ventas" stroke="#10b981" strokeWidth={2} dot={{ r: 3 }} name="ventas" />
+                <Line type="monotone" dataKey="costos" stroke="#f59e0b" strokeWidth={1.5} dot={{ r: 2 }} name="costos" />
+                <Line type="monotone" dataKey="gastos" stroke="#f43f5e" strokeWidth={1.5} dot={{ r: 2 }} name="gastos" />
+                <Line type="monotone" dataKey="utilidad" stroke="#6366f1" strokeWidth={2} dot={{ r: 3 }} name="utilidad" />
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
 
-            {/* Expenses Bar */}
-            <div>
-              <div className="flex justify-between text-[11px] mb-1">
-                <span className="font-semibold text-gray-600 dark:text-slate-400">Gastos Operativos</span>
-                <span className="font-mono text-rose-600 dark:text-rose-400">-${totalExpensesAmount.toLocaleString("es-MX", { minimumFractionDigits: 2 })}</span>
-              </div>
-              <div className="h-2.5 w-full bg-gray-100 dark:bg-slate-800 rounded-full overflow-hidden">
-                <div 
-                  className="bg-rose-500 h-full rounded-full" 
-                  style={{ width: `${totalSalesAmount > 0 ? Math.min(100, (totalExpensesAmount / totalSalesAmount) * 100) : 0}%` }}
-                />
-              </div>
+          <div className="grid grid-cols-2 gap-2 pt-2 border-t border-gray-100 dark:border-slate-850 text-[10px]">
+            <div className="flex justify-between items-center bg-slate-50 dark:bg-slate-850/50 p-1.5 rounded">
+              <span className="text-gray-500">Ingresos:</span>
+              <strong className="text-emerald-600 font-mono">${totalSalesAmount.toLocaleString("es-MX", { maximumFractionDigits: 0 })}</strong>
             </div>
-
-            {/* Net Profit Bar */}
-            <div className="pt-1">
-              <div className="flex justify-between text-[11px] font-bold mb-1">
-                <span className="text-gray-800 dark:text-slate-200">Utilidad Neta Residual</span>
-                <span className={`font-mono ${totalNetProfit >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600"}`}>
-                  ${totalNetProfit.toLocaleString("es-MX", { minimumFractionDigits: 2 })}
-                </span>
-              </div>
-              <div className="h-3 w-full bg-gray-100 dark:bg-slate-800 rounded-full overflow-hidden">
-                <div 
-                  className={`h-full rounded-full ${totalNetProfit >= 0 ? "bg-gradient-to-r from-emerald-500 to-teal-400" : "bg-rose-600"}`} 
-                  style={{ width: `${totalSalesAmount > 0 ? Math.max(0, Math.min(100, (totalNetProfit / totalSalesAmount) * 100)) : 0}%` }}
-                />
-              </div>
+            <div className="flex justify-between items-center bg-slate-50 dark:bg-slate-850/50 p-1.5 rounded">
+              <span className="text-gray-500">Utilidad:</span>
+              <strong className={`${totalNetProfit >= 0 ? "text-emerald-600" : "text-rose-600"} font-mono`}>${totalNetProfit.toLocaleString("es-MX", { maximumFractionDigits: 0 })}</strong>
             </div>
           </div>
         </div>
@@ -982,16 +987,16 @@ export default function FinanceModule({ currentUser }: { currentUser: { name: st
         </div>
       </div>
 
-      {/* CHART 4: HISTORICAL SALES TREND & PEAKS/VALLEYS VISUALIZATION */}
+      {/* CHART 4: HISTORICAL SALES TREND LINE CHART */}
       <div className="p-5 rounded-2xl bg-white dark:bg-slate-900 border border-gray-150 dark:border-slate-800 shadow-xs space-y-4">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-gray-100 dark:border-slate-850 pb-3">
           <div>
             <h4 className="font-extrabold text-base text-gray-800 dark:text-slate-100 flex items-center gap-2">
               <Activity className="h-5 w-5 text-emerald-600 dark:text-emerald-400 animate-pulse" />
-              Tendencia Histórica de Ventas (Picos y Caídas)
+              Tendencia Histórica de Ventas
             </h4>
             <p className="text-xs text-gray-500 dark:text-slate-400 mt-0.5">
-              Análisis dinámico de comportamiento de facturación diaria para identificar días con mayores ventas y oportunidades de mejora.
+              Análisis dinámico de facturación diaria para identificar patrones de consumo y rendimiento en el tiempo.
             </p>
           </div>
 
@@ -1010,57 +1015,27 @@ export default function FinanceModule({ currentUser }: { currentUser: { name: st
           </div>
         </div>
 
-        {/* Visual Bar/Line Graph */}
+        {/* Visual Recharts Line Graph */}
         {salesTrendList.length === 0 ? (
           <div className="py-12 text-center text-gray-400 text-xs italic bg-gray-50/50 dark:bg-slate-950/40 rounded-xl border border-dashed border-gray-200 dark:border-slate-800">
             No se registraron ventas en el periodo seleccionado para graficar el histórico.
           </div>
         ) : (
           <div className="space-y-3">
-            <div className="h-44 w-full flex items-end gap-2 pt-6 pb-2 px-3 bg-gradient-to-b from-emerald-500/5 to-transparent dark:from-emerald-950/20 rounded-xl border border-gray-100 dark:border-slate-850/80 overflow-x-auto">
-              {salesTrendList.map((item, idx) => {
-                const isMax = maxSaleDay && item.date === maxSaleDay.date;
-                const isMin = minSaleDay && item.date === minSaleDay.date;
-                const barHeightPct = maxSaleValue > 0 ? Math.max(12, (item.total / maxSaleValue) * 100) : 10;
-
-                return (
-                  <div key={item.date || idx} className="flex-1 min-w-[36px] flex flex-col items-center h-full justify-end group relative">
-                    {/* Tooltip on hover */}
-                    <div className="absolute -top-10 opacity-0 group-hover:opacity-100 transition-opacity bg-slate-900 text-white text-[10px] py-1 px-2 rounded font-mono z-20 pointer-events-none whitespace-nowrap shadow-lg">
-                      {item.date}: ${item.total.toLocaleString("es-MX", { minimumFractionDigits: 2 })}
-                    </div>
-
-                    {/* Peak / Valley Icon Badge */}
-                    {isMax && (
-                      <span className="text-[10px] text-emerald-600 font-extrabold animate-bounce mb-1">
-                        🚀 Máx
-                      </span>
-                    )}
-                    {isMin && !isMax && (
-                      <span className="text-[10px] text-amber-600 font-extrabold mb-1">
-                        📉 Mín
-                      </span>
-                    )}
-
-                    {/* Bar */}
-                    <div 
-                      className={`w-full rounded-t-lg transition-all duration-300 group-hover:brightness-110 ${
-                        isMax 
-                          ? "bg-gradient-to-t from-emerald-600 to-teal-400 shadow-md shadow-emerald-500/20"
-                          : isMin
-                          ? "bg-amber-400 dark:bg-amber-500"
-                          : "bg-emerald-500/70 dark:bg-emerald-600/70"
-                      }`}
-                      style={{ height: `${barHeightPct}%` }}
-                    />
-
-                    {/* X Axis Label */}
-                    <span className="text-[9px] font-mono text-gray-400 mt-1">
-                      {item.shortDate}
-                    </span>
-                  </div>
-                );
-              })}
+            <div className="h-56 w-full pt-2">
+              <ResponsiveContainer width="100%" height="100%">
+                <LineChart data={salesTrendList} margin={{ top: 10, right: 15, left: -15, bottom: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" opacity={0.15} />
+                  <XAxis dataKey="shortDate" tick={{ fontSize: 10, fill: "#888888" }} />
+                  <YAxis tick={{ fontSize: 10, fill: "#888888" }} tickFormatter={(v) => `$${v >= 1000 ? (v/1000).toFixed(0) + 'k' : v}`} />
+                  <RechartsTooltip 
+                    formatter={(value: any) => [`$${Number(value || 0).toLocaleString("es-MX", { minimumFractionDigits: 2 })} MXN`, "Venta Total"]}
+                    labelFormatter={(label, payload) => payload?.[0]?.payload?.date || label}
+                    contentStyle={{ backgroundColor: "#0f172a", borderRadius: "8px", border: "1px solid #334155", color: "#ffffff", fontSize: "12px" }}
+                  />
+                  <Line type="monotone" dataKey="total" stroke="#10b981" strokeWidth={3} dot={{ r: 4, fill: "#10b981" }} activeDot={{ r: 7 }} />
+                </LineChart>
+              </ResponsiveContainer>
             </div>
             
             <div className="flex justify-between items-center text-[10px] text-gray-400 font-mono pt-1">
@@ -1069,36 +1044,6 @@ export default function FinanceModule({ currentUser }: { currentUser: { name: st
             </div>
           </div>
         )}
-      </div>
-
-      {/* Primary Sub-navigation Tabs */}
-      <div className="flex overflow-x-auto gap-1 p-1 bg-gray-100 dark:bg-slate-950 rounded-xl border border-gray-200 dark:border-slate-800">
-        {[
-          { id: "ventas", label: "Historial Ventas", icon: TrendingUp },
-          { id: "gastos", label: "Registro de Gastos", icon: FileText },
-          { id: "caja", label: "Caja y Cortes", icon: Wallet },
-          { id: "cobrar", label: "Cuentas por Cobrar", icon: Users },
-          { id: "pagar", label: "Cuentas por Pagar", icon: Users },
-          { id: "utilidad", label: "Utilidad Contable", icon: DollarSign },
-          { id: "reportes", label: "Reportes Tradicionales", icon: Printer }
-        ].map(tab => {
-          const Icon = tab.icon;
-          const isAct = activeSubTab === tab.id;
-          return (
-            <button
-              key={tab.id}
-              onClick={() => setActiveSubTab(tab.id as any)}
-              className={`flex items-center gap-2 px-4 py-2.5 rounded-lg text-xs font-extrabold whitespace-nowrap transition-all cursor-pointer ${
-                isAct 
-                  ? "bg-white dark:bg-slate-800 text-emerald-600 dark:text-emerald-400 shadow-sm border-b-2 border-emerald-500" 
-                  : "text-gray-500 dark:text-slate-400 hover:text-gray-800 dark:hover:text-slate-200 hover:bg-white/40 dark:hover:bg-slate-900/30"
-              }`}
-            >
-              <Icon className="h-4 w-4" />
-              {tab.label}
-            </button>
-          );
-        })}
       </div>
 
       {/* --- PANEL RENDERERS --- */}

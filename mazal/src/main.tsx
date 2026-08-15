@@ -77,10 +77,10 @@ class GlobalErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySta
               🏪
             </div>
             <h2 style={{ fontSize: "20px", fontWeight: "900", marginBottom: "8px", color: "#ffffff" }}>
-              Abarrotes Mazal POS & ERP
+              Mazal POS & ERP
             </h2>
             <p style={{ fontSize: "13px", color: "#94a3b8", marginBottom: "20px", lineHeight: "1.5" }}>
-              El sistema se reiniciará con el catálogo maestro sincronizado desde la base de datos MySQL local.
+              El sistema se reiniciará y sincronizará la información automáticamente.
             </p>
             {this.state.error && (
               <pre style={{

@@ -27,7 +27,9 @@ import {
   Truck,
   Send,
   Check,
-  AlertCircle
+  AlertCircle,
+  ChevronLeft,
+  ChevronRight
 } from "lucide-react";
 import { Product, ProductUnit, MovementType, StockMovement, User, UserRole, formatPrice, StockTransfer } from "../types";
 import { getDatabase, saveDatabase, logAction, registerMovement, subscribeToDb } from "../data";
@@ -57,6 +59,8 @@ export default function InventoryModule({ currentUser, currentBranch }: Inventor
   const [selectedStockStatus, setSelectedStockStatus] = useState("Todas");
   
   const [selectedMetricFilter, setSelectedMetricFilter] = useState<"todas" | "bajo_stock" | "caducidad" | "movimientos_hoy">("todas");
+  const [currentPage, setCurrentPage] = useState<number>(1);
+  const [itemsPerPage, setItemsPerPage] = useState<number>(30);
   
   // Modals state
   const [showAddModal, setShowAddModal] = useState(false);
@@ -378,6 +382,28 @@ export default function InventoryModule({ currentUser, currentBranch }: Inventor
 
     return true;
   });
+
+  // Reset page when search or filters change
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [
+    searchTerm,
+    selectedCategory,
+    selectedDepartamento,
+    selectedSubcategory,
+    selectedBrand,
+    selectedSupplier,
+    selectedTipoVenta,
+    selectedUnidad,
+    selectedStockStatus,
+    selectedMetricFilter
+  ]);
+
+  const totalPages = Math.max(1, Math.ceil(filteredProducts.length / itemsPerPage));
+  const paginatedProducts = filteredProducts.slice(
+    (currentPage - 1) * itemsPerPage,
+    currentPage * itemsPerPage
+  );
 
   const handleImageFileChange = (e: React.ChangeEvent<HTMLInputElement>, isEdit: boolean) => {
     const file = e.target.files?.[0];
@@ -989,11 +1015,9 @@ export default function InventoryModule({ currentUser, currentBranch }: Inventor
         );
       })()}
 
-      {/* Primary Table Filter Bar */}
-      <div className="p-4 rounded-xl bg-white dark:bg-slate-900 border border-gray-150 dark:border-slate-800 shadow-sm space-y-4">
-        
-        {/* Row 1: Search & Core Action buttons */}
-        <div className="flex flex-col md:flex-row items-center justify-between gap-4">
+      {/* 1. Primary Table Sticky Search Bar & Actions (Sticky únicamente al buscador) */}
+      <div className="sticky top-0 z-30 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md p-3.5 sm:p-4 rounded-xl border border-gray-150 dark:border-slate-800 shadow-md">
+        <div className="flex flex-col md:flex-row items-center justify-between gap-3">
           <div className="relative w-full md:w-96">
             <Search className="absolute left-3 top-2.5 h-4 w-4 text-gray-400" />
             <input
@@ -1004,9 +1028,17 @@ export default function InventoryModule({ currentUser, currentBranch }: Inventor
               className="w-full pl-9 pr-4 py-2 text-sm rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-850 dark:text-white focus:outline-none focus:ring-1 focus:ring-emerald-500"
               id="inventory-search-input"
             />
+            {searchTerm && (
+              <button
+                onClick={() => setSearchTerm("")}
+                className="absolute right-3 top-2.5 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 cursor-pointer"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            )}
           </div>
 
-          <div className="w-full md:w-auto flex gap-3 justify-end shrink-0">
+          <div className="w-full md:w-auto flex flex-wrap gap-2 sm:gap-3 justify-end shrink-0">
             <button
               onClick={() => {
                 setSelectedCategory("Todas");
@@ -1019,7 +1051,7 @@ export default function InventoryModule({ currentUser, currentBranch }: Inventor
                 setSelectedStockStatus("Todas");
                 setSearchTerm("");
               }}
-              className="px-3 py-2 border border-gray-200 dark:border-slate-700 hover:bg-gray-50 dark:hover:bg-slate-800 text-gray-500 dark:text-slate-400 rounded-lg text-xs font-semibold shadow-xs transition-colors"
+              className="px-3 py-2 border border-gray-200 dark:border-slate-700 hover:bg-gray-50 dark:hover:bg-slate-800 text-gray-500 dark:text-slate-400 rounded-lg text-xs font-semibold shadow-xs transition-colors cursor-pointer"
               title="Limpiar todos los filtros"
             >
               Limpiar Filtros
@@ -1027,7 +1059,7 @@ export default function InventoryModule({ currentUser, currentBranch }: Inventor
 
             <button
               onClick={() => setShowAdjustModal(true)}
-              className="px-4 py-2 border border-gray-200 dark:border-slate-700 hover:bg-gray-50 dark:hover:bg-slate-800 text-gray-700 dark:text-slate-300 rounded-lg text-xs font-semibold shadow-xs transition-colors flex items-center gap-1.5"
+              className="px-4 py-2 border border-gray-200 dark:border-slate-700 hover:bg-gray-50 dark:hover:bg-slate-800 text-gray-700 dark:text-slate-300 rounded-lg text-xs font-semibold shadow-xs transition-colors flex items-center gap-1.5 cursor-pointer"
               id="adjust-stock-btn"
             >
               <ArrowUpDown className="h-3.5 w-3.5" /> Ajustar Stock
@@ -1035,15 +1067,17 @@ export default function InventoryModule({ currentUser, currentBranch }: Inventor
             
             <button
               onClick={() => setShowAddModal(true)}
-              className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-semibold shadow-xs transition-colors flex items-center gap-1.5"
+              className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-semibold shadow-xs transition-colors flex items-center gap-1.5 cursor-pointer"
               id="add-product-btn"
             >
               <Plus className="h-4 w-4" /> Nuevo Producto
             </button>
           </div>
         </div>
+      </div>
 
-        {/* Row 2: Advanced filters Grid */}
+      {/* 2. Advanced filters Grid (Non-sticky) */}
+      <div className="bg-white dark:bg-slate-900 p-3 sm:p-4 rounded-xl border border-gray-150 dark:border-slate-800 shadow-2xs">
         <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-8 gap-2 bg-gray-50 dark:bg-slate-850/50 p-3 rounded-lg border border-gray-100 dark:border-slate-800/60">
           
           {/* Depto */}
@@ -1161,7 +1195,6 @@ export default function InventoryModule({ currentUser, currentBranch }: Inventor
           </div>
 
         </div>
-
       </div>
 
       {/* Catalog Listing Table */}
@@ -1181,7 +1214,7 @@ export default function InventoryModule({ currentUser, currentBranch }: Inventor
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100 dark:divide-slate-800 text-xs">
-              {filteredProducts.map((prod) => {
+              {paginatedProducts.map((prod) => {
                 const isStockLow = prod.stock <= prod.stockMin;
                 const isCritical = prod.stock <= 2;
                 const expirySoon = isExpiredSoon(prod.expiryDate);
@@ -1261,57 +1294,73 @@ export default function InventoryModule({ currentUser, currentBranch }: Inventor
                              </span>
                            )}
                          </div>
+                         <div className="flex flex-col border-t border-gray-100 dark:border-slate-800/60 pt-0.5">
+                           <span className="text-purple-600 dark:text-purple-400 text-[10px] font-bold">
+                             ${formatPrice(prod.priceSpecial || prod.priceMax)} <span className="text-[9px] font-normal text-gray-400">(Dist)</span>
+                           </span>
+                         </div>
                        </div>
                      </td>
 
                     {/* Stock */}
                     <td className="px-4 py-3.5 text-center">
-                      <div className="inline-block">
-                        <span className={`px-2.5 py-1 rounded-full font-extrabold text-[11px] font-mono ${
-                          isCritical 
-                            ? "bg-red-100 dark:bg-red-950/40 text-red-700 dark:text-red-400 animate-pulse border border-red-200" 
-                            : isStockLow 
-                            ? "bg-amber-150 dark:bg-amber-950/40 text-amber-700 dark:text-amber-400 border border-amber-250"
-                            : "bg-emerald-50 dark:bg-emerald-950/20 text-emerald-700 dark:text-emerald-400"
-                        }`}>
+                      <div className="flex flex-col items-center">
+                        <span 
+                          className={`font-mono text-sm font-black px-2.5 py-1 rounded-md border ${
+                            prod.stock <= 0 
+                              ? "bg-red-50 text-red-700 border-red-200 dark:bg-red-950/40 dark:text-red-400 dark:border-red-900/50" 
+                              : isStockLow 
+                              ? "bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-950/40 dark:text-amber-400 dark:border-amber-900/50 animate-pulse" 
+                              : "bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-400 dark:border-emerald-900/50"
+                          }`}
+                          id={`stock-badge-${prod.id}`}
+                        >
                           {prod.stock} {prod.unit}
                         </span>
-                        <p className="text-[9px] text-gray-400 mt-1">mín: {prod.stockMin}</p>
+                        <div className="text-[10px] text-gray-400 font-mono mt-1">
+                          Min: {prod.stockMin} | Max: {prod.stockMax}
+                        </div>
                       </div>
                     </td>
 
                     {/* Location */}
-                    <td className="px-4 py-3.5">
-                      <div className="flex items-center gap-1 text-gray-500 font-medium">
-                        <MapPin className="h-3.5 w-3.5 text-emerald-600 shrink-0" />
-                        <span>{prod.location || "N/A"}</span>
+                    <td className="px-4 py-3.5 font-mono text-gray-600 dark:text-slate-400">
+                      <div className="flex items-center gap-1.5">
+                        <MapPin className="h-3.5 w-3.5 text-gray-400" />
+                        <span>{prod.location || "Sin asignar"}</span>
                       </div>
                     </td>
 
                     {/* Expiry */}
                     <td className="px-4 py-3.5">
                       {prod.expiryDate ? (
-                        <div className={`flex items-center gap-1 ${expirySoon ? "text-red-600 dark:text-red-400 font-bold" : "text-gray-500"}`}>
-                          <Calendar className="h-3.5 w-3.5 shrink-0" />
-                          <span>{prod.expiryDate}</span>
-                          {expirySoon && <span className="text-[9px] uppercase px-1 py-0.2 bg-red-100 rounded text-red-700 font-mono">Pronto</span>}
-                        </div>
+                        <span className={`px-2 py-0.5 rounded font-mono text-[11px] font-semibold ${
+                          expirySoon 
+                            ? "bg-red-100 text-red-800 dark:bg-red-950 dark:text-red-300 animate-pulse" 
+                            : "text-gray-500 dark:text-slate-400"
+                        }`}>
+                          {prod.expiryDate}
+                        </span>
                       ) : (
-                        <span className="text-gray-400 font-mono">No perecedero</span>
+                        <span className="text-gray-300 dark:text-slate-600 font-mono text-[11px]">N/A</span>
                       )}
                     </td>
 
                     {/* Actions */}
                     <td className="px-5 py-3.5 text-center">
-                      <div className="flex items-center justify-center gap-2">
+                      <div className="flex items-center justify-center gap-1.5">
                         <button
-                          onClick={() => { setSelectedProduct(prod); setShowDetailModal(true); }}
-                          className="p-1 text-gray-400 hover:text-emerald-600 dark:hover:text-emerald-400 transition-colors"
-                          title="Ver Detalle"
+                          onClick={() => {
+                            setSelectedProduct(prod);
+                            setShowDetailModal(true);
+                          }}
+                          className="p-1.5 text-gray-500 hover:text-emerald-600 hover:bg-emerald-50 dark:hover:bg-slate-800 rounded-lg transition-colors cursor-pointer"
+                          title="Ver Ficha Técnica"
                           id={`view-prod-btn-${prod.id}`}
                         >
                           <Eye className="h-4 w-4" />
                         </button>
+
                         <button
                           onClick={() => {
                             setEditingProduct({
@@ -1322,23 +1371,25 @@ export default function InventoryModule({ currentUser, currentBranch }: Inventor
                             });
                             setShowEditModal(true);
                           }}
-                          className="p-1 text-gray-400 hover:text-amber-600 dark:hover:text-amber-400 transition-colors"
+                          className="p-1.5 text-gray-500 hover:text-amber-600 hover:bg-amber-50 dark:hover:bg-slate-800 rounded-lg transition-colors cursor-pointer"
                           title="Editar Producto"
                           id={`edit-prod-btn-${prod.id}`}
                         >
                           <Edit3 className="h-4 w-4" />
                         </button>
+
                         <button
                           onClick={() => handleOpenTransferModal(prod)}
-                          className="p-1 text-gray-400 hover:text-blue-600 dark:hover:text-blue-400 transition-colors"
+                          className="p-1.5 text-gray-500 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-slate-800 rounded-lg transition-colors cursor-pointer"
                           title="Traspasar producto a otra sucursal"
                           id={`transfer-prod-btn-${prod.id}`}
                         >
                           <Truck className="h-4 w-4" />
                         </button>
+
                         <button
                           onClick={() => handleDeletePrompt(prod)}
-                          className="p-1 text-gray-400 hover:text-red-600 dark:hover:text-red-400 transition-colors"
+                          className="p-1.5 text-gray-500 hover:text-red-600 hover:bg-red-50 dark:hover:bg-slate-800 rounded-lg transition-colors cursor-pointer"
                           title="Eliminar Producto"
                           id={`delete-prod-btn-${prod.id}`}
                         >
@@ -1360,6 +1411,59 @@ export default function InventoryModule({ currentUser, currentBranch }: Inventor
               )}
             </tbody>
           </table>
+        </div>
+
+        {/* Pagination Bar */}
+        <div className="p-3 sm:p-4 bg-gray-50 dark:bg-slate-850/60 border-t border-gray-150 dark:border-slate-800 flex flex-wrap items-center justify-between gap-3 text-xs">
+          <div className="flex items-center gap-3">
+            <span className="text-gray-500 dark:text-slate-400 font-mono text-[11px]">
+              Mostrando {filteredProducts.length > 0 ? ((currentPage - 1) * itemsPerPage) + 1 : 0} - {Math.min(currentPage * itemsPerPage, filteredProducts.length)} de {filteredProducts.length} productos
+            </span>
+            <div className="flex items-center gap-1">
+              <span className="text-[11px] text-gray-400 font-medium">Por página:</span>
+              <select
+                value={itemsPerPage}
+                onChange={(e) => {
+                  setItemsPerPage(Number(e.target.value));
+                  setCurrentPage(1);
+                }}
+                className="bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-700 rounded-lg px-2 py-1 text-xs font-mono font-bold text-slate-800 dark:text-slate-200 focus:outline-none cursor-pointer"
+              >
+                <option value={15}>15</option>
+                <option value={30}>30</option>
+                <option value={50}>50</option>
+                <option value={100}>100</option>
+              </select>
+            </div>
+          </div>
+
+          {totalPages > 1 && (
+            <div className="flex items-center gap-1.5">
+              <button
+                type="button"
+                onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
+                disabled={currentPage === 1}
+                className="p-1.5 rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 disabled:opacity-40 disabled:cursor-not-allowed hover:bg-gray-100 dark:hover:bg-slate-700 transition-colors cursor-pointer"
+                title="Página Anterior"
+              >
+                <ChevronLeft className="h-4 w-4" />
+              </button>
+
+              <span className="px-2.5 py-1 rounded-lg bg-emerald-50 dark:bg-emerald-950/40 text-emerald-800 dark:text-emerald-300 font-bold font-mono text-xs border border-emerald-200/60 dark:border-emerald-800/50">
+                {currentPage} / {totalPages}
+              </span>
+
+              <button
+                type="button"
+                onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
+                disabled={currentPage === totalPages}
+                className="p-1.5 rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 disabled:opacity-40 disabled:cursor-not-allowed hover:bg-gray-100 dark:hover:bg-slate-700 transition-colors cursor-pointer"
+                title="Página Siguiente"
+              >
+                <ChevronRight className="h-4 w-4" />
+              </button>
+            </div>
+          )}
         </div>
       </div>
 
