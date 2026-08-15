@@ -740,7 +740,7 @@ export default function LoginAndCatalog({
           
           <div className="p-3.5 bg-emerald-50/60 dark:bg-emerald-950/30 border border-emerald-100 dark:border-emerald-900/30 rounded-xl text-xs text-emerald-800 dark:text-emerald-300">
             <p className="font-bold flex items-center gap-1.5">
-              <Store className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" /> Sucursal: {activeBranch === "Sur" ? "MAZAL 2 (Sur)" : "MAZAL 1 (Norte)"}
+              <Store className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" /> Sucursal: {currentBranch === "Sur" ? "MAZAL 2 (Sur)" : "MAZAL 1 (Norte)"}
             </p>
             <p className="text-[11px] text-emerald-700/80 dark:text-emerald-400/80 mt-1">
               Acceso seguro para personal autorizado.
