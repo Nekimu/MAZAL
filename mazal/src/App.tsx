@@ -668,15 +668,16 @@ export default function App() {
             </div>
 
             {/* Quick Alert Badges */}
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-2">
               {(lowStockCount > 0 || criticalExpiryCount > 0) && (
-                <div 
+                <button 
                   onClick={() => handleTabClick("inventory")}
-                  className="px-3 py-1.5 rounded-xl bg-amber-50 dark:bg-amber-950/15 text-amber-800 dark:text-amber-400 border border-amber-200 dark:border-amber-900/30 text-xs font-semibold flex items-center gap-1.5 animate-pulse cursor-pointer hover:scale-102 transition-transform"
+                  className="px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-750 text-slate-600 dark:text-slate-300 border border-gray-200 dark:border-slate-700 text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer"
+                  title="Ver productos con existencias por debajo del mínimo"
                 >
-                  <Bell className="h-4 w-4 text-amber-600 dark:text-amber-400" />
-                  <span>{lowStockCount + criticalExpiryCount} alertas críticas de stock</span>
-                </div>
+                  <span className="h-2 w-2 rounded-full bg-amber-500 shrink-0" />
+                  <span className="text-[11px] font-medium">{lowStockCount + criticalExpiryCount} avisos de stock</span>
+                </button>
               )}
             </div>
           </header>

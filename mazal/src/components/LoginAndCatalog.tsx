@@ -260,26 +260,26 @@ export default function LoginAndCatalog({
           </div>
           
           {/* Responsive adaptive action buttons */}
-          <div className="flex flex-wrap items-center gap-1.5 sm:gap-2 justify-start">
+          <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap justify-end">
             
             {/* Theme switcher */}
             {onToggleTheme && (
               <button
                 onClick={onToggleTheme}
                 id="catalog-theme-toggle"
-                className="h-9 px-2.5 sm:px-3 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-750 text-slate-700 dark:text-slate-300 text-xs font-bold border border-gray-200 dark:border-slate-750 transition-all flex items-center gap-1.5 cursor-pointer shadow-2xs shrink-0"
+                className="h-9 px-3 min-w-[125px] rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-750 text-slate-700 dark:text-slate-300 text-xs font-bold border border-gray-200 dark:border-slate-750 transition-all flex items-center justify-center gap-1.5 cursor-pointer shadow-2xs shrink-0"
                 title={theme === "light" ? "Cambiar a Modo Oscuro" : "Cambiar a Modo Claro"}
                 aria-label="Alternar modo claro/oscuro"
               >
                 {theme === "light" ? (
                   <>
                     <Moon className="h-4 w-4 text-slate-700" />
-                    <span className="hidden md:inline">Modo Oscuro</span>
+                    <span>Modo Oscuro</span>
                   </>
                 ) : (
                   <>
                     <Sun className="h-4 w-4 text-amber-400" />
-                    <span className="hidden md:inline">Modo Claro</span>
+                    <span>Modo Claro</span>
                   </>
                 )}
               </button>

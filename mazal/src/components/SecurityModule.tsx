@@ -69,20 +69,17 @@ export default function SecurityModule({ currentUser, onChangeRole }: SecurityMo
       setDb({ ...updatedDb });
     });
 
-    const q = query(collection(firestore, "backups"), orderBy("timestamp", "desc"));
-    const unsubBackups = onSnapshot(q, (snapshot) => {
-      const list: any[] = [];
-      snapshot.forEach((doc) => {
-        list.push({ id: doc.id, ...doc.data() });
-      });
-      setBackups(list);
-    }, (error) => {
-      console.warn("Error loading backups snapshot:", error);
-    });
+    try {
+      const savedBackups = JSON.parse(localStorage.getItem("mazal_cloud_backups") || "[]");
+      if (Array.isArray(savedBackups)) {
+        setBackups(savedBackups);
+      }
+    } catch (e) {
+      console.warn("Error cargando respaldos locales:", e);
+    }
 
     return () => {
       unsubDb();
-      unsubBackups();
     };
   }, []);
 
@@ -662,6 +659,78 @@ export default function SecurityModule({ currentUser, onChangeRole }: SecurityMo
     }
   };
 
+  const handleGenerateManualExport = () => {
+    handleExportDatabase("all");
+  };
+
+  const handleCreateCloudBackup = async () => {
+    setIsCreatingBackup(true);
+    try {
+      const database = getDatabase();
+      const backupData = { ...database };
+      delete backupData.offlineQueue;
+      const jsonStr = JSON.stringify(backupData);
+      const totalRecords = Object.values(backupData).reduce((acc: number, val: any) => acc + (Array.isArray(val) ? val.length : 0), 0);
+      const sizeKB = (new TextEncoder().encode(jsonStr).length / 1024).toFixed(1);
+      const timestamp = new Date().toLocaleString("es-MX");
+
+      const newBackup = {
+        id: "BK_" + Date.now(),
+        timestamp,
+        user: currentUser.name,
+        sizeKB,
+        totalRecords,
+        data: backupData
+      };
+
+      const currentBackups = JSON.parse(localStorage.getItem("mazal_cloud_backups") || "[]");
+      const updatedBackups = [newBackup, ...currentBackups].slice(0, 15);
+      localStorage.setItem("mazal_cloud_backups", JSON.stringify(updatedBackups));
+      setBackups(updatedBackups);
+
+      logAction(
+        currentUser.name,
+        currentUser.role,
+        "Respaldo Creado",
+        `Se generó un punto de restauración del sistema con ${totalRecords} registros (${sizeKB} KB).`
+      );
+
+      alert(`✅ ¡Punto de restauración creado con éxito! Registros: ${totalRecords} (${sizeKB} KB)`);
+    } catch (err) {
+      alert("❌ Error al crear el respaldo: " + (err instanceof Error ? err.message : String(err)));
+    } finally {
+      setIsCreatingBackup(false);
+    }
+  };
+
+  const handleRestoreCloudBackup = (bk: any) => {
+    if (!bk.data) {
+      alert("⚠️ Los datos de este punto de restauración no están disponibles.");
+      return;
+    }
+    if (window.confirm(`¿Estás seguro de restaurar el sistema al punto de respaldo del ${bk.timestamp}? Se sobreescribirá el estado actual.`)) {
+      saveDatabase(bk.data);
+      setDb(bk.data);
+      logAction(
+        currentUser.name,
+        currentUser.role,
+        "Respaldo Restaurado",
+        `Restauró el sistema al punto de respaldo del ${bk.timestamp}.`
+      );
+      alert("🎉 ¡Sistema restaurado exitosamente al punto de respaldo!");
+    }
+  };
+
+  const handleDeleteCloudBackup = (bkId: string, timestamp: string) => {
+    if (window.confirm(`¿Estás seguro de eliminar permanentemente el respaldo del ${timestamp}?`)) {
+      const currentBackups = JSON.parse(localStorage.getItem("mazal_cloud_backups") || "[]");
+      const updated = currentBackups.filter((b: any) => b.id !== bkId);
+      localStorage.setItem("mazal_cloud_backups", JSON.stringify(updated));
+      setBackups(updated);
+      alert("🗑️ Respaldo eliminado correctamente.");
+    }
+  };
+
   const handleDeleteDocument = async (colKey: string, docId: string) => {
     if (!docId.trim()) {
       alert("⚠️ Por favor ingresa el ID, Código de Barras o ID de documento.");
@@ -766,86 +835,7 @@ export default function SecurityModule({ currentUser, onChangeRole }: SecurityMo
     }
   };
 
-  const handleCreateCloudBackup = async () => {
-    try {
-      setIsCreatingBackup(true);
-      const database = getDatabase();
-      
-      const jsonStr = JSON.stringify(database);
-      const sizeKB = Math.round((jsonStr.length / 1024) * 100) / 100;
-      
-      const recordCounts: any = {};
-      let totalRecords = 0;
-      Object.keys(database).forEach(key => {
-        if (Array.isArray(database[key])) {
-          recordCounts[key] = database[key].length;
-          totalRecords += database[key].length;
-        }
-      });
-      
-      const backupData = {
-        timestamp: new Date().toISOString().replace("T", " ").substring(0, 19),
-        user: currentUser.name,
-        sizeKB,
-        totalRecords,
-        recordCounts,
-        content: jsonStr
-      };
-      
-      await addDoc(collection(firestore, "backups"), backupData);
-      
-      await logAction(
-        currentUser.name,
-        currentUser.role,
-        "Respaldo Creado",
-        `Creó un respaldo completo de la base de datos en la nube (${totalRecords} registros totales, ${sizeKB} KB).`
-      );
-      
-      alert(`🎉 ¡Respaldo de la base de datos creado exitosamente en la nube Firestore!`);
-    } catch (error) {
-      console.error("Backup error:", error);
-      alert("❌ Error al crear el respaldo: " + (error instanceof Error ? error.message : String(error)));
-    } finally {
-      setIsCreatingBackup(false);
-    }
-  };
 
-  const handleRestoreCloudBackup = async (backup: any) => {
-    if (window.confirm(`⚠️ ADVERTENCIA DE RESTAURACIÓN ⚠️\n\n¿Estás completamente seguro de restaurar el respaldo del "${backup.timestamp}"?\nEsto reemplazará todos los productos, clientes, proveedores y transacciones actuales de tu ERP con los datos guardados en este respaldo.\n\nEsta acción no se puede deshacer.`)) {
-      try {
-        setIsResetting(true);
-        const data = JSON.parse(backup.content);
-        
-        await saveDatabase(data);
-        
-        await logAction(
-          currentUser.name,
-          currentUser.role,
-          "Respaldo Restaurado",
-          `Restauró el ERP a la copia del ${backup.timestamp} creada por ${backup.user}.`
-        );
-        
-        alert("🎉 ¡Respaldo restaurado con éxito en la nube de Firebase! El sistema se actualizará ahora.");
-        window.location.reload();
-      } catch (error) {
-        console.error(error);
-        alert("❌ Error al restaurar el respaldo: " + (error instanceof Error ? error.message : String(error)));
-      } finally {
-        setIsResetting(false);
-      }
-    }
-  };
-
-  const handleDeleteCloudBackup = async (backupId: string, timestamp: string) => {
-    if (window.confirm(`¿Estás seguro de eliminar el respaldo del "${timestamp}" de forma permanente?`)) {
-      try {
-        await deleteDoc(doc(firestore, "backups", backupId));
-        alert("🎉 Respaldo eliminado exitosamente.");
-      } catch (error) {
-        alert("❌ Error al eliminar el respaldo: " + (error instanceof Error ? error.message : String(error)));
-      }
-    }
-  };
 
   const processImport = async (records: any[]) => {
     if (!records || !Array.isArray(records)) {
