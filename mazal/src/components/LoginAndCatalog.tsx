@@ -329,34 +329,10 @@ export default function LoginAndCatalog({
       {/* ========================================================================= */}
       {/* 2. FULL-WIDTH CLIENT-CENTRIC STOREFRONT */}
       {/* ========================================================================= */}
-      <main className="flex-1 max-w-[1720px] mx-auto w-full p-4 md:p-6 space-y-5">
-        
-        {/* Welcome / Wholesale Promotional Banner */}
-        <div className="bg-gradient-to-r from-emerald-800 via-emerald-700 to-teal-800 p-6 md:p-8 rounded-3xl text-white relative overflow-hidden shadow-sm">
-          <div className="absolute -right-6 -bottom-6 opacity-10 pointer-events-none">
-            <ShoppingBag className="h-64 w-64" />
-          </div>
-          <div className="relative z-10 max-w-3xl space-y-3">
-            <div className="flex flex-wrap items-center gap-2">
-              <span className="inline-flex items-center gap-1.5 bg-amber-400 text-amber-950 px-3 py-1 rounded-full text-[11px] font-black uppercase tracking-wider shadow-xs">
-                <Zap className="h-3.5 w-3.5 fill-current" /> Precios de Mayoreo Activos
-              </span>
-              <span className="inline-flex items-center gap-1 bg-white/15 backdrop-blur-md px-3 py-1 rounded-full text-[11px] font-bold text-white">
-                <Store className="h-3.5 w-3.5 text-emerald-300" /> {products.length} Productos en Catálogo
-              </span>
-            </div>
-            
-            <h2 className="text-2xl md:text-3xl lg:text-4xl font-black tracking-tight leading-tight text-white">
-              Consulta Precios, Existencias y Ahorra por Mayoreo
-            </h2>
-            <p className="text-xs md:text-sm text-white leading-relaxed font-semibold drop-shadow-xs">
-              Consulta en tiempo real nuestro surtido para tiendas, negocios y familias. Precios especiales automáticos al llevar desde <strong className="text-amber-300 font-extrabold underline decoration-amber-400">12 piezas (Medio Mayoreo)</strong> o <strong className="text-amber-300 font-extrabold underline decoration-amber-400">50 piezas (Mayoreo Especial)</strong>.
-            </p>
-          </div>
-        </div>
+      <main className="flex-1 max-w-[1720px] mx-auto w-full p-4 md:p-6 space-y-4">
 
-        {/* 1. Main Search Bar - STICKY ONLY TO SEARCH BAR WITH CLEAN PADDING */}
-        <div className="sticky top-[54px] sm:top-[60px] z-30 py-2.5 bg-[#f4f6f0] dark:bg-slate-950 transition-colors">
+        {/* 1. Main Search Bar - STICKY ONLY TO SEARCH BAR WITH SAFE VERTICAL PADDING */}
+        <div className="sticky top-[64px] sm:top-[68px] z-30 py-3 bg-[#f4f6f0] dark:bg-slate-950 transition-colors">
           <div className="bg-white dark:bg-slate-900 p-3.5 sm:p-4 rounded-2xl border border-gray-200 dark:border-slate-800 shadow-sm">
             <div className="flex flex-col sm:flex-row gap-3">
               <div className="relative flex-1">

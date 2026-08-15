@@ -8,7 +8,8 @@
     "build": "npm --prefix mazal run build",
     "start": "node server.js",
     "dev": "npm --prefix mazal run dev",
-    "seed:supabase": "node scripts/seed_supabase.mjs"
+    "seed:supabase": "node scripts/seed_supabase.mjs",
+    "migrate:supabase": "node scripts/migrate_mysql_to_supabase.mjs"
   },
   "keywords": [
     "pos",
