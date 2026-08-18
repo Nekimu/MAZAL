@@ -38,6 +38,7 @@ import {
 import { Product, User, UserRole, ProductUnit, formatPrice } from "../types";
 import { getDatabase, logAction } from "../data";
 import { MazalLogo } from "./MazalLogo";
+import { authenticateStaff } from "../services/authService";
 
 interface LoginAndCatalogProps {
   currentBranch?: string;
@@ -80,6 +81,7 @@ export default function LoginAndCatalog({
   const [showPassword, setShowPassword] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
   const [successMsg, setSuccessMsg] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   // Derived Departments list (Unique & Sorted)
   const departments = useMemo(() => {
@@ -195,47 +197,48 @@ export default function LoginAndCatalog({
   }, [filteredAndSortedProducts, currentPage]);
 
   // Handle Login submission in Slide Drawer
-  const handleLoginSubmit = (e: React.FormEvent) => {
+  const handleLoginSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMsg("");
     setSuccessMsg("");
+    setIsSubmitting(true);
 
-    if (!username.trim() || !password.trim()) {
-      setErrorMsg("Por favor, ingresa tu usuario y contraseña.");
-      return;
+    try {
+      const result = await authenticateStaff(username, password);
+
+      if (!result.success || !result.user) {
+        setErrorMsg(result.message || "Usuario o contraseña incorrectos.");
+        setIsSubmitting(false);
+        return;
+      }
+
+      const authenticatedUser = result.user;
+
+      logAction(
+        authenticatedUser.name,
+        authenticatedUser.role,
+        "Inicio de Sesión",
+        `El colaborador @${authenticatedUser.username} ingresó al ERP central desde el portal de inicio.`
+      );
+
+      if (result.isDefaultPassword) {
+        setSuccessMsg(`¡Bienvenido, ${authenticatedUser.name}! (Aviso: Recuerda cambiar tu contraseña en Seguridad).`);
+      } else {
+        setSuccessMsg(`¡Bienvenido de vuelta, ${authenticatedUser.name}! Redireccionando...`);
+      }
+      
+      setTimeout(() => {
+        setIsSubmitting(false);
+        setShowStaffDrawer(false);
+        onLoginSuccess({
+          name: authenticatedUser.name,
+          role: authenticatedUser.role
+        });
+      }, 500);
+    } catch (err: any) {
+      setErrorMsg("Error inesperado al intentar autenticar. Intenta de nuevo.");
+      setIsSubmitting(false);
     }
-
-    const cleanUsername = username.trim().toLowerCase();
-    const user = users.find(
-      u => (u.username || "").toLowerCase() === cleanUsername && u.password === password.trim()
-    );
-
-    if (!user) {
-      setErrorMsg("Usuario o contraseña incorrectos. Verifica tus credenciales.");
-      return;
-    }
-
-    if (user.status === "Inactivo") {
-      setErrorMsg("Tu cuenta se encuentra inactiva. Comunícate con el Administrador.");
-      return;
-    }
-
-    logAction(
-      user.name,
-      user.role,
-      "Inicio de Sesión",
-      `El colaborador @${user.username} ingresó al ERP central desde el portal de inicio.`
-    );
-
-    setSuccessMsg(`¡Bienvenido de vuelta, ${user.name}! Redireccionando...`);
-    
-    setTimeout(() => {
-      setShowStaffDrawer(false);
-      onLoginSuccess({
-        name: user.name,
-        role: user.role
-      });
-    }, 600);
   };
 
   return (
@@ -788,10 +791,11 @@ export default function LoginAndCatalog({
 
             <button
               type="submit"
-              className="w-full py-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition-all shadow-sm flex items-center justify-center gap-2 cursor-pointer"
+              disabled={isSubmitting}
+              className="w-full py-3 bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 disabled:opacity-50 text-white rounded-xl text-xs font-bold transition-all shadow-sm flex items-center justify-center gap-2 cursor-pointer"
             >
-              <span>Validar e Ingresar</span>
-              <ArrowRight className="h-4 w-4" />
+              <span>{isSubmitting ? "Autenticando..." : "Validar e Ingresar"}</span>
+              {!isSubmitting && <ArrowRight className="h-4 w-4" />}
             </button>
           </form>
 

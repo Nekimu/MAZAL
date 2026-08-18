@@ -3,7 +3,8 @@ title MAZAL POS - MIGRACION MYSQL LOCAL A SUPABASE CLOUD
 color 0A
 
 echo =================================================================
-echo        MAZAL POS ^& ERP - MIGRACION A SUPABASE CLOUD
+echo   MAZAL POS & ERP - HERRAMIENTA DE MIGRACION LOCAL A SUPABASE
+echo   (Permite migrar datos historicos de MySQL a Supabase Cloud)
 echo =================================================================
 echo.
 echo Este script subira automaticamente las dos bases de datos locales:

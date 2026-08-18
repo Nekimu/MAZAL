@@ -21,9 +21,14 @@ const __dirname = dirname(__filename);
 dotenv.config({ path: join(__dirname, "../.env") });
 dotenv.config({ path: join(__dirname, "../mazal/.env") });
 
-const SUPABASE_URL = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL || "https://your-project-ref.supabase.co";
-const SUPABASE_KEY = process.env.VITE_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY || "your-anon-key-here";
+const SUPABASE_URL = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL || "";
+const SUPABASE_KEY = process.env.VITE_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY || "";
 const API_URL = process.env.VITE_API_BASE_URL || "http://localhost/mazal/api.php";
+
+if (!SUPABASE_URL || !SUPABASE_KEY) {
+  console.error("❌ ERROR: Debes configurar VITE_SUPABASE_URL y VITE_SUPABASE_ANON_KEY en tu archivo .env");
+  process.exit(1);
+}
 
 console.log("\n=================================================================");
 console.log("   🚀 MAZAL POS & ERP: MIGRACIÓN MYSQL LOCAL A SUPABASE CLOUD   ");

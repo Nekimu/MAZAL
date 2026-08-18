@@ -922,7 +922,6 @@ export const syncWithLocalMySQL = async (branchParam?: string): Promise<{ succes
           id: `USER_${u.id}`,
           username: u.usuario || `user_${u.id}`,
           name: u.nombrecompleto || u.usuario,
-          password: u.password || 'mazal2026',
           role: (u.rol || '').toLowerCase().includes('admin') ? UserRole.ADMIN : UserRole.CASHIER,
           status: 'Activo'
         }));

@@ -33,6 +33,7 @@ import {
 } from "lucide-react";
 import { Product, ProductUnit, MovementType, StockMovement, User, UserRole, formatPrice, StockTransfer } from "../types";
 import { getDatabase, saveDatabase, logAction, registerMovement, subscribeToDb } from "../data";
+import { authenticateStaff } from "../services/authService";
 import { createPendingStockTransfer, confirmStockTransferReceipt, rejectStockTransfer } from "../utils/BranchInventoryService";
 
 interface InventoryModuleProps {
@@ -728,14 +729,12 @@ export default function InventoryModule({ currentUser, currentBranch }: Inventor
     setShowDeleteModal(true);
   };
 
-  const handleDeleteConfirm = () => {
+  const handleDeleteConfirm = async () => {
     if (!productToDelete) return;
 
-    // Check if password matches any admin user in db.users
-    const admins = db.users.filter((u: User) => u.role === UserRole.ADMIN);
-    const isAuthorized = admins.some((u: User) => u.password === adminPassword);
-
-    if (!isAuthorized) {
+    // Verify admin authorization server-side
+    const authRes = await authenticateStaff("admin", adminPassword);
+    if (!authRes.success) {
       setDeleteError("⚠️ Contraseña de administrador incorrecta");
       return;
     }

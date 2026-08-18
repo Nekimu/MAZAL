@@ -21452,13 +21452,13 @@ export const REAL_MAZAL_SUPPLIERS: Supplier[] = [
   {
     "id": "PROV_44",
     "code": "PRV-044",
-    "name": "Creme",
-    "companyName": "Cremeria Americana",
+    "name": "Distribuidora Lácteos y Cremas",
+    "companyName": "Cremería y Derivados S.A. de C.V.",
     "rfc": "XAXX010101000",
-    "phone": "7222496580",
-    "email": "contacto.prov44@mazal.com",
-    "address": "Toluca, Estado de México",
-    "contactPerson": "Creme",
+    "phone": "555-010-4401",
+    "email": "ventas@proveedor44.demo",
+    "address": "Zona Industrial, Toluca, Estado de México",
+    "contactPerson": "Atención a Clientes",
     "category": "Distribuidor Mayorista",
     "paymentTerms": "Crédito 15 días",
     "debt": 0
@@ -21466,13 +21466,13 @@ export const REAL_MAZAL_SUPPLIERS: Supplier[] = [
   {
     "id": "PROV_45",
     "code": "PRV-045",
-    "name": "Don Harina ",
-    "companyName": "M.P. Don Harina",
+    "name": "M.P. Harinas y Granos",
+    "companyName": "M.P. Harinas Industriales S.A.",
     "rfc": "XAXX010101000",
-    "phone": "7292546040",
-    "email": "contacto.prov45@mazal.com",
-    "address": "Toluca, Estado de México",
-    "contactPerson": "Don Harina ",
+    "phone": "555-010-4502",
+    "email": "ventas@proveedor45.demo",
+    "address": "Parque Logístico Toluca, Méx.",
+    "contactPerson": "Ejecutivo de Ventas",
     "category": "Distribuidor Mayorista",
     "paymentTerms": "Crédito 15 días",
     "debt": 0
@@ -21480,13 +21480,13 @@ export const REAL_MAZAL_SUPPLIERS: Supplier[] = [
   {
     "id": "PROV_46",
     "code": "PRV-046",
-    "name": "Carbon",
-    "companyName": "Carbon ",
+    "name": "Carbón y Combustibles del Centro",
+    "companyName": "Carbón y Derivados S.A.",
     "rfc": "XAXX010101000",
-    "phone": "7121351132",
-    "email": "contacto.prov46@mazal.com",
+    "phone": "555-010-4603",
+    "email": "ventas@proveedor46.demo",
     "address": "Toluca, Estado de México",
-    "contactPerson": "Carbon",
+    "contactPerson": "Gerente de Distribución",
     "category": "Distribuidor Mayorista",
     "paymentTerms": "Crédito 15 días",
     "debt": 0
@@ -21494,13 +21494,13 @@ export const REAL_MAZAL_SUPPLIERS: Supplier[] = [
   {
     "id": "PROV_47",
     "code": "PRV-047",
-    "name": "Sevillana",
-    "companyName": "Sevillana",
+    "name": "Distribuidora Sevillana",
+    "companyName": "Distribuciones Sevillana S.A.",
     "rfc": "XAXX010101000",
-    "phone": "7225188724",
-    "email": "contacto.prov47@mazal.com",
+    "phone": "555-010-4704",
+    "email": "contacto@proveedor47.demo",
     "address": "Toluca, Estado de México",
-    "contactPerson": "Sevillana",
+    "contactPerson": "Representante Comercial",
     "category": "Distribuidor Mayorista",
     "paymentTerms": "Crédito 15 días",
     "debt": 0
@@ -21510,16 +21510,16 @@ export const REAL_MAZAL_SUPPLIERS: Supplier[] = [
 export const REAL_MAZAL_CUSTOMERS: Customer[] = [
   {
     id: "CLI_26",
-    name: "Dann RG",
-    phone: "7121720304",
-    email: "cliente26@mazal.com",
-    address: "Toluca, Estado de México",
+    name: "Cliente Comercial Mayorista",
+    phone: "555-010-2601",
+    email: "cliente.demo@mazalpos.local",
+    address: "Av. Principal #100, Toluca, Estado de México",
     rfc: "XAXX010101000",
     role: CustomerRole.WHOLESALE,
     creditLimit: 50000,
     creditUsed: 0,
     creditDays: 15,
-    notes: "Cliente registrado en mazal_bd",
+    notes: "Cliente registrado con línea de crédito mayorista",
     status: "Activo"
   }
 ];
@@ -21529,8 +21529,8 @@ export const REAL_MAZAL_USERS: User[] = [
     "id": "USER_1",
     "username": "admin",
     "name": "Administrador General",
-    "password": "admin",
     "role": UserRole.ADMIN,
     "status": "Activo"
   }
 ];
+

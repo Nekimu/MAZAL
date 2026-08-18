@@ -102,7 +102,8 @@ async function main() {
       id: String(u.id),
       username: u.username,
       name: u.name,
-      password: u.password || "admin",
+      password: "", // Sanitizado (migrado a password_hash en base de datos)
+      password_hash: null, // Se asigna vía server.js al primer login
       role: u.role || "Cajero",
       status: u.status || "Activo",
       last_login: u.lastLogin || new Date().toISOString()

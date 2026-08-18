@@ -1,11 +1,14 @@
 <?php
 /**
- * Mazal ERP - API REST para Apache / XAMPP / MySQL
- * Soporte Multi-Sucursal con Ruteo Dinámico de Base de Datos y Persistencia de Credenciales:
- * - Sucursal Norte (Principal): Base de datos mazal_bd (más actualizada: 908 productos, 24,105 ventas)
- * - Sucursal Sur (Secundaria): Base de datos mazal_bd1 (907 productos, 23,308 ventas)
- * - Redondeo automático de precios a 2 dígitos decimales
- * - Persistencia de usuario Administrador y catálogo de usuarios en MySQL
+ * ==============================================================================
+ * MAZAL POS & ERP - [LEGACY / DESARROLLO LOCAL OPCIONAL]
+ * ==============================================================================
+ * AVISO DE ARQUITECTURA:
+ * El stack de producción oficial es Railway + Supabase PostgreSQL (Server-Side Node.js).
+ * Este archivo PHP es exclusivamente para compatibilidad con entornos locales de desarrollo
+ * basados en XAMPP/MySQL o herramientas de migración inicial.
+ * NO SE UTILIZA NI SE DESPLIEGA EN EL SERVIDOR DE PRODUCCIÓN EN RAILWAY.
+ * ==============================================================================
  */
 
 // Headers CORS para permitir llamadas desde cualquier origen local y Vite Dev Server

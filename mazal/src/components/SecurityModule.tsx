@@ -39,6 +39,7 @@ import { AuditLog, UserRole, User, StockMovement, Sale, MovementType, RolePermis
 import { getDatabase, logAction, saveDatabase, subscribeToDb, resetDatabaseToFactory, saveUserToMySQL, deleteUserFromMySQL } from "../data";
 import { migrateProducts, normalizePrice } from "../utils/migration";
 import { getBranchPasswords, saveBranchPasswords } from "../utils/BranchPasswordService";
+import { authenticateStaff } from "../services/authService";
 import { collection, doc, setDoc, deleteDoc, getDocs, onSnapshot, query, orderBy, addDoc } from "firebase/firestore";
 import { firestore } from "../firebase";
 
@@ -372,7 +373,7 @@ export default function SecurityModule({ currentUser, onChangeRole }: SecurityMo
   };
 
   // Interactive login handler
-  const handleLoginSubmit = (e: React.FormEvent) => {
+  const handleLoginSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoginError("");
     setLoginSuccess("");
@@ -382,40 +383,33 @@ export default function SecurityModule({ currentUser, onChangeRole }: SecurityMo
       return;
     }
 
-    const currentDb = getDatabase();
-    const targetUser = (currentDb.users || []).find(
-      (u: User) => 
-        (u.username || "").toLowerCase() === loginUsername.trim().toLowerCase() && 
-        u.password === loginPassword.trim()
-    );
+    try {
+      const result = await authenticateStaff(loginUsername, loginPassword);
 
-    if (!targetUser) {
-      setLoginError("Usuario o contraseña incorrectos.");
-      return;
+      if (!result.success || !result.user) {
+        setLoginError(result.message || "Usuario o contraseña incorrectos.");
+        return;
+      }
+
+      const targetUser = result.user;
+
+      // Success login simulation
+      onChangeRole(targetUser.role, targetUser.name);
+      
+      // Register event log
+      logAction(
+        targetUser.name,
+        targetUser.role,
+        "Inicio de Sesión",
+        `El colaborador @${targetUser.username} ingresó al sistema exitosamente.`
+      );
+
+      setLoginSuccess(`¡Bienvenido, ${targetUser.name}! Has iniciado sesión con el rol: ${targetUser.role}.`);
+      setLoginUsername("");
+      setLoginPassword("");
+    } catch (err: any) {
+      setLoginError("Error inesperado al intentar autenticar.");
     }
-
-    if (targetUser.status === "Inactivo") {
-      setLoginError("Esta cuenta de colaborador se encuentra inactiva. Contacta al Administrador.");
-      return;
-    }
-
-    // Success login simulation
-    onChangeRole(targetUser.role, targetUser.name);
-    
-    // Register event log
-    logAction(
-      targetUser.name,
-      targetUser.role,
-      "Inicio de Sesión",
-      `El colaborador @${targetUser.username} ingresó al sistema exitosamente.`
-    );
-
-    setLoginSuccess(`¡Bienvenido, ${targetUser.name}! Has iniciado sesión con el rol: ${targetUser.role}.`);
-    setLoginUsername("");
-    setLoginPassword("");
-    
-    // Trigger timeline refresh
-    setTimeout(() => window.location.reload(), 150);
   };
 
   // CONSOLIDATED TIMELINE logic: "ver quien ingreso que movio y todo eso"
@@ -1354,18 +1348,9 @@ export default function SecurityModule({ currentUser, onChangeRole }: SecurityMo
                             @{user.username}
                           </td>
                           <td className="py-2.5 font-mono">
-                            <div className="flex items-center gap-1">
-                              <span className="text-gray-700 dark:text-slate-400 text-[11px]">
-                                {showPassword ? user.password : "••••••"}
-                              </span>
-                              <button
-                                onClick={() => toggleShowPassword(user.id)}
-                                className="text-gray-400 hover:text-gray-600 dark:hover:text-slate-200 cursor-pointer"
-                                title={showPassword ? "Ocultar Contraseña" : "Ver Contraseña"}
-                              >
-                                {showPassword ? <EyeOff className="h-3 w-3" /> : <Eye className="h-3 w-3" />}
-                              </button>
-                            </div>
+                            <span className="text-gray-500 dark:text-slate-400 text-[10.5px] bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded font-mono">
+                              •••••••• (Bcrypt)
+                            </span>
                           </td>
                           <td className="py-2.5">
                             <span className={`px-2 py-0.5 rounded-full text-[9px] font-semibold border ${

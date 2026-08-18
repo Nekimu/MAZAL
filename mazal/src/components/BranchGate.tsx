@@ -6,7 +6,7 @@
 import React, { useState } from "react";
 import { MazalLogo } from "./MazalLogo";
 import { Store, Lock, KeyRound, Eye, EyeOff, ArrowRight, ShieldCheck, Sun, Moon } from "lucide-react";
-import { getBranchPasswords } from "../utils/BranchPasswordService";
+import { verifyBranchAccess } from "../services/authService";
 
 interface BranchGateProps {
   onBranchSelect: (branch: "Norte" | "Sur") => void;
@@ -33,23 +33,28 @@ export default function BranchGate({ onBranchSelect, theme = "light", onToggleTh
     setErrorMsg("");
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMsg("");
     setIsSubmitting(true);
 
-    const passwords = getBranchPasswords();
-    const targetPassword = selected ? (passwords[selected] || (selected === "Norte" ? "norte123" : "sur123")) : "";
-    const enteredPassword = password.trim();
+    if (!selected) {
+      setIsSubmitting(false);
+      return;
+    }
 
-    setTimeout(() => {
-      if (enteredPassword && enteredPassword === targetPassword) {
-        onBranchSelect(selected!);
+    try {
+      const isValid = await verifyBranchAccess(selected, password);
+      if (isValid) {
+        onBranchSelect(selected);
       } else {
         setErrorMsg("Contraseña de sucursal incorrecta. Verifica con el administrador.");
-        setIsSubmitting(false);
       }
-    }, 350);
+    } catch (err) {
+      setErrorMsg("Error validando acceso de sucursal.");
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (

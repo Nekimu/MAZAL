@@ -1,7 +1,8 @@
 @echo off
-title MAZAL POS - Iniciando Sistema
+title MAZAL POS [MODO LEGACY / DESARROLLO LOCAL]
 echo ======================================================
-echo    INICIANDO MAZAL POS Y TIENDA DE ABARROTES
+echo    MAZAL POS - MODO LEGACY / DESARROLLO LOCAL OPCIONAL
+echo    (Produccion: Desplegado en Railway con Supabase)
 echo ======================================================
 echo.
 
