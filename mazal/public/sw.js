@@ -1,5 +1,5 @@
 // Service Worker for Mazal POS - Offline & Cache Engine
-const CACHE_NAME = "mazal-pos-v3";
+const CACHE_NAME = "mazal-pos-v4-clean";
 const ASSETS_TO_CACHE = [
   "./",
   "./index.html",

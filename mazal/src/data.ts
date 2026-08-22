@@ -179,7 +179,22 @@ const getCollectionName = (colName: string) => {
   return `${colName}_${activeBranch.toLowerCase()}`;
 };
 
-const LOCAL_STORAGE_KEY = "mazal_offline_database_v7_enterprise";
+const LOCAL_STORAGE_KEY = "mazal_offline_database_v8_clean";
+
+// Limpiar almacenamiento previo obsoleto de pruebas anteriores
+if (typeof window !== "undefined") {
+  try {
+    const legacyKeys = [
+      "mazal_offline_database_v7_enterprise",
+      "mazal_offline_database_v6",
+      "mazal_offline_database_v5",
+      "mazal_offline_database_v4",
+      "mazal_cloud_backups",
+      "mazal_db_cache"
+    ];
+    legacyKeys.forEach(k => localStorage.removeItem(k));
+  } catch (e) {}
+}
 
 // Network status tracking
 let isOnlineState = typeof navigator !== "undefined" ? navigator.onLine : true;
@@ -884,9 +899,9 @@ export const syncWithLocalMySQL = async (branchParam?: string): Promise<{ succes
       return { success: true, totalProducts: mysqlProducts.length, message: `Sincronización exitosa (${data.database}): ${mysqlProducts.length} productos cargados.` };
     }
   } catch (err) {
-    console.warn(`Aviso: MySQL local (${targetBranch}) offline, usando catálogo embebido:`, err);
-    if (!inMemoryDb.products || inMemoryDb.products.length < 50) {
-      inMemoryDb.products = [...INITIAL_PRODUCTS];
+    console.warn(`Aviso: MySQL local (${targetBranch}) offline:`, err);
+    if (!inMemoryDb.products) {
+      inMemoryDb.products = [];
       saveToLocalStorage(inMemoryDb);
       notifySubscribers();
     }
