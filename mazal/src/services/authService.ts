@@ -6,6 +6,11 @@
 import { supabase, isSupabaseConfigured } from "../supabase";
 import { User, UserRole } from "../types";
 import { getDatabase, logAction } from "../data";
+import { 
+  getActiveMasterAdminPassword, 
+  verifyPasswordHash, 
+  DEFAULT_MASTER_ADMIN_PASSWORD 
+} from "../utils/securityValidators";
 
 const AUTH_TOKEN_KEY = "mazal_auth_token";
 let inMemoryToken: string | null = null;
@@ -176,9 +181,41 @@ export async function authenticateStaff(
     console.warn("Aviso al consultar login en PHP:", phpErr);
   }
 
-  // 3. Fallback Terciario: Supabase RPC server-side si está disponible
+  // 3. Fallback Terciario: Supabase Cloud directo (users table o RPC)
   if (isSupabaseConfigured) {
     try {
+      // Consulta directa a la tabla users en Supabase
+      const { data: dbUser, error: dbErr } = await supabase
+        .from("users")
+        .select("*")
+        .ilike("username", cleanUser)
+        .maybeSingle();
+
+      if (!dbErr && dbUser) {
+        if (dbUser.status === "Inactivo") {
+          return {
+            success: false,
+            message: "Esta cuenta se encuentra inactiva. Contacta al Administrador."
+          };
+        }
+
+        const isMatch = await verifyPasswordHash(cleanPass, dbUser.password_hash || dbUser.password);
+        if (isMatch) {
+          return {
+            success: true,
+            user: {
+              id: dbUser.id || `USER_${cleanUser.toUpperCase()}`,
+              username: dbUser.username,
+              name: dbUser.name || dbUser.username,
+              role: (dbUser.role as UserRole) || (cleanUser === "admin" ? UserRole.ADMIN : UserRole.CASHIER),
+              status: dbUser.status || "Activo"
+            },
+            isDefaultPassword: isDefault
+          };
+        }
+      }
+
+      // Fallback a RPC si está disponible
       const { data, error } = await supabase.rpc("verify_staff_login", {
         p_username: cleanUser,
         p_password_hash: cleanPass
@@ -205,23 +242,52 @@ export async function authenticateStaff(
         }
       }
     } catch (rpcErr) {
-      console.warn("Error en RPC de Supabase:", rpcErr);
+      console.warn("Aviso al validar en Supabase:", rpcErr);
     }
   }
 
-  // 4. Fallback maestro para Administrador General exclusivamente con admin030114
-  if (cleanUser === "admin" && cleanPass === "admin030114") {
-    return {
-      success: true,
-      user: {
-        id: "USER_ADMIN_DEFAULT",
-        username: "admin",
-        name: "Administrador General",
-        role: UserRole.ADMIN,
-        status: "Activo"
-      },
-      isDefaultPassword: false
-    };
+  // 4. Fallback maestro para Administrador General con Contraseña Maestra Dinámica o por Defecto
+  if (cleanUser === "admin") {
+    const activeMasterPass = await getActiveMasterAdminPassword();
+    if (cleanPass === activeMasterPass || cleanPass === DEFAULT_MASTER_ADMIN_PASSWORD) {
+      return {
+        success: true,
+        user: {
+          id: "USER_ADMIN_DEFAULT",
+          username: "admin",
+          name: "Administrador General",
+          role: UserRole.ADMIN,
+          status: "Activo"
+        },
+        isDefaultPassword: false
+      };
+    }
+  }
+
+  // 5. Fallback local contra base de datos en memoria
+  try {
+    const localDb = getDatabase();
+    const foundLocal = (localDb.users || []).find(
+      (u: User) => (u.username || "").toLowerCase() === cleanUser
+    );
+    if (foundLocal) {
+      const match = await verifyPasswordHash(cleanPass, foundLocal.password);
+      if (match) {
+        return {
+          success: true,
+          user: {
+            id: foundLocal.id,
+            username: foundLocal.username,
+            name: foundLocal.name,
+            role: foundLocal.role,
+            status: foundLocal.status || "Activo"
+          },
+          isDefaultPassword: isDefault
+        };
+      }
+    }
+  } catch (localErr) {
+    console.warn("Aviso en validación local de usuario:", localErr);
   }
 
   return {
@@ -233,7 +299,7 @@ export async function authenticateStaff(
 /**
  * Valida la contraseña / PIN de sucursal de manera segura.
  * Cada sucursal tiene sus accesos individuales (Norte: norte123, Sur: sur123),
- * excepto el Administrador General ("admin030114") que tiene acceso a todo el sistema.
+ * excepto el Administrador General que cuenta con acceso maestro global.
  */
 export async function verifyBranchAccess(
   branch: "Norte" | "Sur" | string,
@@ -242,8 +308,9 @@ export async function verifyBranchAccess(
   const cleanPin = (enteredPin || "").trim();
   if (!cleanPin) return false;
 
-  // 1. Acceso Maestro del Administrador General (Permiso global a cualquier sucursal con admin030114)
-  if (cleanPin === "admin030114") {
+  // 1. Acceso Maestro del Administrador General (Global a cualquier sucursal con contraseña maestra activa o default)
+  const masterPass = await getActiveMasterAdminPassword();
+  if (cleanPin === masterPass || cleanPin === DEFAULT_MASTER_ADMIN_PASSWORD) {
     return true;
   }
 

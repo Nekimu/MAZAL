@@ -41,6 +41,12 @@ import { migrateProducts, normalizePrice } from "../utils/migration";
 import { getBranchPasswords, saveBranchPasswords } from "../utils/BranchPasswordService";
 import { authenticateStaff } from "../services/authService";
 import { supabase, isSupabaseConfigured, testSupabaseConnection } from "../supabase";
+import { 
+  getActiveMasterAdminPassword, 
+  updateMasterAdminPassword, 
+  saveUserToSupabase, 
+  deleteUserFromSupabase 
+} from "../utils/securityValidators";
 
 interface SecurityModuleProps {
   currentUser: { name: string; role: UserRole };
@@ -98,6 +104,7 @@ export default function SecurityModule({ currentUser, onChangeRole }: SecurityMo
   const [branchPassSuccess, setBranchPassSuccess] = useState("");
 
   const [showFormPassword, setShowFormPassword] = useState(false);
+  const [showFormConfirmPassword, setShowFormConfirmPassword] = useState(false);
 
   // State for user management form
   const [formData, setFormData] = useState({
@@ -105,6 +112,7 @@ export default function SecurityModule({ currentUser, onChangeRole }: SecurityMo
     name: "",
     username: "",
     password: "",
+    confirmPassword: "",
     role: UserRole.CASHIER,
     status: "Activo" as "Activo" | "Inactivo"
   });
@@ -113,6 +121,15 @@ export default function SecurityModule({ currentUser, onChangeRole }: SecurityMo
   const [userSearch, setUserSearch] = useState("");
   const [userSuccessMessage, setUserSuccessMessage] = useState("");
   const [userErrorMessage, setUserErrorMessage] = useState("");
+
+  // Master Admin Password states
+  const [masterAdminPass, setMasterAdminPass] = useState("");
+  const [confirmMasterAdminPass, setConfirmMasterAdminPass] = useState("");
+  const [showMasterPass, setShowMasterPass] = useState(false);
+  const [showConfirmMasterPass, setShowConfirmMasterPass] = useState(false);
+  const [masterPassLoading, setMasterPassLoading] = useState(false);
+  const [masterPassSuccess, setMasterPassSuccess] = useState("");
+  const [masterPassError, setMasterPassError] = useState("");
 
   // Supabase & Local MySQL Database Diagnostics
   const [supabaseStatus, setSupabaseStatus] = useState<string>("Verificando conexión...");
@@ -125,6 +142,12 @@ export default function SecurityModule({ currentUser, onChangeRole }: SecurityMo
     }).catch((e) => {
       setSupabaseStatus("Sin conexión a Supabase: " + String(e));
     });
+
+    // Cargar la Contraseña Maestra activa del Administrador
+    getActiveMasterAdminPassword().then((pass) => {
+      setMasterAdminPass(pass);
+      setConfirmMasterAdminPass(pass);
+    }).catch(() => {});
   }, []);
 
   // State for consolidated audit timeline
@@ -148,14 +171,30 @@ export default function SecurityModule({ currentUser, onChangeRole }: SecurityMo
     setFormData(prev => ({ ...prev, [e.target.name]: e.target.value }));
   };
 
-  const handleSaveUser = (e: React.FormEvent) => {
+  const handleSaveUser = async (e: React.FormEvent) => {
     e.preventDefault();
     setUserErrorMessage("");
     setUserSuccessMessage("");
 
-    if (!formData.name.trim() || !formData.username.trim() || !formData.password.trim()) {
-      setUserErrorMessage("Por favor, completa todos los campos del usuario.");
+    if (!formData.name.trim() || !formData.username.trim()) {
+      setUserErrorMessage("Por favor, completa el nombre y el usuario.");
       return;
+    }
+
+    if (!isEditing && !formData.password.trim()) {
+      setUserErrorMessage("Por favor, ingresa una contraseña para el colaborador.");
+      return;
+    }
+
+    if (formData.password) {
+      if (formData.password.length < 4) {
+        setUserErrorMessage("La contraseña debe tener al menos 4 caracteres.");
+        return;
+      }
+      if (formData.password !== formData.confirmPassword) {
+        setUserErrorMessage("Las contraseñas no coinciden. Por favor confirma la contraseña correctamente.");
+        return;
+      }
     }
 
     const currentDb = getDatabase();
@@ -181,7 +220,7 @@ export default function SecurityModule({ currentUser, onChangeRole }: SecurityMo
             ...u,
             name: formData.name.trim(),
             username: cleanUsername,
-            password: formData.password,
+            password: formData.password || u.password,
             role: formData.role,
             status: formData.status
           };
@@ -195,7 +234,7 @@ export default function SecurityModule({ currentUser, onChangeRole }: SecurityMo
         "Usuario Modificado",
         `Se actualizó el perfil de: ${formData.name} (@${cleanUsername}) como ${formData.role}`
       );
-      setUserSuccessMessage("Usuario actualizado correctamente.");
+      setUserSuccessMessage(`¡Usuario @${cleanUsername} actualizado correctamente con éxito!`);
     } else {
       // Add User
       const newUser: User = {
@@ -215,16 +254,26 @@ export default function SecurityModule({ currentUser, onChangeRole }: SecurityMo
         "Usuario Creado",
         `Se creó la cuenta del colaborador: ${newUser.name} (@${newUser.username}) con rol ${newUser.role}`
       );
-      setUserSuccessMessage("Nuevo usuario registrado correctamente.");
+      setUserSuccessMessage(`¡Usuario @${cleanUsername} registrado y creado con éxito!`);
     }
 
-    // Persist directly to MySQL database
+    // Persist to Supabase Cloud
+    saveUserToSupabase({
+      id: formData.id || undefined,
+      name: formData.name.trim(),
+      username: cleanUsername,
+      password: formData.password || undefined,
+      role: formData.role,
+      status: formData.status
+    }).catch(err => console.warn("Aviso al guardar usuario en Supabase:", err));
+
+    // Persist to MySQL database
     saveUserToMySQL({
       name: formData.name.trim(),
       username: cleanUsername,
       password: formData.password,
       role: formData.role
-    }).catch(err => console.warn("Error saving user to MySQL:", err));
+    }).catch(err => console.warn("Error guardando usuario en MySQL:", err));
 
     currentDb.users = updatedUsers;
     saveDatabase(currentDb);
@@ -236,10 +285,13 @@ export default function SecurityModule({ currentUser, onChangeRole }: SecurityMo
       name: "",
       username: "",
       password: "",
+      confirmPassword: "",
       role: UserRole.CASHIER,
       status: "Activo"
     });
     setIsEditing(false);
+    setShowFormPassword(false);
+    setShowFormConfirmPassword(false);
   };
 
   const handleEditClick = (user: User) => {
@@ -248,6 +300,7 @@ export default function SecurityModule({ currentUser, onChangeRole }: SecurityMo
       name: user.name,
       username: user.username,
       password: user.password || "",
+      confirmPassword: user.password || "",
       role: user.role,
       status: user.status
     });
@@ -267,8 +320,11 @@ export default function SecurityModule({ currentUser, onChangeRole }: SecurityMo
     }
 
     if (window.confirm(`¿Estás seguro de que deseas eliminar al colaborador ${name} (@${username})?`)) {
+      // Delete from Supabase Cloud
+      deleteUserFromSupabase(username).catch(err => console.warn("Error eliminando usuario en Supabase:", err));
+
       // Delete from MySQL database
-      deleteUserFromMySQL(username).catch(err => console.warn("Error deleting user from MySQL:", err));
+      deleteUserFromMySQL(username).catch(err => console.warn("Error eliminando usuario de MySQL:", err));
 
       const updatedUsers = currentDb.users.filter((u: User) => u.id !== userId);
       currentDb.users = updatedUsers;
@@ -281,7 +337,7 @@ export default function SecurityModule({ currentUser, onChangeRole }: SecurityMo
         "Usuario Eliminado",
         `Se eliminó permanentemente la cuenta de: ${name} (@${username})`
       );
-      setUserSuccessMessage(`Usuario @${username} eliminado correctamente.`);
+      setUserSuccessMessage(`¡Usuario @${username} eliminado correctamente con éxito!`);
     }
   };
 
@@ -307,6 +363,15 @@ export default function SecurityModule({ currentUser, onChangeRole }: SecurityMo
     saveDatabase(currentDb);
     setDb(currentDb);
 
+    // Sync status to Supabase
+    saveUserToSupabase({
+      id: user.id,
+      name: user.name,
+      username: user.username,
+      role: user.role,
+      status: newStatus
+    }).catch(err => console.warn("Error sincronizando status a Supabase:", err));
+
     logAction(
       currentUser.name,
       currentUser.role,
@@ -314,6 +379,50 @@ export default function SecurityModule({ currentUser, onChangeRole }: SecurityMo
       `Se cambió el estado de la cuenta de ${user.name} (@${user.username}) a ${newStatus}`
     );
     setUserSuccessMessage(`Estado de @${user.username} cambiado a ${newStatus}.`);
+  };
+
+  // Handler for Master Admin Password change
+  const handleSaveMasterPassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setMasterPassError("");
+    setMasterPassSuccess("");
+
+    if (currentUser.role !== UserRole.ADMIN && currentUser.name !== "Administrador General") {
+      setMasterPassError("Acceso restringido: Solo el Administrador General puede modificar la Contraseña Maestra.");
+      return;
+    }
+
+    const clean = (masterAdminPass || "").trim();
+    if (!clean || clean.length < 4) {
+      setMasterPassError("La contraseña maestra debe tener al menos 4 caracteres.");
+      return;
+    }
+
+    if (clean !== (confirmMasterAdminPass || "").trim()) {
+      setMasterPassError("Las contraseñas maestras no coinciden. Por favor verifica ambos campos.");
+      return;
+    }
+
+    setMasterPassLoading(true);
+    try {
+      const res = await updateMasterAdminPassword(clean);
+      if (res.success) {
+        logAction(
+          currentUser.name,
+          currentUser.role,
+          "Modificación de Seguridad",
+          "Actualizó la Contraseña Maestra de Administrador en Supabase y Servidor Local."
+        );
+        setMasterPassSuccess(res.message);
+        setTimeout(() => setMasterPassSuccess(""), 5000);
+      } else {
+        setMasterPassError(res.message || "Error al actualizar la contraseña maestra.");
+      }
+    } catch (err: any) {
+      setMasterPassError("Error al guardar la contraseña maestra: " + (err.message || String(err)));
+    } finally {
+      setMasterPassLoading(false);
+    }
   };
 
   // Interactive login handler
@@ -1102,7 +1211,7 @@ export default function SecurityModule({ currentUser, onChangeRole }: SecurityMo
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-stretch">
             
             {/* Card 1: Form to Add/Edit User */}
-            <div className="p-5 bg-white dark:bg-slate-900 border border-gray-150 dark:border-slate-800 rounded-2xl shadow-xs h-[520px] flex flex-col justify-between">
+            <div className="p-5 bg-white dark:bg-slate-900 border border-gray-150 dark:border-slate-800 rounded-2xl shadow-xs min-h-[540px] flex flex-col justify-between">
               <div>
                 <h3 className="font-extrabold text-gray-800 dark:text-slate-100 text-sm flex items-center gap-2 border-b border-gray-100 dark:border-slate-800 pb-3 mb-3">
                   <UserPlus className="h-4.5 w-4.5 text-emerald-600 dark:text-emerald-400" />
@@ -1110,13 +1219,14 @@ export default function SecurityModule({ currentUser, onChangeRole }: SecurityMo
                 </h3>
 
                 {userSuccessMessage && (
-                  <div className="mb-3 p-2.5 bg-emerald-50 dark:bg-emerald-950/20 text-emerald-700 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-900/40 rounded-xl text-xs font-medium">
-                    {userSuccessMessage}
+                  <div className="mb-3 p-3 bg-emerald-50 dark:bg-emerald-950/30 text-emerald-800 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-900/60 rounded-xl text-xs font-bold flex items-center gap-2 animate-fadeIn">
+                    <span className="h-2 w-2 rounded-full bg-emerald-500 animate-ping" />
+                    <span>{userSuccessMessage}</span>
                   </div>
                 )}
 
                 {userErrorMessage && (
-                  <div className="mb-3 p-2.5 bg-red-50 dark:bg-red-950/20 text-red-700 dark:text-red-400 border border-red-200 dark:border-red-900/40 rounded-xl text-xs font-medium">
+                  <div className="mb-3 p-3 bg-red-50 dark:bg-red-950/30 text-red-700 dark:text-red-400 border border-red-200 dark:border-red-900/60 rounded-xl text-xs font-semibold animate-fadeIn">
                     {userErrorMessage}
                   </div>
                 )}
@@ -1124,22 +1234,22 @@ export default function SecurityModule({ currentUser, onChangeRole }: SecurityMo
 
               <form onSubmit={handleSaveUser} className="space-y-3 flex-1 flex flex-col justify-between">
                 <div className="space-y-3">
-                  <div className="space-y-1">
-                    <label className="text-xs font-bold text-gray-600 dark:text-slate-400 block">
-                      Nombre Completo
-                    </label>
-                    <input
-                      type="text"
-                      name="name"
-                      placeholder="Ej. Juan Pérez"
-                      value={formData.name}
-                      onChange={handleUserInputChange}
-                      className="w-full text-xs p-2.5 border border-gray-200 dark:border-slate-800 rounded-xl focus:outline-none focus:ring-1 focus:ring-emerald-500 bg-transparent"
-                      required
-                    />
-                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div className="space-y-1">
+                      <label className="text-xs font-bold text-gray-600 dark:text-slate-400 block">
+                        Nombre Completo
+                      </label>
+                      <input
+                        type="text"
+                        name="name"
+                        placeholder="Ej. Juan Pérez"
+                        value={formData.name}
+                        onChange={handleUserInputChange}
+                        className="w-full text-xs p-2.5 border border-gray-200 dark:border-slate-800 rounded-xl focus:outline-none focus:ring-1 focus:ring-emerald-500 bg-transparent"
+                        required
+                      />
+                    </div>
 
-                  <div className="grid grid-cols-2 gap-3">
                     <div className="space-y-1">
                       <label className="text-xs font-bold text-gray-600 dark:text-slate-400 block">
                         Usuario (Login)
@@ -1154,34 +1264,61 @@ export default function SecurityModule({ currentUser, onChangeRole }: SecurityMo
                         required
                       />
                     </div>
+                  </div>
 
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <div className="space-y-1">
                       <label className="text-xs font-bold text-gray-600 dark:text-slate-400 block">
-                        Contraseña
+                        {isEditing ? "Nueva Contraseña (Opcional)" : "Contraseña"}
                       </label>
                       <div className="relative">
                         <input
                           type={showFormPassword ? "text" : "password"}
                           name="password"
-                          placeholder="Mínimo 4 caracteres"
+                          placeholder={isEditing ? "Dejar vacío para conservar" : "Mínimo 4 caracteres"}
                           value={formData.password}
                           onChange={handleUserInputChange}
                           className="w-full text-xs p-2.5 pr-9 border border-gray-200 dark:border-slate-800 rounded-xl focus:outline-none focus:ring-1 focus:ring-emerald-500 bg-transparent font-mono"
-                          required
+                          required={!isEditing}
                         />
                         <button
                           type="button"
                           onClick={() => setShowFormPassword(!showFormPassword)}
-                          className="absolute right-2.5 top-2.5 text-gray-400 hover:text-gray-600 dark:hover:text-slate-200"
+                          className="absolute right-2.5 top-2.5 text-gray-400 hover:text-gray-600 dark:hover:text-slate-200 cursor-pointer"
                           title={showFormPassword ? "Ocultar Contraseña" : "Ver Contraseña"}
                         >
                           {showFormPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                         </button>
                       </div>
                     </div>
+
+                    <div className="space-y-1">
+                      <label className="text-xs font-bold text-gray-600 dark:text-slate-400 block">
+                        Confirmar Contraseña
+                      </label>
+                      <div className="relative">
+                        <input
+                          type={showFormConfirmPassword ? "text" : "password"}
+                          name="confirmPassword"
+                          placeholder="Repite la contraseña"
+                          value={formData.confirmPassword}
+                          onChange={handleUserInputChange}
+                          className="w-full text-xs p-2.5 pr-9 border border-gray-200 dark:border-slate-800 rounded-xl focus:outline-none focus:ring-1 focus:ring-emerald-500 bg-transparent font-mono"
+                          required={!isEditing || Boolean(formData.password)}
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setShowFormConfirmPassword(!showFormConfirmPassword)}
+                          className="absolute right-2.5 top-2.5 text-gray-400 hover:text-gray-600 dark:hover:text-slate-200 cursor-pointer"
+                          title={showFormConfirmPassword ? "Ocultar Confirmación" : "Ver Confirmación"}
+                        >
+                          {showFormConfirmPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                        </button>
+                      </div>
+                    </div>
                   </div>
 
-                  <div className="grid grid-cols-2 gap-3">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <div className="space-y-1">
                       <label className="text-xs font-bold text-gray-600 dark:text-slate-400 block">
                         Rol de Permisos
@@ -1231,6 +1368,7 @@ export default function SecurityModule({ currentUser, onChangeRole }: SecurityMo
                           name: "",
                           username: "",
                           password: "",
+                          confirmPassword: "",
                           role: UserRole.CASHIER,
                           status: "Activo"
                         });
@@ -1246,7 +1384,7 @@ export default function SecurityModule({ currentUser, onChangeRole }: SecurityMo
             </div>
 
             {/* Card 2: List of Users with Internal Scroll */}
-            <div className="p-5 bg-white dark:bg-slate-900 border border-gray-150 dark:border-slate-800 rounded-2xl shadow-xs h-[520px] flex flex-col">
+            <div className="p-5 bg-white dark:bg-slate-900 border border-gray-150 dark:border-slate-800 rounded-2xl shadow-xs min-h-[540px] flex flex-col">
               <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-3 border-b border-gray-100 dark:border-slate-800 pb-3 mb-3 shrink-0">
                 <div>
                   <h3 className="font-extrabold text-gray-800 dark:text-slate-100 text-sm flex items-center gap-2">
@@ -1739,14 +1877,139 @@ export default function SecurityModule({ currentUser, onChangeRole }: SecurityMo
         </div>
       )}
 
-      {/* TAB CONTENT: CONTRASEÑAS DE SUCURSALES */}
+      {/* TAB CONTENT: CONTRASEÑAS DE SUCURSALES Y ACCESO MAESTRO */}
       {activeTab === "branches" && (
-        <div className="max-w-2xl mx-auto space-y-6 animate-fadeIn">
-          <div className="p-6 bg-white dark:bg-slate-900 border border-gray-150 dark:border-slate-800 rounded-2xl shadow-md space-y-6">
+        <div className="max-w-3xl mx-auto space-y-6 animate-fadeIn">
+          
+          {/* CARD 1: CONTRASEÑA MAESTRA DEL ADMINISTRADOR GENERAL */}
+          <div className="p-6 bg-white dark:bg-slate-900 border border-gray-150 dark:border-slate-800 rounded-2xl shadow-md space-y-6 relative overflow-hidden">
+            <div className="absolute top-0 right-0 w-32 h-32 bg-emerald-500/5 rounded-full blur-2xl pointer-events-none" />
             
+            <div className="flex items-center justify-between border-b border-gray-150 dark:border-slate-800 pb-4">
+              <div className="flex items-center gap-3">
+                <div className="p-3 bg-emerald-50 dark:bg-emerald-950/30 text-emerald-600 dark:text-emerald-400 rounded-xl border border-emerald-100 dark:border-emerald-900/40">
+                  <ShieldCheck className="h-6 w-6" />
+                </div>
+                <div>
+                  <h3 className="font-extrabold text-gray-800 dark:text-slate-100 text-sm flex items-center gap-2">
+                    Contraseña Maestra de Administrador
+                    <span className="text-[10px] bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 px-2 py-0.5 rounded font-bold uppercase">
+                      Acceso Global
+                    </span>
+                  </h3>
+                  <p className="text-xs text-gray-400 leading-relaxed mt-0.5">
+                    Permite acceso universal a cualquier sucursal, autorizaciones de inventario y rescate del sistema.
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {masterPassSuccess && (
+              <div className="p-3.5 bg-emerald-50 dark:bg-emerald-950/30 text-emerald-800 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 rounded-xl text-xs font-bold text-center animate-fadeIn flex items-center justify-center gap-2">
+                <span className="h-2 w-2 rounded-full bg-emerald-500 animate-ping" />
+                <span>{masterPassSuccess}</span>
+              </div>
+            )}
+
+            {masterPassError && (
+              <div className="p-3.5 bg-red-50 dark:bg-red-950/30 text-red-700 dark:text-red-400 border border-red-200 dark:border-red-800 rounded-xl text-xs font-semibold text-center animate-fadeIn">
+                {masterPassError}
+              </div>
+            )}
+
+            {currentUser.role === UserRole.ADMIN ? (
+              <form onSubmit={handleSaveMasterPassword} className="space-y-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div className="space-y-1">
+                    <label className="text-xs font-bold text-gray-600 dark:text-slate-400 block">
+                      Nueva Contraseña Maestra
+                    </label>
+                    <div className="relative">
+                      <input
+                        type={showMasterPass ? "text" : "password"}
+                        value={masterAdminPass}
+                        onChange={(e) => setMasterAdminPass(e.target.value)}
+                        placeholder="Mínimo 4 caracteres..."
+                        autoComplete="new-password"
+                        autoCorrect="off"
+                        autoCapitalize="none"
+                        spellCheck={false}
+                        className="w-full text-xs p-2.5 pr-10 border border-gray-200 dark:border-slate-800 rounded-lg bg-white dark:bg-slate-900 font-mono text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                        required
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowMasterPass(!showMasterPass)}
+                        className="absolute inset-y-0 right-0 pr-3 flex items-center text-gray-400 hover:text-gray-600 dark:hover:text-slate-300 cursor-pointer"
+                        title={showMasterPass ? "Ocultar Contraseña" : "Ver Contraseña"}
+                      >
+                        {showMasterPass ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="text-xs font-bold text-gray-600 dark:text-slate-400 block">
+                      Confirmar Contraseña Maestra
+                    </label>
+                    <div className="relative">
+                      <input
+                        type={showConfirmMasterPass ? "text" : "password"}
+                        value={confirmMasterAdminPass}
+                        onChange={(e) => setConfirmMasterAdminPass(e.target.value)}
+                        placeholder="Repite la contraseña maestra..."
+                        autoComplete="new-password"
+                        autoCorrect="off"
+                        autoCapitalize="none"
+                        spellCheck={false}
+                        className="w-full text-xs p-2.5 pr-10 border border-gray-200 dark:border-slate-800 rounded-lg bg-white dark:bg-slate-900 font-mono text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                        required
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowConfirmMasterPass(!showConfirmMasterPass)}
+                        className="absolute inset-y-0 right-0 pr-3 flex items-center text-gray-400 hover:text-gray-600 dark:hover:text-slate-300 cursor-pointer"
+                        title={showConfirmMasterPass ? "Ocultar Confirmación" : "Ver Confirmación"}
+                      >
+                        {showConfirmMasterPass ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex items-center justify-between pt-2">
+                  <span className="text-[11px] text-gray-400">
+                    Se almacena y sincroniza de forma segura con Supabase Cloud y la Base Local.
+                  </span>
+                  <button
+                    type="submit"
+                    disabled={masterPassLoading}
+                    className="py-2.5 px-5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white font-bold rounded-xl text-xs transition-all shadow-md flex items-center gap-2 cursor-pointer"
+                  >
+                    {masterPassLoading ? (
+                      <RefreshCw className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <Lock className="h-4 w-4" />
+                    )}
+                    <span>{masterPassLoading ? "Guardando..." : "Actualizar Contraseña Maestra"}</span>
+                  </button>
+                </div>
+              </form>
+            ) : (
+              <div className="p-4 bg-amber-50 dark:bg-amber-950/20 rounded-xl border border-amber-200 dark:border-amber-900/40 flex items-center gap-3 text-amber-800 dark:text-amber-300 text-xs">
+                <Lock className="h-5 w-5 shrink-0 text-amber-600 dark:text-amber-400" />
+                <span>
+                  <strong>Modificación Restringida:</strong> Solo puedes visualizar o modificar la Contraseña Maestra cuando has iniciado sesión con el perfil de <strong>Administrador General</strong>.
+                </span>
+              </div>
+            )}
+          </div>
+
+          {/* CARD 2: CONTRASEÑAS INDIVIDUALES POR SUCURSAL */}
+          <div className="p-6 bg-white dark:bg-slate-900 border border-gray-150 dark:border-slate-800 rounded-2xl shadow-md space-y-6">
             <div className="flex items-center gap-3 border-b border-gray-150 dark:border-slate-800 pb-4">
-              <div className="p-3 bg-emerald-50 dark:bg-emerald-950/30 text-emerald-600 dark:text-emerald-400 rounded-xl border border-emerald-100 dark:border-emerald-900/40">
-                <Key className="h-6 w-6" />
+              <div className="p-3 bg-teal-50 dark:bg-teal-950/30 text-teal-600 dark:text-teal-400 rounded-xl border border-teal-100 dark:border-teal-900/40">
+                <Store className="h-6 w-6" />
               </div>
               <div>
                 <h3 className="font-extrabold text-gray-800 dark:text-slate-100 text-sm">
@@ -1853,7 +2116,7 @@ export default function SecurityModule({ currentUser, onChangeRole }: SecurityMo
 
               <button
                 type="submit"
-                className="w-full py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold rounded-xl text-xs transition-all shadow-md shadow-emerald-600/10 flex items-center justify-center gap-2 cursor-pointer"
+                className="w-full py-3 bg-teal-600 hover:bg-teal-700 text-white font-extrabold rounded-xl text-xs transition-all shadow-md shadow-teal-600/10 flex items-center justify-center gap-2 cursor-pointer"
               >
                 <Lock className="h-4 w-4" />
                 <span>Guardar Contraseñas de Sucursales</span>
@@ -1868,28 +2131,28 @@ export default function SecurityModule({ currentUser, onChangeRole }: SecurityMo
       {activeTab === "database" && (
         <div className="space-y-6 max-w-5xl mx-auto animate-fadeIn">
           
-          {/* SECCIÓN: ESTADO DE SUPABASE CLOUD & XAMPP MYSQL */}
+          {/* SECCIÓN: ESTADO DE SUPABASE CLOUD & BASE LOCAL */}
           <div className="p-6 bg-white dark:bg-slate-900 border border-gray-150 dark:border-slate-800 rounded-2xl shadow-xs space-y-6">
             <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 border-b border-gray-150 dark:border-slate-800 pb-4">
               <div>
                 <h3 className="font-extrabold text-gray-800 dark:text-slate-100 text-sm flex items-center gap-2">
                   <Database className="h-4.5 w-4.5 text-emerald-600 dark:text-emerald-400" />
-                  Arquitectura de Base de Datos: Supabase Cloud + XAMPP MySQL Local
+                  Arquitectura de Datos: Nube Principal + Sincronización Local
                 </h3>
                 <p className="text-xs text-gray-400 mt-1">
-                  El sistema opera en tiempo real con <strong>Supabase Cloud</strong> y se sincroniza con el servidor local <strong>MySQL / phpMyAdmin</strong> a través de XAMPP (puertos 80, 443, 3306).
+                  El sistema opera en tiempo real conectado a la Nube (Supabase) y mantiene una sincronización automática y segura con el servidor local para garantizar funcionamiento ininterrumpido en todo momento.
                 </p>
               </div>
               <div className="flex items-center gap-2 text-xs font-bold">
                 {isSupabaseConfigured ? (
                   <span className="px-2.5 py-1 rounded-full bg-emerald-100 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400 flex items-center gap-1.5 border border-emerald-200 dark:border-emerald-900/50">
                     <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
-                    Supabase Cloud Conectado
+                    Nube Conectada
                   </span>
                 ) : (
                   <span className="px-2.5 py-1 rounded-full bg-amber-100 dark:bg-amber-950/40 text-amber-700 dark:text-amber-400 flex items-center gap-1.5 border border-amber-200 dark:border-amber-900/50">
                     <span className="h-2 w-2 rounded-full bg-amber-500" />
-                    Modo Local MySQL (XAMPP)
+                    Modo Servidor Local
                   </span>
                 )}
               </div>
@@ -1908,11 +2171,11 @@ export default function SecurityModule({ currentUser, onChangeRole }: SecurityMo
 
               <div className="p-4 bg-slate-50 dark:bg-slate-950 rounded-xl border border-gray-150 dark:border-slate-800 space-y-2">
                 <div className="flex items-center justify-between">
-                  <span className="text-xs font-bold text-slate-800 dark:text-slate-200">XAMPP MySQL / phpMyAdmin</span>
-                  <span className="text-[10px] font-mono font-bold text-teal-600 dark:text-teal-400">Localhost:3306</span>
+                  <span className="text-xs font-bold text-slate-800 dark:text-slate-200">Servidor MySQL Local</span>
+                  <span className="text-[10px] font-mono font-bold text-teal-600 dark:text-teal-400">Servidor Local Activo</span>
                 </div>
                 <p className="text-[11px] text-gray-500 dark:text-slate-400">
-                  Bases de datos locales activas: <code className="font-mono bg-slate-200 dark:bg-slate-800 px-1 py-0.5 rounded text-emerald-600 font-bold">mazal_bd</code> (Norte) y <code className="font-mono bg-slate-200 dark:bg-slate-800 px-1 py-0.5 rounded text-teal-600 font-bold">mazal_bd1</code> (Sur).
+                  Bases de datos locales sincronizadas: <code className="font-mono bg-slate-200 dark:bg-slate-800 px-1 py-0.5 rounded text-emerald-600 font-bold">mazal_bd</code> (Norte) y <code className="font-mono bg-slate-200 dark:bg-slate-800 px-1 py-0.5 rounded text-teal-600 font-bold">mazal_bd1</code> (Sur).
                 </p>
               </div>
             </div>
