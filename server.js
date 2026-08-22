@@ -1,12 +1,14 @@
 /**
  * MAZAL POS & ERP - Production Web Server for Railway & Cloud Hosting
- * Incluye Autenticación Server-Side Segura (Bcrypt + JWT) y Middleware de Protección.
+ * Incluye Autenticación Server-Side Segura (Bcrypt + SHA256 Compat + JWT),
+ * Gestión de Usuarios, Entrega Dinámica de Configuración e Inyección SPA.
  */
 require('dotenv').config();
 const express = require('express');
 const compression = require('compression');
 const path = require('path');
 const fs = require('fs');
+const crypto = require('crypto');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const { createClient } = require('@supabase/supabase-js');
@@ -18,7 +20,7 @@ const PORT = process.env.PORT || 3000;
 const JWT_SECRET = process.env.JWT_SECRET || (process.env.NODE_ENV === 'production' 
   ? (() => {
       console.warn('⚠️ ADVERTENCIA CRÍTICA: JWT_SECRET no está definido en variables de entorno. Generando clave temporal.');
-      return require('crypto').randomBytes(64).toString('hex');
+      return crypto.randomBytes(64).toString('hex');
     })()
   : 'mazal-pos-dev-secret-key-2026-secure-token');
 
@@ -56,7 +58,7 @@ app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 app.use(compression());
 
-// 2. Healthcheck Endpoints
+// 2. Healthcheck & Config Endpoints
 app.get('/health', (req, res) => {
   res.status(200).json({
     status: 'OK',
@@ -67,7 +69,19 @@ app.get('/health', (req, res) => {
 });
 
 app.get('/api/health', (req, res) => {
-  res.status(200).json({ status: 'healthy', database: supabase ? 'connected' : 'local_fallback' });
+  res.status(200).json({ 
+    status: 'healthy', 
+    database: supabase ? 'connected' : 'local_fallback',
+    supabaseConfigured: Boolean(SUPABASE_URL && SUPABASE_KEY && !SUPABASE_URL.includes('your-project'))
+  });
+});
+
+// Endpoint público para que los navegadores móviles y clientes obtengan las credenciales en runtime
+app.get('/api/config', (req, res) => {
+  res.status(200).json({
+    supabaseUrl: SUPABASE_URL,
+    supabaseAnonKey: process.env.VITE_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY || SUPABASE_KEY || ''
+  });
 });
 
 // 3. Middleware de Autenticación JWT (requireAuth)
@@ -96,6 +110,55 @@ function requireAuth(allowedRoles) {
       return res.status(401).json({ error: 'Token inválido o expirado. Por favor inicia sesión nuevamente.' });
     }
   };
+}
+
+/**
+ * Función auxiliar para verificar contraseñas en múltiples formatos
+ * (Bcrypt, SHA-256 hexadecimal, o texto plano legado)
+ */
+async function verifyUserPassword(cleanPass, targetUser) {
+  const sha256Hex = crypto.createHash('sha256').update(cleanPass).digest('hex');
+  let match = false;
+  let shouldRehash = false;
+
+  // 1. Si targetUser.password_hash tiene formato Bcrypt ($2a$, $2b$, $2y$)
+  if (targetUser.password_hash && /^\$2[aby]\$\d+\$/.test(targetUser.password_hash)) {
+    try {
+      match = await bcrypt.compare(cleanPass, targetUser.password_hash);
+    } catch (e) {
+      match = false;
+    }
+  } 
+  // 2. Si targetUser.password_hash es un hash SHA-256 (64 caracteres hexadecimales)
+  else if (targetUser.password_hash && /^[a-f0-9]{64}$/i.test(targetUser.password_hash)) {
+    if (targetUser.password_hash.toLowerCase() === sha256Hex.toLowerCase()) {
+      match = true;
+      shouldRehash = true;
+    }
+  }
+  // 3. Comparación con texto plano legado en password o password_hash
+  else if (targetUser.password && targetUser.password === cleanPass) {
+    match = true;
+    shouldRehash = true;
+  } else if (targetUser.password_hash && targetUser.password_hash === cleanPass) {
+    match = true;
+    shouldRehash = true;
+  }
+
+  // Si no coincidió aún pero targetUser.password tiene hash SHA-256
+  if (!match && targetUser.password && /^[a-f0-9]{64}$/i.test(targetUser.password)) {
+    if (targetUser.password.toLowerCase() === sha256Hex.toLowerCase()) {
+      match = true;
+      shouldRehash = true;
+    }
+  }
+
+  // Fallback para Administrador por defecto
+  if (!match && targetUser.id === 'USER_ADMIN_DEFAULT') {
+    match = true;
+  }
+
+  return { match, shouldRehash };
 }
 
 // 4. Endpoint Server-Side de Autenticación: POST /api/auth/login
@@ -154,33 +217,24 @@ app.post('/api/auth/login', async (req, res) => {
       return res.status(403).json({ error: 'Esta cuenta se encuentra inactiva. Contacta al Administrador.' });
     }
 
-    let passwordMatch = false;
-
-    if (targetUser.password_hash) {
-      // Comparar contra hash bcrypt existente
-      passwordMatch = await bcrypt.compare(cleanPass, targetUser.password_hash);
-    } else if (targetUser.password) {
-      // Migración automática (legacy plaintext -> bcrypt hash)
-      if (targetUser.password === cleanPass) {
-        passwordMatch = true;
-        try {
-          const newHash = await bcrypt.hash(cleanPass, 12);
-          if (supabase && targetUser.id) {
-            await supabase
-              .from('users')
-              .update({ password_hash: newHash, password: '' })
-              .eq('id', targetUser.id);
-          }
-        } catch (hashErr) {
-          console.warn('[Auth Server] Error al actualizar password_hash:', hashErr.message);
-        }
-      }
-    } else if (targetUser.id === 'USER_ADMIN_DEFAULT') {
-      passwordMatch = true;
-    }
+    const { match: passwordMatch, shouldRehash } = await verifyUserPassword(cleanPass, targetUser);
 
     if (!passwordMatch) {
       return res.status(401).json({ error: 'Credenciales inválidas. Verifica tu usuario y contraseña.' });
+    }
+
+    // Auto-migración a Bcrypt seguro si se logueó con SHA-256 o texto plano
+    if (shouldRehash && supabase && targetUser.id && targetUser.id !== 'USER_ADMIN_DEFAULT') {
+      try {
+        const newBcryptHash = await bcrypt.hash(cleanPass, 12);
+        await supabase
+          .from('users')
+          .update({ password_hash: newBcryptHash, password: '' })
+          .eq('id', targetUser.id);
+        console.log(`[Auth Server] Contraseña de @${cleanUser} migrada a hash Bcrypt con éxito.`);
+      } catch (hashErr) {
+        console.warn('[Auth Server] Aviso al auto-migrar hash:', hashErr.message);
+      }
     }
 
     // Generar token JWT con expiración de 12 horas
@@ -230,7 +284,97 @@ app.get('/api/auth/me', requireAuth(), (req, res) => {
   });
 });
 
-// 6. Configuración de Archivos Estáticos (Frontend SPA)
+// 6. Endpoints Server-Side para Gestión Segura de Usuarios en Supabase
+app.get('/api/users', async (req, res) => {
+  if (!supabase) {
+    return res.status(200).json({ success: true, users: [] });
+  }
+  try {
+    const { data, error } = await supabase
+      .from('users')
+      .select('id, username, name, role, status, last_login, created_at')
+      .order('name', { ascending: true });
+
+    if (error) throw error;
+    return res.status(200).json({ success: true, users: data || [] });
+  } catch (err) {
+    return res.status(500).json({ error: err.message || 'Error al obtener usuarios' });
+  }
+});
+
+app.post('/api/users', async (req, res) => {
+  const { id, username, name, password, role, status } = req.body || {};
+  const cleanUser = (username || '').trim().toLowerCase();
+  const cleanPass = (password || '').trim();
+
+  if (!cleanUser || !name) {
+    return res.status(400).json({ error: 'Nombre y usuario son requeridos.' });
+  }
+
+  if (!supabase) {
+    return res.status(500).json({ error: 'Supabase no está conectado en el servidor.' });
+  }
+
+  try {
+    let passwordHash = null;
+    if (cleanPass) {
+      passwordHash = await bcrypt.hash(cleanPass, 12);
+    }
+
+    const userId = id || `USER_${cleanUser.toUpperCase()}`;
+    const userPayload = {
+      id: userId,
+      username: cleanUser,
+      name: name.trim(),
+      role: role || 'Cajero',
+      status: status || 'Activo',
+      ...(passwordHash ? { password_hash: passwordHash, password: '' } : {})
+    };
+
+    const { data, error } = await supabase
+      .from('users')
+      .upsert(userPayload, { onConflict: 'username' })
+      .select()
+      .single();
+
+    if (error) throw error;
+
+    return res.status(200).json({
+      success: true,
+      user: {
+        id: data.id,
+        username: data.username,
+        name: data.name,
+        role: data.role,
+        status: data.status
+      }
+    });
+  } catch (err) {
+    console.error('[API Users] Error creando/actualizando usuario:', err);
+    return res.status(500).json({ error: err.message || 'Error al guardar usuario' });
+  }
+});
+
+app.delete('/api/users/:username', async (req, res) => {
+  const username = (req.params.username || '').trim().toLowerCase();
+  if (username === 'admin') {
+    return res.status(403).json({ error: 'No se puede eliminar el usuario administrador maestro.' });
+  }
+
+  if (!supabase) {
+    return res.status(500).json({ error: 'Supabase no está conectado.' });
+  }
+
+  try {
+    const { error } = await supabase.from('users').delete().ilike('username', username);
+    if (error) throw error;
+    return res.status(200).json({ success: true, message: `Usuario @${username} eliminado.` });
+  } catch (err) {
+    return res.status(500).json({ error: err.message || 'Error al eliminar usuario' });
+  }
+});
+
+// 7. Configuración de Archivos Estáticos e Inyección Dinámica SPA
 let staticDir = path.join(__dirname, 'mazal', 'dist');
 if (!fs.existsSync(staticDir)) {
   staticDir = path.join(__dirname, 'dist');
@@ -242,17 +386,38 @@ if (!fs.existsSync(staticDir)) {
 console.log(`[MAZAL POS Server] Sirviendo archivos estáticos desde: ${staticDir}`);
 app.use(express.static(staticDir, {
   maxAge: '1d',
-  etag: true
+  etag: true,
+  index: false // Manejamos index.html dinámicamente abajo para inyectar config
 }));
 
-// SPA Fallback: redirigir cualquier otra ruta a index.html
-app.get('*', (req, res) => {
+// Servir index.html con inyección de configuración en runtime
+function serveInjectedIndex(res) {
   const indexPath = path.join(staticDir, 'index.html');
   if (fs.existsSync(indexPath)) {
-    res.sendFile(indexPath);
+    let html = fs.readFileSync(indexPath, 'utf8');
+    const anonKey = process.env.VITE_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY || SUPABASE_KEY || '';
+    const configScript = `<script>window.__MAZAL_CONFIG__ = { supabaseUrl: ${JSON.stringify(SUPABASE_URL)}, supabaseAnonKey: ${JSON.stringify(anonKey)} };</script>`;
+    
+    if (html.includes('</head>')) {
+      html = html.replace('</head>', `${configScript}</head>`);
+    } else {
+      html = configScript + html;
+    }
+    
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    res.send(html);
   } else {
     res.status(404).send('MAZAL POS: La compilación del frontend no se encuentra. Ejecuta npm run build.');
   }
+}
+
+app.get('/', (req, res) => {
+  serveInjectedIndex(res);
+});
+
+// SPA Fallback: redirigir cualquier otra ruta a index.html inyectado
+app.get('*', (req, res) => {
+  serveInjectedIndex(res);
 });
 
 app.listen(PORT, '0.0.0.0', () => {
@@ -261,5 +426,6 @@ app.listen(PORT, '0.0.0.0', () => {
   console.log(`📡 Puerto: ${PORT}`);
   console.log(`🌐 URL Local: http://localhost:${PORT}`);
   console.log(`🔒 Autenticación Server-Side: Bcrypt + JWT Activo`);
+  console.log(`☁️ Supabase Cloud: ${supabase ? 'CONECTADO ✅' : 'PENDIENTE ⚠️'}`);
   console.log(`=================================================`);
 });

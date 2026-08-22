@@ -3,7 +3,7 @@
  * Autenticación server-side con Bcrypt, JWT y almacenamiento seguro en memoria/sessionStorage.
  */
 
-import { supabase, isSupabaseConfigured } from "../supabase";
+import { supabase, isSupabaseConfigured, ensureSupabaseConfigured } from "../supabase";
 import { User, UserRole } from "../types";
 import { getDatabase, logAction } from "../data";
 import { 
@@ -129,62 +129,23 @@ export async function authenticateStaff(
         },
         isDefaultPassword: isDefault
       };
-    } else if (response.status === 401 || response.status === 403) {
+    } else if (response.status === 403) {
       return {
         success: false,
-        message: data.error || "Usuario o contraseña incorrectos."
+        message: data.error || "Esta cuenta se encuentra inactiva. Contacta al Administrador."
       };
     }
   } catch (apiErr) {
-    // Si la API Express no responde (ej. en desarrollo con Vite standalone), intentar fallback
-    console.warn("API Server /api/auth/login no respondió, probando RPC de Supabase:", apiErr);
+    console.warn("API Server /api/auth/login no respondió, probando fallbacks:", apiErr);
   }
 
-  // 2. Fallback Secundario: Endpoint PHP Apache XAMPP (/api.php?action=login)
-  try {
-    const candidateUrls = [
-      `/api.php?action=login`,
-      `http://localhost/mazal/api.php?action=login`,
-      `http://localhost/api.php?action=login`
-    ];
-
-    for (const url of candidateUrls) {
-      try {
-        const phpRes = await fetch(url, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ username: cleanUser, password: cleanPass }),
-          signal: AbortSignal.timeout(3000)
-        });
-
-        if (phpRes.ok) {
-          const phpData = await phpRes.json();
-          if (phpData.success && phpData.user) {
-            return {
-              success: true,
-              user: {
-                id: phpData.user.id,
-                username: phpData.user.username,
-                name: phpData.user.name,
-                role: (phpData.user.role as UserRole) || UserRole.ADMIN,
-                status: "Activo"
-              },
-              isDefaultPassword: isDefault
-            };
-          }
-        }
-      } catch (e) {
-        // Continuar al siguiente endpoint
-      }
-    }
-  } catch (phpErr) {
-    console.warn("Aviso al consultar login en PHP:", phpErr);
+  // 2. Fallback Secundario: Supabase Cloud directo (users table o RPC)
+  if (!isSupabaseConfigured) {
+    await ensureSupabaseConfigured();
   }
 
-  // 3. Fallback Terciario: Supabase Cloud directo (users table o RPC)
   if (isSupabaseConfigured) {
     try {
-      // Consulta directa a la tabla users en Supabase
       const { data: dbUser, error: dbErr } = await supabase
         .from("users")
         .select("*")
@@ -214,39 +175,12 @@ export async function authenticateStaff(
           };
         }
       }
-
-      // Fallback a RPC si está disponible
-      const { data, error } = await supabase.rpc("verify_staff_login", {
-        p_username: cleanUser,
-        p_password_hash: cleanPass
-      });
-
-      if (!error && data) {
-        if (data.success && data.user) {
-          return {
-            success: true,
-            user: {
-              id: data.user.id,
-              username: data.user.username,
-              name: data.user.name,
-              role: (data.user.role as UserRole) || UserRole.CASHIER,
-              status: data.user.status || "Activo"
-            },
-            isDefaultPassword: isDefault
-          };
-        } else if (data.message) {
-          return {
-            success: false,
-            message: data.message
-          };
-        }
-      }
     } catch (rpcErr) {
       console.warn("Aviso al validar en Supabase:", rpcErr);
     }
   }
 
-  // 4. Fallback maestro para Administrador General con Contraseña Maestra Dinámica
+  // 3. Fallback maestro para Administrador General con Contraseña Maestra Dinámica
   if (cleanUser === "admin") {
     const activeMasterPass = await getActiveMasterAdminPassword();
     if (cleanPass === activeMasterPass) {
@@ -264,7 +198,7 @@ export async function authenticateStaff(
     }
   }
 
-  // 5. Fallback local contra base de datos en memoria
+  // 4. Fallback local contra base de datos en memoria / localStorage
   try {
     const localDb = getDatabase();
     const foundLocal = (localDb.users || []).find(
@@ -298,8 +232,6 @@ export async function authenticateStaff(
 
 /**
  * Valida la contraseña / PIN de sucursal de manera segura.
- * Cada sucursal tiene sus accesos individuales (Norte: norte123, Sur: sur123),
- * excepto el Administrador General que cuenta con acceso maestro global.
  */
 export async function verifyBranchAccess(
   branch: "Norte" | "Sur" | string,
@@ -308,7 +240,7 @@ export async function verifyBranchAccess(
   const cleanPin = (enteredPin || "").trim();
   if (!cleanPin) return false;
 
-  // 1. Acceso Maestro del Administrador General (Global a cualquier sucursal con contraseña maestra activa)
+  // 1. Acceso Maestro del Administrador General
   const masterPass = await getActiveMasterAdminPassword();
   if (cleanPin === masterPass) {
     return true;

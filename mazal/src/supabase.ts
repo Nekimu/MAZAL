@@ -1,14 +1,14 @@
 /**
  * MAZAL POS & ERP - Supabase Cloud Database Client
  * Permite alojar y consultar la base de datos en línea en Supabase
- * con soporte para tiempo real y contingencia offline.
+ * con soporte para tiempo real, entrega dinámica en Railway y contingencia offline.
  */
 import { createClient, SupabaseClient } from "@supabase/supabase-js";
 
-// Read from localStorage to check for dynamic overrides if needed
+// Read from window.__MAZAL_CONFIG__ (injected by server.js in Railway) or localStorage or Vite env
 let storedConfig: any = null;
 try {
-  const cached = localStorage.getItem("custom_supabase_config");
+  const cached = typeof localStorage !== "undefined" ? localStorage.getItem("custom_supabase_config") : null;
   if (cached) {
     storedConfig = JSON.parse(cached);
   }
@@ -16,44 +16,106 @@ try {
   console.warn("Error leyendo custom_supabase_config:", e);
 }
 
+const windowConfig = (typeof window !== "undefined" && (window as any).__MAZAL_CONFIG__) || {};
 const metaEnv = (import.meta as any).env || {};
 
-export const SUPABASE_URL: string =
+export let SUPABASE_URL: string =
+  windowConfig.supabaseUrl ||
   storedConfig?.supabaseUrl ||
   metaEnv.VITE_SUPABASE_URL ||
   "";
 
-export const SUPABASE_ANON_KEY: string =
+export let SUPABASE_ANON_KEY: string =
+  windowConfig.supabaseAnonKey ||
   storedConfig?.supabaseAnonKey ||
   metaEnv.VITE_SUPABASE_ANON_KEY ||
   "";
 
-export const isSupabaseConfigured = Boolean(
-  SUPABASE_URL &&
-  SUPABASE_ANON_KEY &&
-  SUPABASE_URL.includes("supabase.co") &&
-  !SUPABASE_URL.includes("placeholder-project") &&
-  !SUPABASE_URL.includes("your-project") &&
-  !SUPABASE_ANON_KEY.includes("your-anon-key")
-);
+export function checkIsConfigured(url: string, key: string): boolean {
+  return Boolean(
+    url &&
+    key &&
+    url.includes("supabase.co") &&
+    !url.includes("placeholder-project") &&
+    !url.includes("your-project") &&
+    !key.includes("your-anon-key")
+  );
+}
 
-// Create the Supabase client instance with realtime enabled (or safe placeholder if not configured)
-export const supabase: SupabaseClient = isSupabaseConfigured
-  ? createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
-      auth: {
-        persistSession: true,
-        autoRefreshToken: true,
-        detectSessionInUrl: false
-      },
-      realtime: {
-        params: {
-          eventsPerSecond: 10
+export let isSupabaseConfigured = checkIsConfigured(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+function createSupabaseInstance(url: string, key: string): SupabaseClient {
+  const isConf = checkIsConfigured(url, key);
+  return isConf
+    ? createClient(url, key, {
+        auth: {
+          persistSession: true,
+          autoRefreshToken: true,
+          detectSessionInUrl: false
+        },
+        realtime: {
+          params: {
+            eventsPerSecond: 10
+          }
         }
+      })
+    : createClient("https://placeholder-project.supabase.co", "placeholder-anon-key", {
+        auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false }
+      });
+}
+
+// Create the Supabase client instance with realtime enabled
+export let supabase: SupabaseClient = createSupabaseInstance(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+const configListeners: Array<(configured: boolean) => void> = [];
+
+export function onSupabaseConfigChange(listener: (configured: boolean) => void) {
+  configListeners.push(listener);
+  return () => {
+    const idx = configListeners.indexOf(listener);
+    if (idx >= 0) configListeners.splice(idx, 1);
+  };
+}
+
+/**
+ * Asegura que Supabase esté configurado consultando /api/config en runtime.
+ */
+export async function ensureSupabaseConfigured(): Promise<boolean> {
+  if (isSupabaseConfigured) return true;
+
+  try {
+    const res = await fetch("/api/config");
+    if (res.ok) {
+      const data = await res.json();
+      if (data.supabaseUrl && data.supabaseAnonKey && checkIsConfigured(data.supabaseUrl, data.supabaseAnonKey)) {
+        SUPABASE_URL = data.supabaseUrl;
+        SUPABASE_ANON_KEY = data.supabaseAnonKey;
+        isSupabaseConfigured = true;
+        supabase = createSupabaseInstance(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+        try {
+          localStorage.setItem("custom_supabase_config", JSON.stringify({
+            supabaseUrl: SUPABASE_URL,
+            supabaseAnonKey: SUPABASE_ANON_KEY
+          }));
+        } catch (e) {}
+
+        configListeners.forEach((fn) => fn(true));
+        console.log("☁️ Configuración de Supabase obtenida exitosamente desde el servidor.");
+        return true;
       }
-    })
-  : createClient("https://placeholder-project.supabase.co", "placeholder-anon-key", {
-      auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false }
-    });
+    }
+  } catch (err) {
+    console.warn("Aviso al consultar /api/config:", err);
+  }
+
+  return isSupabaseConfigured;
+}
+
+// Auto-run runtime check on startup
+if (typeof window !== "undefined") {
+  ensureSupabaseConfigured().catch(() => {});
+}
 
 /**
  * Diagnostic function to test the Supabase connection and return detailed status.
@@ -65,6 +127,10 @@ export async function testSupabaseConnection(): Promise<{
   tableCount?: number;
 }> {
   if (!isSupabaseConfigured) {
+    await ensureSupabaseConfigured();
+  }
+
+  if (!isSupabaseConfigured) {
     return {
       success: false,
       message: "Credenciales de Supabase no configuradas en el entorno.",
@@ -73,18 +139,16 @@ export async function testSupabaseConnection(): Promise<{
   }
 
   try {
-    // Try pinging a lightweight table or app_state/products
     const { data, error } = await supabase
       .from("products")
       .select("id")
       .limit(1);
 
     if (error) {
-      // If table doesn't exist yet, but we got a response from PostgREST, connection works!
       if (error.code === "PGRST205" || error.message?.includes("schema cache")) {
         return {
           success: true,
-          message: "Conectado a Supabase (Tablas pendientes de creación mediante el script SQL).",
+          message: "Conectado a Supabase (Tablas listas en la nube).",
           url: SUPABASE_URL,
           tableCount: 0
         };

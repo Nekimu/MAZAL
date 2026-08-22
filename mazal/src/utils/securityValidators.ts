@@ -2,10 +2,10 @@
  * @license
  * SPDX-License-Identifier: Apache-2.0
  * MAZAL POS & ERP - Security Validators & Password Management
- * Manejo seguro de hashing (SHA-256 / WebCrypto), validación y sincronización en Supabase y Base Local.
+ * Manejo seguro de hashing (SHA-256 / Bcrypt), validación y sincronización en Supabase y Base Local.
  */
 
-import { supabase, isSupabaseConfigured } from "../supabase";
+import { supabase, isSupabaseConfigured, ensureSupabaseConfigured } from "../supabase";
 import { saveUserToMySQL } from "../data";
 
 export const DEFAULT_MASTER_ADMIN_PASSWORD = "admin030114";
@@ -73,6 +73,10 @@ export async function verifyPasswordHash(
  * Consulta Supabase Cloud primero; si no está disponible, utiliza el almacenamiento local o la clave por defecto.
  */
 export async function getActiveMasterAdminPassword(): Promise<string> {
+  if (!isSupabaseConfigured) {
+    await ensureSupabaseConfigured();
+  }
+
   // 1. Intentar consultar Supabase Cloud
   if (isSupabaseConfigured) {
     try {
@@ -124,8 +128,6 @@ export async function updateMasterAdminPassword(
     return { success: false, message: "La contraseña debe tener al menos 4 caracteres." };
   }
 
-  const passHash = await hashPassword(cleanPass);
-
   // 1. Guardar en almacenamiento local
   try {
     if (typeof localStorage !== "undefined") {
@@ -135,10 +137,30 @@ export async function updateMasterAdminPassword(
     console.warn("Error guardando contraseña maestra en localStorage:", e);
   }
 
-  // 2. Actualizar en Supabase Cloud
+  // 2. Intentar guardar mediante endpoint Server-Side
   let cloudSynced = false;
-  if (isSupabaseConfigured) {
+  try {
+    const res = await fetch("/api/users", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        id: "USR_ADMIN",
+        username: "admin",
+        name: "Administrador General",
+        password: cleanPass,
+        role: "Administrador",
+        status: "Activo"
+      })
+    });
+    if (res.ok) {
+      cloudSynced = true;
+    }
+  } catch (e) {}
+
+  // Fallback directo a Supabase
+  if (!cloudSynced && isSupabaseConfigured) {
     try {
+      const passHash = await hashPassword(cleanPass);
       const { error } = await supabase.from("users").upsert(
         {
           id: "USR_ADMIN",
@@ -154,8 +176,6 @@ export async function updateMasterAdminPassword(
 
       if (!error) {
         cloudSynced = true;
-      } else {
-        console.warn("Error actualizando admin en Supabase:", error);
       }
     } catch (supabaseErr) {
       console.warn("Excepción al guardar admin en Supabase:", supabaseErr);
@@ -173,7 +193,7 @@ export async function updateMasterAdminPassword(
   return {
     success: true,
     message: cloudSynced
-      ? "¡Contraseña Maestra actualizada y sincronizada en la Nube y servidor local con éxito!"
+      ? "¡Contraseña Maestra actualizada y sincronizada en la Nube con éxito!"
       : "¡Contraseña Maestra actualizada localmente! Se sincronizará con la Nube al haber conexión."
   };
 }
@@ -189,51 +209,91 @@ export async function saveUserToSupabase(user: {
   role: string;
   status?: string;
 }): Promise<boolean> {
-  if (!isSupabaseConfigured) return false;
+  const cleanUser = (user.username || "").trim().toLowerCase();
 
+  // 1. Intento principal: Endpoint Server-side Express con hash Bcrypt
   try {
-    const cleanUser = (user.username || "").trim().toLowerCase();
-    const passHash = user.password ? await hashPassword(user.password) : undefined;
+    const res = await fetch("/api/users", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        id: user.id || `USER_${cleanUser.toUpperCase()}`,
+        username: cleanUser,
+        name: user.name.trim(),
+        password: user.password,
+        role: user.role,
+        status: user.status || "Activo"
+      })
+    });
 
-    const rowData: Record<string, any> = {
-      id: user.id || `USER_${cleanUser.toUpperCase()}`,
-      username: cleanUser,
-      name: user.name.trim(),
-      role: user.role,
-      status: user.status || "Activo"
-    };
-
-    if (user.password) {
-      rowData.password = user.password;
-      rowData.password_hash = passHash;
+    if (res.ok) {
+      return true;
     }
-
-    const { error } = await supabase.from("users").upsert(rowData, { onConflict: "username" });
-    if (error) {
-      console.warn("Error guardando usuario en Supabase:", error);
-      return false;
-    }
-    return true;
-  } catch (err) {
-    console.warn("Excepción al guardar usuario en Supabase:", err);
-    return false;
+  } catch (apiErr) {
+    // Si el servidor Express no está disponible (modo offline o standalone Vite), continuar a fallback
   }
+
+  // 2. Fallback Secundario: Supabase Cloud directo
+  if (!isSupabaseConfigured) {
+    await ensureSupabaseConfigured();
+  }
+
+  if (isSupabaseConfigured) {
+    try {
+      const passHash = user.password ? await hashPassword(user.password) : undefined;
+
+      const rowData: Record<string, any> = {
+        id: user.id || `USER_${cleanUser.toUpperCase()}`,
+        username: cleanUser,
+        name: user.name.trim(),
+        role: user.role,
+        status: user.status || "Activo"
+      };
+
+      if (user.password) {
+        rowData.password = user.password;
+        rowData.password_hash = passHash;
+      }
+
+      const { error } = await supabase.from("users").upsert(rowData, { onConflict: "username" });
+      if (!error) {
+        return true;
+      }
+      console.warn("Error guardando usuario en Supabase:", error);
+    } catch (err) {
+      console.warn("Excepción al guardar usuario en Supabase:", err);
+    }
+  }
+
+  return false;
 }
 
 /**
  * Elimina un usuario de Supabase Cloud.
  */
 export async function deleteUserFromSupabase(username: string): Promise<boolean> {
-  if (!isSupabaseConfigured) return false;
+  const cleanUser = (username || "").trim().toLowerCase();
+  if (cleanUser === "admin") return false; // Proteger usuario administrador maestro
 
+  // 1. Intento por API Server
   try {
-    const cleanUser = (username || "").trim().toLowerCase();
-    if (cleanUser === "admin") return false; // Proteger usuario administrador maestro
+    const res = await fetch(`/api/users/${encodeURIComponent(cleanUser)}`, {
+      method: "DELETE"
+    });
+    if (res.ok) {
+      return true;
+    }
+  } catch (e) {}
 
-    const { error } = await supabase.from("users").delete().ilike("username", cleanUser);
-    return !error;
-  } catch (err) {
-    console.warn("Error eliminando usuario en Supabase:", err);
-    return false;
+  // 2. Fallback Supabase directo
+  if (isSupabaseConfigured) {
+    try {
+      const { error } = await supabase.from("users").delete().ilike("username", cleanUser);
+      return !error;
+    } catch (err) {
+      console.warn("Error eliminando usuario en Supabase:", err);
+    }
   }
+
+  return false;
 }

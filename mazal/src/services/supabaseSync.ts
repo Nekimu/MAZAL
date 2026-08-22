@@ -2,7 +2,7 @@
  * MAZAL POS & ERP - Supabase Sync Engine
  * Sincronización en la nube bidireccional, tiempo real y contingencia offline.
  */
-import { supabase, isSupabaseConfigured } from "../supabase";
+import { supabase, isSupabaseConfigured, ensureSupabaseConfigured } from "../supabase";
 import { 
   Product, 
   Customer, 
@@ -149,6 +149,10 @@ export async function loadAllFromSupabase(branch: string = "Norte"): Promise<{
   data?: any;
   error?: string;
 }> {
+  if (!isSupabaseConfigured) {
+    await ensureSupabaseConfigured();
+  }
+
   if (!isSupabaseConfigured) {
     return { success: false, error: "Supabase no está configurado." };
   }
@@ -335,7 +339,6 @@ export async function loadAllFromSupabase(branch: string = "Norte"): Promise<{
       .single();
 
     if (stateData && stateData.data) {
-      // Merge snapshot data for anything not loaded individually
       const snap = stateData.data;
       if (!results.bankAccounts && snap.bankAccounts) results.bankAccounts = snap.bankAccounts;
       if (!results.costCenters && snap.costCenters) results.costCenters = snap.costCenters;
@@ -359,6 +362,10 @@ export async function syncAllToSupabase(db: any, branch: string = "Norte"): Prom
   message?: string;
   error?: string;
 }> {
+  if (!isSupabaseConfigured) {
+    await ensureSupabaseConfigured();
+  }
+
   if (!isSupabaseConfigured) {
     return { success: false, error: "Supabase no está configurado." };
   }
@@ -457,7 +464,20 @@ export async function syncAllToSupabase(db: any, branch: string = "Norte"): Prom
       await supabase.from("cash_sessions").upsert(sessRows, { onConflict: "id" });
     }
 
-    // 6. Subir snapshot completo a app_state
+    // 6. Subir usuarios
+    if (db.users && Array.isArray(db.users) && db.users.length > 0) {
+      const userRows = db.users.map((u: User) => ({
+        id: String(u.id),
+        username: (u.username || "").toLowerCase().trim(),
+        name: u.name.trim(),
+        role: u.role || "Cajero",
+        status: u.status || "Activo",
+        ...(u.password ? { password: u.password } : {})
+      }));
+      await supabase.from("users").upsert(userRows, { onConflict: "username" });
+    }
+
+    // 7. Subir snapshot completo a app_state
     await supabase.from("app_state").upsert({
       id: `mazal_state_${branch.toLowerCase()}`,
       data: db,
@@ -475,10 +495,33 @@ export async function syncAllToSupabase(db: any, branch: string = "Norte"): Prom
 }
 
 /**
+ * Guarda o actualiza un producto directamente en Supabase Cloud.
+ */
+export async function saveProductToSupabase(product: Product, branch: string = "Norte"): Promise<boolean> {
+  if (!isSupabaseConfigured) {
+    await ensureSupabaseConfigured();
+  }
+  if (!isSupabaseConfigured) return false;
+
+  try {
+    const row = mapLocalProductToDb(product, branch);
+    const { error } = await supabase.from("products").upsert(row, { onConflict: "id" });
+    return !error;
+  } catch (e) {
+    console.warn("Error guardando producto individual en Supabase:", e);
+    return false;
+  }
+}
+
+/**
  * Guarda una venta directamente en Supabase.
  */
 export async function saveSaleToSupabase(sale: Sale, branch: string = "Norte"): Promise<boolean> {
+  if (!isSupabaseConfigured) {
+    await ensureSupabaseConfigured();
+  }
   if (!isSupabaseConfigured) return false;
+
   try {
     const row = {
       id: String(sale.id),
@@ -510,7 +553,11 @@ export async function saveSaleToSupabase(sale: Sale, branch: string = "Norte"): 
  * Registra un movimiento de stock en Supabase.
  */
 export async function saveMovementToSupabase(movement: StockMovement, branch: string = "Norte"): Promise<boolean> {
+  if (!isSupabaseConfigured) {
+    await ensureSupabaseConfigured();
+  }
   if (!isSupabaseConfigured) return false;
+
   try {
     const row = {
       id: String(movement.id),

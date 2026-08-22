@@ -46,7 +46,7 @@ import {
   mapDbProductToLocal,
   mapLocalProductToDb
 } from "./services/supabaseSync";
-import { supabase, isSupabaseConfigured, testSupabaseConnection } from "./supabase";
+import { supabase, isSupabaseConfigured, testSupabaseConnection, ensureSupabaseConfigured } from "./supabase";
 
 export enum OperationType {
   CREATE = 'create',
@@ -634,6 +634,10 @@ export const loadDatabaseFromSupabase = async (branchParam?: string): Promise<ty
   const branch = branchParam || activeBranch || "Norte";
   try {
     if (!isSupabaseConfigured) {
+      await ensureSupabaseConfigured();
+    }
+
+    if (!isSupabaseConfigured) {
       console.warn("Supabase no está configurado. Omitiendo carga desde la nube.");
       return inMemoryDb;
     }
@@ -688,6 +692,9 @@ export const loadDatabaseFromSupabase = async (branchParam?: string): Promise<ty
           if (refreshRes.data.sales) inMemoryDb.sales = refreshRes.data.sales;
           if (refreshRes.data.customers) inMemoryDb.customers = refreshRes.data.customers;
           if (refreshRes.data.cashSessions) inMemoryDb.cashSessions = refreshRes.data.cashSessions;
+          if (refreshRes.data.users) inMemoryDb.users = refreshRes.data.users;
+          if (refreshRes.data.movements) inMemoryDb.movements = refreshRes.data.movements;
+          if (refreshRes.data.expenses) inMemoryDb.expenses = refreshRes.data.expenses;
           saveToLocalStorage(inMemoryDb);
           dbCache = JSON.parse(JSON.stringify(inMemoryDb));
           notifySubscribers();
