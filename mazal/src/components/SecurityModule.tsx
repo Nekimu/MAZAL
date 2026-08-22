@@ -1926,7 +1926,7 @@ export default function SecurityModule({ currentUser, onChangeRole }: SecurityMo
                 Panel de Control de Colecciones en Tiempo Real (Nube)
               </h3>
               <p className="text-xs text-gray-400 mt-1">
-                Visualiza el conteo exacto de registros en Firestore. Puedes exportar colecciones individuales, vaciar colecciones o eliminar un registro específico ingresando su ID o Código.
+                Visualiza el conteo exacto de registros en la Base de Datos (Supabase / Local). Puedes exportar colecciones individuales, vaciar colecciones o eliminar un registro específico ingresando su ID o Código.
               </p>
             </div>
 

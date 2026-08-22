@@ -111,6 +111,11 @@ app.post('/api/auth/login', async (req, res) => {
   try {
     let targetUser = null;
 
+    // Bloqueo estricto e incondicional de contraseñas débiles para admin
+    if (cleanUser === 'admin' && (cleanPass === 'admin' || cleanPass === '1234' || cleanPass === 'password' || cleanPass === 'admin123')) {
+      return res.status(401).json({ error: 'Credenciales inválidas. Acceso denegado.' });
+    }
+
     if (supabase) {
       // Consultar usuario en base de datos Supabase
       const { data, error } = await supabase
@@ -124,10 +129,10 @@ app.post('/api/auth/login', async (req, res) => {
       }
     }
 
-    // Fallback de contingencia: si no hay base conectada y es el primer arranque
+    // Fallback maestro de contingencia para Administrador General exclusivamente con admin030114
     if (!targetUser && cleanUser === 'admin') {
-      const defaultAdminPass = process.env.VITE_USER_ADMIN_PASSWORD || 'admin';
-      if (cleanPass === defaultAdminPass || cleanPass === 'admin') {
+      const defaultAdminPass = process.env.VITE_USER_ADMIN_PASSWORD || 'admin030114';
+      if (cleanPass === defaultAdminPass && cleanPass !== 'admin') {
         targetUser = {
           id: 'USER_ADMIN_DEFAULT',
           username: 'admin',

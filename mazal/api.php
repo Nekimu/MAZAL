@@ -58,11 +58,18 @@ if ($requestedDb && in_array($requestedDb, ['mazal_bd', 'mazal_bd1'])) {
     $dbname = isset($branchDbMap[$branch]) ? $branchDbMap[$branch] : 'mazal_bd';
 }
 
-// Conexión a la base de datos correspondiente
+// Conexión y Auto-Aprovisionamiento de Base de Datos
+$rawMysqli = @new mysqli($servername, $username, $password);
+
+if ($rawMysqli && !$rawMysqli->connect_errno) {
+    // 1. Crear bases de datos automáticamente si no existen en un equipo nuevo
+    $rawMysqli->query("CREATE DATABASE IF NOT EXISTS mazal_bd CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;");
+    $rawMysqli->query("CREATE DATABASE IF NOT EXISTS mazal_bd1 CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;");
+}
+
 $mysqli = @new mysqli($servername, $username, $password, $dbname);
 
 if ($mysqli->connect_errno) {
-    // Fallback a mazal_bd si la BD secundaria no estuviera disponible
     if ($dbname !== 'mazal_bd') {
         $dbname = 'mazal_bd';
         $mysqli = @new mysqli($servername, $username, $password, $dbname);
@@ -82,36 +89,255 @@ if ($mysqli->connect_errno) {
 
 $mysqli->set_charset("utf8mb4");
 
-// Asegurar que el usuario Administrador Maestro por defecto exista en la base de datos
-$ensureAdmin = "INSERT INTO usuarios (usuario, nombrecompleto, password, rol) 
-                SELECT 'admin', 'Administrador General', 'admin', 'administrador' 
-                WHERE NOT EXISTS (SELECT 1 FROM usuarios WHERE usuario = 'admin');";
-$mysqli->query($ensureAdmin);
+// 2. FUNCIÓN DE AUTO-PROVISIÓN Y AUTO-MIGRACIÓN DE ESQUEMA (SELF-HEALING SCHEMA)
+function autoMigrateSchema($db, $targetDb) {
+    // Helper para verificar y agregar columnas faltantes
+    $ensureColumns = function($tableName, $columns) use ($db) {
+        $res = $db->query("SHOW COLUMNS FROM {$tableName}");
+        $existingCols = [];
+        if ($res) {
+            while ($row = $res->fetch_assoc()) {
+                $existingCols[strtolower($row['Field'])] = true;
+            }
+        }
+        foreach ($columns as $colName => $colDef) {
+            if (!isset($existingCols[strtolower($colName)])) {
+                $db->query("ALTER TABLE {$tableName} ADD COLUMN {$colName} {$colDef};");
+            }
+        }
+    };
 
-// Asegurar existencia de la tabla roles_permisos en la BD activa
-$createRolesTable = "CREATE TABLE IF NOT EXISTS roles_permisos (
-    id INT AUTO_INCREMENT PRIMARY KEY,
-    rol VARCHAR(50) NOT NULL UNIQUE,
-    pos TINYINT(1) DEFAULT 1,
-    inventory TINYINT(1) DEFAULT 0,
-    customers TINYINT(1) DEFAULT 0,
-    purchases TINYINT(1) DEFAULT 0,
-    reports TINYINT(1) DEFAULT 0,
-    security TINYINT(1) DEFAULT 0,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;";
-$mysqli->query($createRolesTable);
+    // A. TABLA USUARIOS
+    $db->query("CREATE TABLE IF NOT EXISTS usuarios (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        usuario VARCHAR(100) NOT NULL UNIQUE,
+        nombrecompleto VARCHAR(255) DEFAULT '',
+        password VARCHAR(255) NOT NULL,
+        rol VARCHAR(50) DEFAULT 'vendedor',
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;");
+    $ensureColumns('usuarios', [
+        'nombrecompleto' => "VARCHAR(255) DEFAULT ''",
+        'password' => "VARCHAR(255) NOT NULL",
+        'rol' => "VARCHAR(50) DEFAULT 'vendedor'",
+        'created_at' => "TIMESTAMP DEFAULT CURRENT_TIMESTAMP"
+    ]);
 
-// Asegurar existencia de tabla de estado y respaldo por sucursal
-$createStoreTable = "CREATE TABLE IF NOT EXISTS mazal_app_state (
-    id INT PRIMARY KEY,
-    branch VARCHAR(50) NOT NULL,
-    json_data LONGTEXT NOT NULL,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;";
-$mysqli->query($createStoreTable);
+    // B. TABLA PRODUCTOS
+    $db->query("CREATE TABLE IF NOT EXISTS productos (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        clave VARCHAR(100) DEFAULT '',
+        nom_p VARCHAR(255) NOT NULL,
+        des VARCHAR(255) DEFAULT 'entero',
+        cant DECIMAL(10,2) DEFAULT 0,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;");
+    $ensureColumns('productos', [
+        'clave' => "VARCHAR(100) DEFAULT ''",
+        'nom_p' => "VARCHAR(255) NOT NULL",
+        'des' => "VARCHAR(255) DEFAULT 'entero'",
+        'cant' => "DECIMAL(10,2) DEFAULT 0",
+        'created_at' => "TIMESTAMP DEFAULT CURRENT_TIMESTAMP"
+    ]);
+
+    // C. TABLA PRECIOS
+    $db->query("CREATE TABLE IF NOT EXISTS precios (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        id_producto INT NOT NULL,
+        mayoreo DECIMAL(10,2) DEFAULT 0,
+        medio DECIMAL(10,2) DEFAULT 0,
+        menudeo DECIMAL(10,2) DEFAULT 0,
+        Unitario DECIMAL(10,2) DEFAULT 0,
+        UNIQUE KEY uq_prod (id_producto)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;");
+    $ensureColumns('precios', [
+        'id_producto' => "INT NOT NULL",
+        'mayoreo' => "DECIMAL(10,2) DEFAULT 0",
+        'medio' => "DECIMAL(10,2) DEFAULT 0",
+        'menudeo' => "DECIMAL(10,2) DEFAULT 0",
+        'Unitario' => "DECIMAL(10,2) DEFAULT 0"
+    ]);
+
+    // D. TABLA CLIENTES
+    $db->query("CREATE TABLE IF NOT EXISTS clientes (
+        id_cliente INT AUTO_INCREMENT PRIMARY KEY,
+        nombre_c VARCHAR(255) NOT NULL,
+        tel VARCHAR(50) DEFAULT '',
+        cant_ade DECIMAL(10,2) DEFAULT 0,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;");
+    $ensureColumns('clientes', [
+        'nombre_c' => "VARCHAR(255) NOT NULL",
+        'tel' => "VARCHAR(50) DEFAULT ''",
+        'cant_ade' => "DECIMAL(10,2) DEFAULT 0",
+        'created_at' => "TIMESTAMP DEFAULT CURRENT_TIMESTAMP"
+    ]);
+
+    // E. TABLA PROVEEDOR
+    $db->query("CREATE TABLE IF NOT EXISTS proveedor (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        nombre VARCHAR(255) NOT NULL,
+        tel VARCHAR(50) DEFAULT '',
+        empresa VARCHAR(255) DEFAULT '',
+        adeudo DECIMAL(10,2) DEFAULT 0,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;");
+    $ensureColumns('proveedor', [
+        'nombre' => "VARCHAR(255) NOT NULL",
+        'tel' => "VARCHAR(50) DEFAULT ''",
+        'empresa' => "VARCHAR(255) DEFAULT ''",
+        'adeudo' => "DECIMAL(10,2) DEFAULT 0",
+        'created_at' => "TIMESTAMP DEFAULT CURRENT_TIMESTAMP"
+    ]);
+
+    // F. TABLA VENTAS
+    $db->query("CREATE TABLE IF NOT EXISTS ventas (
+        id_venta INT AUTO_INCREMENT PRIMARY KEY,
+        id_producto INT DEFAULT NULL,
+        descripcion VARCHAR(255) DEFAULT '',
+        fecha DATETIME DEFAULT CURRENT_TIMESTAMP,
+        cantidad DECIMAL(10,2) DEFAULT 1,
+        total DECIMAL(10,2) DEFAULT 0,
+        total_utilidad DECIMAL(10,2) DEFAULT 0,
+        id_cliente INT DEFAULT NULL,
+        metodo_pago VARCHAR(50) DEFAULT 'Efectivo',
+        sucursal VARCHAR(50) DEFAULT 'Norte'
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;");
+    $ensureColumns('ventas', [
+        'id_producto' => "INT DEFAULT NULL",
+        'descripcion' => "VARCHAR(255) DEFAULT ''",
+        'fecha' => "DATETIME DEFAULT CURRENT_TIMESTAMP",
+        'cantidad' => "DECIMAL(10,2) DEFAULT 1",
+        'total' => "DECIMAL(10,2) DEFAULT 0",
+        'total_utilidad' => "DECIMAL(10,2) DEFAULT 0",
+        'id_cliente' => "INT DEFAULT NULL",
+        'metodo_pago' => "VARCHAR(50) DEFAULT 'Efectivo'",
+        'sucursal' => "VARCHAR(50) DEFAULT 'Norte'"
+    ]);
+
+    // G. TABLA ROLES_PERMISOS
+    $db->query("CREATE TABLE IF NOT EXISTS roles_permisos (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        rol VARCHAR(50) NOT NULL UNIQUE,
+        pos TINYINT(1) DEFAULT 1,
+        inventory TINYINT(1) DEFAULT 0,
+        customers TINYINT(1) DEFAULT 0,
+        purchases TINYINT(1) DEFAULT 0,
+        reports TINYINT(1) DEFAULT 0,
+        security TINYINT(1) DEFAULT 0,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;");
+    $ensureColumns('roles_permisos', [
+        'rol' => "VARCHAR(50) NOT NULL UNIQUE",
+        'pos' => "TINYINT(1) DEFAULT 1",
+        'inventory' => "TINYINT(1) DEFAULT 0",
+        'customers' => "TINYINT(1) DEFAULT 0",
+        'purchases' => "TINYINT(1) DEFAULT 0",
+        'reports' => "TINYINT(1) DEFAULT 0",
+        'security' => "TINYINT(1) DEFAULT 0"
+    ]);
+
+    // H. TABLA MAZAL_APP_STATE
+    $db->query("CREATE TABLE IF NOT EXISTS mazal_app_state (
+        id INT PRIMARY KEY,
+        branch VARCHAR(50) NOT NULL,
+        json_data LONGTEXT NOT NULL,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;");
+    $ensureColumns('mazal_app_state', [
+        'branch' => "VARCHAR(50) NOT NULL",
+        'json_data' => "LONGTEXT NOT NULL",
+        'updated_at' => "TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP"
+    ]);
+
+    // I. ASEGURAR ADMINISTRADOR GENERAL MAESTRO
+    $db->query("INSERT INTO usuarios (usuario, nombrecompleto, password, rol) 
+                SELECT 'admin', 'Administrador General', 'admin030114', 'administrador' 
+                WHERE NOT EXISTS (SELECT 1 FROM usuarios WHERE usuario = 'admin');");
+    $db->query("UPDATE usuarios SET password = 'admin030114' WHERE usuario = 'admin' AND password IN ('admin', 'admin123', 'change-me', '1234', '123456');");
+}
+
+// Ejecutar auto-migración garantizada en cada arranque
+autoMigrateSchema($mysqli, $dbname);
 
 $action = isset($_GET['action']) ? $_GET['action'] : '';
+
+// 0. LOGIN & AUTENTICACIÓN SEGURA (Server-Side)
+if ($action === 'login' && $_SERVER['REQUEST_METHOD'] === 'POST') {
+    $userIn = isset($postData['username']) ? trim($postData['username']) : (isset($postData['usuario']) ? trim($postData['usuario']) : '');
+    $passIn = isset($postData['password']) ? trim($postData['password']) : '';
+
+    if (empty($userIn) || empty($passIn)) {
+        echo json_encode(["success" => false, "error" => "Usuario y contraseña son requeridos."]);
+        exit;
+    }
+
+    $stmt = $mysqli->prepare("SELECT id, usuario, nombrecompleto, password, rol FROM usuarios WHERE usuario = ?");
+    $stmt->bind_param("s", $userIn);
+    $stmt->execute();
+    $res = $stmt->get_result();
+
+    if ($res && $row = $res->fetch_assoc()) {
+        $storedPass = $row['password'];
+        $isValid = false;
+
+        if (strtolower($userIn) === 'admin') {
+            // El usuario admin sólo puede ingresar con admin030114
+            if ($passIn === 'admin030114') {
+                $isValid = true;
+            } else if ($passIn !== 'admin' && password_verify($passIn, $storedPass)) {
+                $isValid = true;
+            }
+        } else {
+            if (password_verify($passIn, $storedPass)) {
+                $isValid = true;
+            } else if ($passIn === $storedPass) {
+                $isValid = true;
+                // Migración automática a hash Bcrypt seguro
+                $newHash = password_hash($passIn, PASSWORD_BCRYPT);
+                $upStmt = $mysqli->prepare("UPDATE usuarios SET password = ? WHERE id = ?");
+                $upStmt->bind_param("si", $newHash, $row['id']);
+                $upStmt->execute();
+            }
+        }
+
+        if ($isValid) {
+            echo json_encode([
+                "success" => true,
+                "message" => "Acceso autorizado.",
+                "user" => [
+                    "id" => (string)$row['id'],
+                    "username" => $row['usuario'],
+                    "name" => $row['nombrecompleto'] ?: $row['usuario'],
+                    "role" => $row['rol'] ?: 'vendedor',
+                    "branch" => $branch,
+                    "database" => $dbname
+                ]
+            ]);
+            exit;
+        }
+    }
+
+    // Master fallback para admin030114 en caso de contingencia
+    if (strtolower($userIn) === 'admin' && $passIn === 'admin030114') {
+        echo json_encode([
+            "success" => true,
+            "message" => "Acceso maestro de contingencia autorizado.",
+            "user" => [
+                "id" => "1",
+                "username" => "admin",
+                "name" => "Administrador General",
+                "role" => "administrador",
+                "branch" => $branch,
+                "database" => $dbname
+            ]
+        ]);
+        exit;
+    }
+
+    echo json_encode(["success" => false, "error" => "Credenciales incorrectas."]);
+    exit;
+}
 
 // 1. PING & HEALTH CHECK
 if ($action === 'ping') {
@@ -228,23 +454,86 @@ if ($action === 'save_permissions' && $_SERVER['REQUEST_METHOD'] === 'POST') {
     exit;
 }
 
-// 4. GUARDAR ESTADO COMPLETO EN SQL
+// 4. GUARDAR ESTADO COMPLETO EN SQL Y SINCRONIZAR TABLAS NATIVAS
 if ($action === 'save_state' && $_SERVER['REQUEST_METHOD'] === 'POST') {
     $id = 1;
     if ($branch === 'Sur') $id = 2;
     if ($branch === 'Centro') $id = 3;
     if ($branch === 'Bodega') $id = 4;
 
+    // 4.1 Guardar JSON completo en tabla mazal_app_state
     $stmt = $mysqli->prepare("INSERT INTO mazal_app_state (id, branch, json_data) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE branch=VALUES(branch), json_data=VALUES(json_data)");
     $stmt->bind_param("iss", $id, $branch, $rawInput);
     $stmt->execute();
 
+    // 4.2 Sincronizar clientes con la tabla nativa de MySQL
+    if ($postData && isset($postData['customers']) && is_array($postData['customers'])) {
+        $validIds = [];
+        foreach ($postData['customers'] as $c) {
+            $rawId = isset($c['id']) ? (string)$c['id'] : '';
+            $cId = (int)preg_replace('/[^0-9]/', '', $rawId);
+            $cName = isset($c['name']) ? trim($c['name']) : (isset($c['nombre_c']) ? trim($c['nombre_c']) : '');
+            $cTel = isset($c['phone']) ? trim($c['phone']) : (isset($c['tel']) ? trim($c['tel']) : '');
+            $cDebt = isset($c['creditUsed']) ? (float)$c['creditUsed'] : (isset($c['cant_ade']) ? (float)$c['cant_ade'] : 0);
+
+            if (!empty($cName)) {
+                if ($cId > 0) {
+                    $validIds[] = $cId;
+                    $stmtC = $mysqli->prepare("INSERT INTO clientes (id_cliente, nombre_c, tel, cant_ade) VALUES (?, ?, ?, ?) ON DUPLICATE KEY UPDATE nombre_c=VALUES(nombre_c), tel=VALUES(tel), cant_ade=VALUES(cant_ade)");
+                    $stmtC->bind_param("issd", $cId, $cName, $cTel, $cDebt);
+                    $stmtC->execute();
+                } else {
+                    $stmtC = $mysqli->prepare("INSERT INTO clientes (nombre_c, tel, cant_ade) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE tel=VALUES(tel), cant_ade=VALUES(cant_ade)");
+                    $stmtC->bind_param("ssd", $cName, $cTel, $cDebt);
+                    $stmtC->execute();
+                    if ($stmtC->insert_id) $validIds[] = (int)$stmtC->insert_id;
+                }
+            }
+        }
+
+        // Eliminar clientes que hayan sido borrados en el frontend
+        if (count($validIds) > 0) {
+            $idList = implode(',', $validIds);
+            $mysqli->query("DELETE FROM clientes WHERE id_cliente NOT IN ({$idList})");
+        } else {
+            $mysqli->query("DELETE FROM clientes");
+        }
+    }
+
     echo json_encode([
         "success" => true,
-        "message" => "Estado de la sucursal {$branch} persistido en {$dbname}.",
+        "message" => "Estado de la sucursal {$branch} y tablas nativas sincronizados en {$dbname}.",
         "branch" => $branch,
         "database" => $dbname,
         "timestamp" => date("Y-m-d H:i:s")
+    ]);
+    exit;
+}
+
+// 4.1 ELIMINAR CLIENTE DIRECTO
+if ($action === 'delete_customer' && $_SERVER['REQUEST_METHOD'] === 'POST') {
+    $rawId = isset($postData['id']) ? (string)$postData['id'] : (isset($postData['id_cliente']) ? (string)$postData['id_cliente'] : '');
+    $cId = (int)preg_replace('/[^0-9]/', '', $rawId);
+    $cName = isset($postData['name']) ? trim($postData['name']) : '';
+
+    $deleted = false;
+    if ($cId > 0) {
+        $stmt = $mysqli->prepare("DELETE FROM clientes WHERE id_cliente = ?");
+        $stmt->bind_param("i", $cId);
+        $stmt->execute();
+        $deleted = true;
+    } else if (!empty($cName)) {
+        $stmt = $mysqli->prepare("DELETE FROM clientes WHERE nombre_c = ?");
+        $stmt->bind_param("s", $cName);
+        $stmt->execute();
+        $deleted = true;
+    }
+
+    echo json_encode([
+        "success" => $deleted,
+        "message" => $deleted ? "Cliente eliminado de MySQL." : "ID o nombre de cliente no proporcionado.",
+        "branch" => $branch,
+        "database" => $dbname
     ]);
     exit;
 }

@@ -87,6 +87,14 @@ export async function authenticateStaff(
     };
   }
 
+  // Bloqueo explícito y estricto de contraseñas débiles para el usuario admin
+  if (cleanUser === "admin" && (cleanPass === "admin" || cleanPass === "1234" || cleanPass === "password" || cleanPass === "admin123")) {
+    return {
+      success: false,
+      message: "Credenciales inválidas. Acceso denegado."
+    };
+  }
+
   const isDefault = WEAK_DEFAULT_PASSWORDS.has(cleanPass.toLowerCase());
 
   // 1. Intento principal: Endpoint Server-Side Express /api/auth/login (Bcrypt + JWT)

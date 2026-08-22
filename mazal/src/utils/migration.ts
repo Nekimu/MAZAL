@@ -263,4 +263,3 @@ export async function migrateProductsToDatabase(rawProducts: any[]): Promise<Mig
 }
 
 export const migrateProducts = migrateProductsToDatabase;
-export const migrateProductsToFirestore = migrateProductsToDatabase;

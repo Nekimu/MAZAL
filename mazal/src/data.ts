@@ -72,8 +72,6 @@ export function handleDbError(error: unknown, operationType: OperationType, path
   console.error('Database Error: ', JSON.stringify(errInfo));
 }
 
-export const handleFirestoreError = handleDbError;
-
 // Helper to generate IDs
 const generateId = () => Math.random().toString(36).substring(2, 9).toUpperCase();
 
@@ -613,8 +611,8 @@ if (typeof window !== "undefined") {
   });
 }
 
-// Real-time Listeners Setup
-export const initFirestoreListeners = () => {
+// Real-time Listeners Setup (Supabase Realtime Cloud)
+export const initRealtimeListeners = () => {
   if (typeof window === "undefined" || !isSupabaseConfigured) return () => {};
   return initSupabaseRealtime((table, payload) => {
     console.log(`[Supabase Realtime] Evento recibido en tabla ${table}:`, payload.eventType);
@@ -622,7 +620,7 @@ export const initFirestoreListeners = () => {
   });
 };
 
-export const loadDatabaseFromFirebase = async () => {
+export const loadDatabaseFromCloud = async () => {
   if (isSupabaseConfigured) {
     return loadDatabaseFromSupabase(activeBranch);
   }
@@ -940,87 +938,26 @@ export const deleteUserFromMySQL = async (username: string): Promise<boolean> =>
 };
 
 export const resetDatabaseToFactory = async () => {
-  await ensureAuth();
-  
-  // Safe delete
-  for (const key of COLLECTIONS) {
-    try {
-      const colRef = collection(firestore, getCollectionName(key));
-      const snapshot = await getDocs(colRef);
-      const deletePromises = snapshot.docs.map(async (d) => {
-        try {
-          await deleteDoc(d.ref);
-        } catch (err) {
-          handleFirestoreError(err, OperationType.DELETE, `${getCollectionName(key)}/${d.id}`);
-        }
-      });
-      await Promise.all(deletePromises);
-    } catch (err) {
-      handleFirestoreError(err, OperationType.GET, getCollectionName(key));
-    }
-  }
-
-  // Seeding initial arrays
-  for (const key of COLLECTIONS) {
-    try {
-      const seedData = key === "products" ? INITIAL_PRODUCTS :
-                       key === "customers" ? INITIAL_CUSTOMERS :
-                       key === "suppliers" ? INITIAL_SUPPLIERS :
-                       key === "movements" ? INITIAL_MOVEMENTS :
-                       key === "sales" ? INITIAL_SALES :
-                       key === "expenses" ? INITIAL_EXPENSES :
-                       key === "cashSessions" ? INITIAL_CASH_SESSIONS :
-                       key === "auditLogs" ? INITIAL_AUDIT_LOGS :
-                       key === "purchaseOrders" ? INITIAL_PURCHASE_ORDERS :
-                       key === "users" ? INITIAL_USERS :
-                       key === "bankAccounts" ? INITIAL_BANK_ACCOUNTS :
-                       key === "bankMovements" ? INITIAL_BANK_MOVEMENTS :
-                       key === "budgets" ? INITIAL_BUDGETS :
-                       key === "costCenters" ? INITIAL_COST_CENTERS :
-                       key === "vehicles" ? INITIAL_VEHICLES : [];
-
-      const seedPromises = seedData.map(async (item) => {
-        try {
-          await setDoc(doc(firestore, getCollectionName(key), String(item.id)), item);
-        } catch (err) {
-          handleFirestoreError(err, OperationType.WRITE, `${getCollectionName(key)}/${item.id}`);
-        }
-      });
-      await Promise.all(seedPromises);
-    } catch (err) {
-      handleFirestoreError(err, OperationType.WRITE, getCollectionName(key));
-    }
-  }
-
-  // Clear/reset local state immediately
+  // Clear/reset in-memory and local collections
   COLLECTIONS.forEach(key => {
-    const seedData = key === "products" ? INITIAL_PRODUCTS :
-                     key === "customers" ? INITIAL_CUSTOMERS :
-                     key === "suppliers" ? INITIAL_SUPPLIERS :
-                     key === "movements" ? INITIAL_MOVEMENTS :
-                     key === "sales" ? INITIAL_SALES :
-                     key === "expenses" ? INITIAL_EXPENSES :
-                     key === "cashSessions" ? INITIAL_CASH_SESSIONS :
-                     key === "auditLogs" ? INITIAL_AUDIT_LOGS :
-                     key === "purchaseOrders" ? INITIAL_PURCHASE_ORDERS :
-                     key === "users" ? INITIAL_USERS :
+    const seedData = key === "users" ? INITIAL_USERS :
                      key === "bankAccounts" ? INITIAL_BANK_ACCOUNTS :
-                     key === "bankMovements" ? INITIAL_BANK_MOVEMENTS :
-                     key === "budgets" ? INITIAL_BUDGETS :
                      key === "costCenters" ? INITIAL_COST_CENTERS :
-                     key === "vehicles" ? INITIAL_VEHICLES : [];
+                     key === "vehicles" ? INITIAL_VEHICLES :
+                     key === "budgets" ? INITIAL_BUDGETS :
+                     key === "sucursales" ? INITIAL_BRANCHES : [];
     inMemoryDb[key] = [...seedData];
   });
   dbCache = JSON.parse(JSON.stringify(inMemoryDb));
   saveToLocalStorage(inMemoryDb);
   notifySubscribers();
 
-  // Also sync clean state to Supabase if configured
+  // Sincronizar estado limpio con Supabase Cloud si está configurado
   if (isSupabaseConfigured) {
     try {
       await syncAllToSupabase(inMemoryDb, activeBranch || "Norte");
     } catch (e) {
-      console.warn("Error syncing clean state to Supabase:", e);
+      console.warn("Error sincronizando estado limpio con Supabase:", e);
     }
   }
 };
