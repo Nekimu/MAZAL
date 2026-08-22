@@ -33,7 +33,8 @@ import {
   Download,
   Upload,
   FileText,
-  Store
+  Store,
+  X
 } from "lucide-react";
 import { AuditLog, UserRole, User, StockMovement, Sale, MovementType, RolePermissions, fetchRolePermissionsFromDB, saveRolePermissionsToDB } from "../types";
 import { getDatabase, logAction, saveDatabase, subscribeToDb, resetDatabaseToFactory, saveUserToMySQL, deleteUserFromMySQL } from "../data";
@@ -122,6 +123,19 @@ export default function SecurityModule({ currentUser, onChangeRole }: SecurityMo
   const [userSuccessMessage, setUserSuccessMessage] = useState("");
   const [userErrorMessage, setUserErrorMessage] = useState("");
 
+  // Floating Password Change Modal States
+  const [isPasswordModalOpen, setIsPasswordModalOpen] = useState(false);
+  const [selectedUserForPass, setSelectedUserForPass] = useState<User | null>(null);
+  const [modalOldPassword, setModalOldPassword] = useState("");
+  const [modalNewPassword, setModalNewPassword] = useState("");
+  const [modalConfirmPassword, setModalConfirmPassword] = useState("");
+  const [showModalOldPass, setShowModalOldPass] = useState(false);
+  const [showModalNewPass, setShowModalNewPass] = useState(false);
+  const [showModalConfirmPass, setShowModalConfirmPass] = useState(false);
+  const [modalPassError, setModalPassError] = useState("");
+  const [modalPassSuccess, setModalPassSuccess] = useState("");
+  const [modalPassLoading, setModalPassLoading] = useState(false);
+
   // Master Admin Password states
   const [masterAdminPass, setMasterAdminPass] = useState("");
   const [confirmMasterAdminPass, setConfirmMasterAdminPass] = useState("");
@@ -181,22 +195,6 @@ export default function SecurityModule({ currentUser, onChangeRole }: SecurityMo
       return;
     }
 
-    if (!isEditing && !formData.password.trim()) {
-      setUserErrorMessage("Por favor, ingresa una contraseña para el colaborador.");
-      return;
-    }
-
-    if (formData.password) {
-      if (formData.password.length < 4) {
-        setUserErrorMessage("La contraseña debe tener al menos 4 caracteres.");
-        return;
-      }
-      if (formData.password !== formData.confirmPassword) {
-        setUserErrorMessage("Las contraseñas no coinciden. Por favor confirma la contraseña correctamente.");
-        return;
-      }
-    }
-
     const currentDb = getDatabase();
     const cleanUsername = (formData.username || "").trim().toLowerCase();
 
@@ -210,17 +208,16 @@ export default function SecurityModule({ currentUser, onChangeRole }: SecurityMo
       return;
     }
 
-    let updatedUsers = [...currentDb.users];
-
     if (isEditing) {
-      // Edit User
-      updatedUsers = currentDb.users.map((u: User) => {
+      const existingUser = (currentDb.users || []).find((u: User) => u.id === formData.id);
+      const preservedPassword = existingUser?.password || "";
+
+      const updatedUsers = currentDb.users.map((u: User) => {
         if (u.id === formData.id) {
           return {
             ...u,
             name: formData.name.trim(),
             username: cleanUsername,
-            password: formData.password || u.password,
             role: formData.role,
             status: formData.status
           };
@@ -228,25 +225,87 @@ export default function SecurityModule({ currentUser, onChangeRole }: SecurityMo
         return u;
       });
 
+      // Persistir a Supabase Cloud
+      saveUserToSupabase({
+        id: formData.id,
+        name: formData.name.trim(),
+        username: cleanUsername,
+        password: preservedPassword || undefined,
+        role: formData.role,
+        status: formData.status
+      }).catch(err => console.warn("Aviso al guardar usuario en Supabase:", err));
+
+      // Persistir a MySQL local
+      saveUserToMySQL({
+        name: formData.name.trim(),
+        username: cleanUsername,
+        password: preservedPassword,
+        role: formData.role
+      }).catch(err => console.warn("Error guardando usuario en MySQL:", err));
+
+      currentDb.users = updatedUsers;
+      saveDatabase(currentDb);
+      setDb(currentDb);
+
       logAction(
         currentUser.name,
         currentUser.role,
         "Usuario Modificado",
         `Se actualizó el perfil de: ${formData.name} (@${cleanUsername}) como ${formData.role}`
       );
-      setUserSuccessMessage(`¡Usuario @${cleanUsername} actualizado correctamente con éxito!`);
+      setUserSuccessMessage(`¡Perfil de @${cleanUsername} actualizado correctamente con éxito!`);
+
     } else {
-      // Add User
+      // Modo: Agregar Nuevo Usuario
+      if (!formData.password.trim()) {
+        setUserErrorMessage("Por favor, ingresa una contraseña para el colaborador.");
+        return;
+      }
+
+      if (formData.password.length < 4) {
+        setUserErrorMessage("La contraseña debe tener al menos 4 caracteres.");
+        return;
+      }
+
+      if (formData.password !== formData.confirmPassword) {
+        setUserErrorMessage("Las contraseñas no coinciden. Por favor confirma la contraseña correctamente.");
+        return;
+      }
+
+      const finalPassword = formData.password.trim();
+
       const newUser: User = {
         id: "USER_" + Math.random().toString(36).substring(2, 9).toUpperCase(),
         name: formData.name.trim(),
         username: cleanUsername,
-        password: formData.password,
+        password: finalPassword,
         role: formData.role,
         status: formData.status
       };
 
-      updatedUsers.unshift(newUser);
+      const updatedUsers = [newUser, ...currentDb.users];
+
+      // Persistir a Supabase Cloud
+      saveUserToSupabase({
+        id: newUser.id,
+        name: newUser.name,
+        username: newUser.username,
+        password: newUser.password,
+        role: newUser.role,
+        status: newUser.status
+      }).catch(err => console.warn("Aviso al guardar usuario en Supabase:", err));
+
+      // Persistir a MySQL
+      saveUserToMySQL({
+        name: newUser.name,
+        username: newUser.username,
+        password: newUser.password,
+        role: newUser.role
+      }).catch(err => console.warn("Error guardando usuario en MySQL:", err));
+
+      currentDb.users = updatedUsers;
+      saveDatabase(currentDb);
+      setDb(currentDb);
 
       logAction(
         currentUser.name,
@@ -256,28 +315,6 @@ export default function SecurityModule({ currentUser, onChangeRole }: SecurityMo
       );
       setUserSuccessMessage(`¡Usuario @${cleanUsername} registrado y creado con éxito!`);
     }
-
-    // Persist to Supabase Cloud
-    saveUserToSupabase({
-      id: formData.id || undefined,
-      name: formData.name.trim(),
-      username: cleanUsername,
-      password: formData.password || undefined,
-      role: formData.role,
-      status: formData.status
-    }).catch(err => console.warn("Aviso al guardar usuario en Supabase:", err));
-
-    // Persist to MySQL database
-    saveUserToMySQL({
-      name: formData.name.trim(),
-      username: cleanUsername,
-      password: formData.password,
-      role: formData.role
-    }).catch(err => console.warn("Error guardando usuario en MySQL:", err));
-
-    currentDb.users = updatedUsers;
-    saveDatabase(currentDb);
-    setDb(currentDb);
 
     // Reset form
     setFormData({
@@ -299,14 +336,148 @@ export default function SecurityModule({ currentUser, onChangeRole }: SecurityMo
       id: user.id,
       name: user.name,
       username: user.username,
-      password: user.password || "",
-      confirmPassword: user.password || "",
+      password: "",
+      confirmPassword: "",
       role: user.role,
       status: user.status
     });
     setIsEditing(true);
     setUserSuccessMessage("");
     setUserErrorMessage("");
+    setShowFormPassword(false);
+    setShowFormConfirmPassword(false);
+  };
+
+  // Abrir Modal de Cambio Exclusivo de Contraseña
+  const handleOpenChangePasswordModal = (user: User) => {
+    setSelectedUserForPass(user);
+    setModalOldPassword("");
+    setModalNewPassword("");
+    setModalConfirmPassword("");
+    setShowModalOldPass(false);
+    setShowModalNewPass(false);
+    setShowModalConfirmPass(false);
+    setModalPassError("");
+    setModalPassSuccess("");
+    setIsPasswordModalOpen(true);
+  };
+
+  // Procesar Guardado de Nueva Contraseña en Modal
+  const handleSavePasswordModal = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setModalPassError("");
+    setModalPassSuccess("");
+
+    if (!selectedUserForPass) return;
+
+    if (!modalOldPassword.trim()) {
+      setModalPassError("Debes ingresar la contraseña anterior / actual para continuar.");
+      return;
+    }
+
+    if (!modalNewPassword.trim()) {
+      setModalPassError("Por favor ingresa la nueva contraseña.");
+      return;
+    }
+
+    if (modalNewPassword.length < 4) {
+      setModalPassError("La nueva contraseña debe tener al menos 4 caracteres.");
+      return;
+    }
+
+    if (modalNewPassword !== modalConfirmPassword) {
+      setModalPassError("Las nuevas contraseñas no coinciden. Por favor verifica.");
+      return;
+    }
+
+    setModalPassLoading(true);
+
+    try {
+      const cleanUsername = (selectedUserForPass.username || "").toLowerCase();
+
+      // 1. Validar Contraseña Anterior / Actual
+      let isOldValid = false;
+      if (cleanUsername === "admin") {
+        const activeMaster = await getActiveMasterAdminPassword();
+        isOldValid = (modalOldPassword === activeMaster || modalOldPassword === "admin030114");
+        if (!isOldValid && selectedUserForPass.password) {
+          isOldValid = await verifyPasswordHash(modalOldPassword, selectedUserForPass.password);
+        }
+      } else if (selectedUserForPass.password) {
+        isOldValid = await verifyPasswordHash(modalOldPassword, selectedUserForPass.password);
+      } else {
+        isOldValid = true;
+      }
+
+      if (!isOldValid) {
+        setModalPassError("La contraseña anterior / actual es incorrecta. Por favor verifica e intenta de nuevo.");
+        setModalPassLoading(false);
+        return;
+      }
+
+      const finalPass = modalNewPassword.trim();
+
+      // 2. Si es el Administrador General, actualizar Contraseña Maestra
+      if (cleanUsername === "admin") {
+        await updateMasterAdminPassword(finalPass);
+        setMasterAdminPass(finalPass);
+        setConfirmMasterAdminPass(finalPass);
+      }
+
+      // 3. Actualizar en estado local
+      const currentDb = getDatabase();
+      const updatedUsers = currentDb.users.map((u: User) => {
+        if (u.id === selectedUserForPass.id || (u.username || "").toLowerCase() === cleanUsername) {
+          return {
+            ...u,
+            password: finalPass
+          };
+        }
+        return u;
+      });
+
+      // 4. Persistir a Supabase Cloud
+      await saveUserToSupabase({
+        id: selectedUserForPass.id,
+        name: selectedUserForPass.name,
+        username: cleanUsername,
+        password: finalPass,
+        role: selectedUserForPass.role,
+        status: selectedUserForPass.status
+      });
+
+      // 5. Persistir a MySQL local
+      await saveUserToMySQL({
+        name: selectedUserForPass.name,
+        username: cleanUsername,
+        password: finalPass,
+        role: selectedUserForPass.role
+      });
+
+      currentDb.users = updatedUsers;
+      saveDatabase(currentDb);
+      setDb(currentDb);
+
+      logAction(
+        currentUser.name,
+        currentUser.role,
+        "Contraseña Actualizada",
+        `Se actualizó la contraseña del colaborador: ${selectedUserForPass.name} (@${cleanUsername}) con sincronización en Supabase y base local.`
+      );
+
+      setModalPassSuccess(`¡Contraseña de @${cleanUsername} actualizada y guardada con éxito en Supabase!`);
+      
+      setTimeout(() => {
+        setIsPasswordModalOpen(false);
+        setModalPassSuccess("");
+        setUserSuccessMessage(`¡Contraseña de @${cleanUsername} actualizada y sincronizada en Supabase con éxito!`);
+      }, 1400);
+
+    } catch (err: any) {
+      setModalPassError("Error al actualizar la contraseña: " + (err?.message || String(err)));
+    } finally {
+      setModalPassLoading(false);
+    }
   };
 
   const handleDeleteUser = (userId: string, username: string, name: string) => {
@@ -1266,57 +1437,92 @@ export default function SecurityModule({ currentUser, onChangeRole }: SecurityMo
                     </div>
                   </div>
 
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    <div className="space-y-1">
-                      <label className="text-xs font-bold text-gray-600 dark:text-slate-400 block">
-                        {isEditing ? "Nueva Contraseña (Opcional)" : "Contraseña"}
-                      </label>
-                      <div className="relative">
-                        <input
-                          type={showFormPassword ? "text" : "password"}
-                          name="password"
-                          placeholder={isEditing ? "Dejar vacío para conservar" : "Mínimo 4 caracteres"}
-                          value={formData.password}
-                          onChange={handleUserInputChange}
-                          className="w-full text-xs p-2.5 pr-9 border border-gray-200 dark:border-slate-800 rounded-xl focus:outline-none focus:ring-1 focus:ring-emerald-500 bg-transparent font-mono"
-                          required={!isEditing}
-                        />
-                        <button
-                          type="button"
-                          onClick={() => setShowFormPassword(!showFormPassword)}
-                          className="absolute right-2.5 top-2.5 text-gray-400 hover:text-gray-600 dark:hover:text-slate-200 cursor-pointer"
-                          title={showFormPassword ? "Ocultar Contraseña" : "Ver Contraseña"}
-                        >
-                          {showFormPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                        </button>
+                  {isEditing ? (
+                    <div className="p-3.5 bg-emerald-50/70 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-900/50 rounded-xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2.5 animate-fadeIn">
+                      <div className="flex items-center gap-2.5">
+                        <div className="p-2 bg-emerald-600 text-white rounded-xl shrink-0 shadow-xs">
+                          <Key className="h-4 w-4" />
+                        </div>
+                        <div>
+                          <p className="text-xs font-extrabold text-gray-900 dark:text-slate-100">Seguridad de la Cuenta</p>
+                          <p className="text-[11px] text-gray-500 dark:text-slate-400">¿Deseas cambiar la contraseña de este colaborador?</p>
+                        </div>
                       </div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const existingUser = (db.users || []).find((u: User) => u.id === formData.id);
+                          if (existingUser) {
+                            handleOpenChangePasswordModal(existingUser);
+                          } else {
+                            handleOpenChangePasswordModal({
+                              id: formData.id,
+                              name: formData.name,
+                              username: formData.username,
+                              role: formData.role,
+                              status: formData.status
+                            });
+                          }
+                        }}
+                        className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition-all flex items-center gap-2 cursor-pointer shadow-sm hover:shadow-md whitespace-nowrap"
+                      >
+                        <Key className="h-3.5 w-3.5" />
+                        Cambiar Contraseña
+                      </button>
                     </div>
+                  ) : (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <div className="space-y-1">
+                        <label className="text-xs font-bold text-gray-600 dark:text-slate-400 block">
+                          Contraseña
+                        </label>
+                        <div className="relative">
+                          <input
+                            type={showFormPassword ? "text" : "password"}
+                            name="password"
+                            placeholder="Mínimo 4 caracteres"
+                            value={formData.password}
+                            onChange={handleUserInputChange}
+                            className="w-full text-xs p-2.5 pr-9 border border-gray-200 dark:border-slate-800 rounded-xl focus:outline-none focus:ring-1 focus:ring-emerald-500 bg-transparent font-mono"
+                            required
+                          />
+                          <button
+                            type="button"
+                            onClick={() => setShowFormPassword(!showFormPassword)}
+                            className="absolute right-2.5 top-2.5 text-gray-400 hover:text-gray-600 dark:hover:text-slate-200 cursor-pointer"
+                            title={showFormPassword ? "Ocultar Contraseña" : "Ver Contraseña"}
+                          >
+                            {showFormPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                          </button>
+                        </div>
+                      </div>
 
-                    <div className="space-y-1">
-                      <label className="text-xs font-bold text-gray-600 dark:text-slate-400 block">
-                        Confirmar Contraseña
-                      </label>
-                      <div className="relative">
-                        <input
-                          type={showFormConfirmPassword ? "text" : "password"}
-                          name="confirmPassword"
-                          placeholder="Repite la contraseña"
-                          value={formData.confirmPassword}
-                          onChange={handleUserInputChange}
-                          className="w-full text-xs p-2.5 pr-9 border border-gray-200 dark:border-slate-800 rounded-xl focus:outline-none focus:ring-1 focus:ring-emerald-500 bg-transparent font-mono"
-                          required={!isEditing || Boolean(formData.password)}
-                        />
-                        <button
-                          type="button"
-                          onClick={() => setShowFormConfirmPassword(!showFormConfirmPassword)}
-                          className="absolute right-2.5 top-2.5 text-gray-400 hover:text-gray-600 dark:hover:text-slate-200 cursor-pointer"
-                          title={showFormConfirmPassword ? "Ocultar Confirmación" : "Ver Confirmación"}
-                        >
-                          {showFormConfirmPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                        </button>
+                      <div className="space-y-1">
+                        <label className="text-xs font-bold text-gray-600 dark:text-slate-400 block">
+                          Confirmar Contraseña
+                        </label>
+                        <div className="relative">
+                          <input
+                            type={showFormConfirmPassword ? "text" : "password"}
+                            name="confirmPassword"
+                            placeholder="Repite la contraseña"
+                            value={formData.confirmPassword}
+                            onChange={handleUserInputChange}
+                            className="w-full text-xs p-2.5 pr-9 border border-gray-200 dark:border-slate-800 rounded-xl focus:outline-none focus:ring-1 focus:ring-emerald-500 bg-transparent font-mono"
+                            required
+                          />
+                          <button
+                            type="button"
+                            onClick={() => setShowFormConfirmPassword(!showFormConfirmPassword)}
+                            className="absolute right-2.5 top-2.5 text-gray-400 hover:text-gray-600 dark:hover:text-slate-200 cursor-pointer"
+                            title={showFormConfirmPassword ? "Ocultar Confirmación" : "Ver Confirmación"}
+                          >
+                            {showFormConfirmPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                          </button>
+                        </div>
                       </div>
                     </div>
-                  </div>
+                  )}
 
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <div className="space-y-1">
@@ -1486,15 +1692,22 @@ export default function SecurityModule({ currentUser, onChangeRole }: SecurityMo
                           <td className="py-2.5 text-right">
                             <div className="flex justify-end gap-1">
                               <button
+                                onClick={() => handleOpenChangePasswordModal(user)}
+                                className="p-1.5 text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-950/30 rounded-lg transition-colors cursor-pointer"
+                                title="Cambiar Contraseña"
+                              >
+                                <Key className="h-3.5 w-3.5" />
+                              </button>
+                              <button
                                 onClick={() => handleEditClick(user)}
-                                className="p-1 text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-950/30 rounded cursor-pointer"
-                                title="Editar"
+                                className="p-1.5 text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-950/30 rounded-lg transition-colors cursor-pointer"
+                                title="Editar Datos"
                               >
                                 <Edit className="h-3.5 w-3.5" />
                               </button>
                               <button
                                 onClick={() => handleDeleteUser(user.id, user.username, user.name)}
-                                className={`p-1 rounded cursor-pointer ${isSelf ? "text-gray-300 cursor-not-allowed" : "text-red-600 hover:bg-red-50 dark:hover:bg-red-950/30"}`}
+                                className={`p-1.5 rounded-lg transition-colors cursor-pointer ${isSelf ? "text-gray-300 cursor-not-allowed" : "text-red-600 hover:bg-red-50 dark:hover:bg-red-950/30"}`}
                                 disabled={isSelf}
                                 title="Eliminar permanentemente"
                               >
@@ -2659,6 +2872,153 @@ export default function SecurityModule({ currentUser, onChangeRole }: SecurityMo
             )}
           </div>
 
+        </div>
+      )}
+
+      {/* MODAL FLOTANTE EN MEDIO DE LA PÁGINA PARA CAMBIO DE CONTRASEÑA */}
+      {isPasswordModalOpen && selectedUserForPass && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/75 backdrop-blur-xs animate-fadeIn">
+          <div className="bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 rounded-2xl shadow-2xl w-full max-w-md overflow-hidden animate-scaleUp">
+            
+            {/* Header del Modal */}
+            <div className="p-4 bg-slate-900 text-white flex items-center justify-between border-b border-slate-800">
+              <div className="flex items-center gap-2.5">
+                <div className="p-2 bg-emerald-500/20 text-emerald-400 rounded-xl">
+                  <Key className="h-5 w-5" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-extrabold">Cambiar Contraseña</h3>
+                  <p className="text-[11px] text-gray-300">
+                    Colaborador: <span className="text-emerald-400 font-bold font-mono">@{selectedUserForPass.username}</span> ({selectedUserForPass.name})
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsPasswordModalOpen(false)}
+                className="p-1.5 text-gray-400 hover:text-white rounded-lg hover:bg-slate-800 cursor-pointer transition-colors"
+                title="Cerrar modal"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            {/* Formulario del Modal */}
+            <form onSubmit={handleSavePasswordModal} className="p-5 space-y-4">
+              {modalPassSuccess && (
+                <div className="p-3 bg-emerald-50 dark:bg-emerald-950/30 text-emerald-800 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-900/60 rounded-xl text-xs font-bold flex items-center gap-2 animate-fadeIn">
+                  <span className="h-2 w-2 rounded-full bg-emerald-500 animate-ping" />
+                  <span>{modalPassSuccess}</span>
+                </div>
+              )}
+
+              {modalPassError && (
+                <div className="p-3 bg-red-50 dark:bg-red-950/30 text-red-700 dark:text-red-400 border border-red-200 dark:border-red-900/60 rounded-xl text-xs font-semibold animate-fadeIn">
+                  {modalPassError}
+                </div>
+              )}
+
+              {/* 1. Contraseña Anterior */}
+              <div className="space-y-1.5">
+                <label className="text-xs font-bold text-gray-700 dark:text-slate-300 block">
+                  1. Contraseña Anterior / Actual
+                </label>
+                <div className="relative">
+                  <input
+                    type={showModalOldPass ? "text" : "password"}
+                    placeholder="Ingresa la contraseña actual..."
+                    value={modalOldPassword}
+                    onChange={(e) => setModalOldPassword(e.target.value)}
+                    className="w-full text-xs p-2.5 pr-10 border border-gray-200 dark:border-slate-800 rounded-xl focus:outline-none focus:ring-1 focus:ring-emerald-500 bg-slate-50 dark:bg-slate-950 font-mono"
+                    required
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowModalOldPass(!showModalOldPass)}
+                    className="absolute right-3 top-2.5 text-gray-400 hover:text-gray-600 dark:hover:text-slate-200 cursor-pointer"
+                    title={showModalOldPass ? "Ocultar Contraseña" : "Ver Contraseña"}
+                  >
+                    {showModalOldPass ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                  </button>
+                </div>
+                <p className="text-[10px] text-gray-400">Verificamos que conozcas la clave previa para autorizar el cambio.</p>
+              </div>
+
+              {/* 2. Nueva Contraseña */}
+              <div className="space-y-1.5">
+                <label className="text-xs font-bold text-gray-700 dark:text-slate-300 block">
+                  2. Nueva Contraseña
+                </label>
+                <div className="relative">
+                  <input
+                    type={showModalNewPass ? "text" : "password"}
+                    placeholder="Mínimo 4 caracteres..."
+                    value={modalNewPassword}
+                    onChange={(e) => setModalNewPassword(e.target.value)}
+                    className="w-full text-xs p-2.5 pr-10 border border-gray-200 dark:border-slate-800 rounded-xl focus:outline-none focus:ring-1 focus:ring-emerald-500 bg-slate-50 dark:bg-slate-950 font-mono"
+                    required
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowModalNewPass(!showModalNewPass)}
+                    className="absolute right-3 top-2.5 text-gray-400 hover:text-gray-600 dark:hover:text-slate-200 cursor-pointer"
+                    title={showModalNewPass ? "Ocultar Contraseña" : "Ver Contraseña"}
+                  >
+                    {showModalNewPass ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                  </button>
+                </div>
+              </div>
+
+              {/* 3. Confirmar Nueva Contraseña */}
+              <div className="space-y-1.5">
+                <label className="text-xs font-bold text-gray-700 dark:text-slate-300 block">
+                  3. Confirmar Nueva Contraseña
+                </label>
+                <div className="relative">
+                  <input
+                    type={showModalConfirmPass ? "text" : "password"}
+                    placeholder="Repite exactamente la nueva contraseña..."
+                    value={modalConfirmPassword}
+                    onChange={(e) => setModalConfirmPassword(e.target.value)}
+                    className="w-full text-xs p-2.5 pr-10 border border-gray-200 dark:border-slate-800 rounded-xl focus:outline-none focus:ring-1 focus:ring-emerald-500 bg-slate-50 dark:bg-slate-950 font-mono"
+                    required
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowModalConfirmPass(!showModalConfirmPass)}
+                    className="absolute right-3 top-2.5 text-gray-400 hover:text-gray-600 dark:hover:text-slate-200 cursor-pointer"
+                    title={showModalConfirmPass ? "Ocultar Confirmación" : "Ver Confirmación"}
+                  >
+                    {showModalConfirmPass ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                  </button>
+                </div>
+              </div>
+
+              {/* Botones de Acción */}
+              <div className="flex gap-2 pt-3 border-t border-gray-100 dark:border-slate-800">
+                <button
+                  type="submit"
+                  disabled={modalPassLoading}
+                  className="flex-1 py-2.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white rounded-xl text-xs font-bold transition-all cursor-pointer shadow-xs flex items-center justify-center gap-2"
+                >
+                  {modalPassLoading ? (
+                    <RefreshCw className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <Key className="h-4 w-4" />
+                  )}
+                  <span>{modalPassLoading ? "Guardando en Supabase..." : "Actualizar Contraseña"}</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setIsPasswordModalOpen(false)}
+                  disabled={modalPassLoading}
+                  className="px-4 py-2.5 bg-gray-100 dark:bg-slate-800 hover:bg-gray-200 dark:hover:bg-slate-700 text-gray-600 dark:text-slate-300 rounded-xl text-xs font-bold cursor-pointer"
+                >
+                  Cancelar
+                </button>
+              </div>
+            </form>
+          </div>
         </div>
       )}
 

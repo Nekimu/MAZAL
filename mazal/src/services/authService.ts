@@ -246,10 +246,10 @@ export async function authenticateStaff(
     }
   }
 
-  // 4. Fallback maestro para Administrador General con Contraseña Maestra Dinámica o por Defecto
+  // 4. Fallback maestro para Administrador General con Contraseña Maestra Dinámica
   if (cleanUser === "admin") {
     const activeMasterPass = await getActiveMasterAdminPassword();
-    if (cleanPass === activeMasterPass || cleanPass === DEFAULT_MASTER_ADMIN_PASSWORD) {
+    if (cleanPass === activeMasterPass) {
       return {
         success: true,
         user: {
@@ -308,9 +308,9 @@ export async function verifyBranchAccess(
   const cleanPin = (enteredPin || "").trim();
   if (!cleanPin) return false;
 
-  // 1. Acceso Maestro del Administrador General (Global a cualquier sucursal con contraseña maestra activa o default)
+  // 1. Acceso Maestro del Administrador General (Global a cualquier sucursal con contraseña maestra activa)
   const masterPass = await getActiveMasterAdminPassword();
-  if (cleanPin === masterPass || cleanPin === DEFAULT_MASTER_ADMIN_PASSWORD) {
+  if (cleanPin === masterPass) {
     return true;
   }
 

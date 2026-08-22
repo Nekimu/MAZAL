@@ -250,11 +250,10 @@ function autoMigrateSchema($db, $targetDb) {
         'updated_at' => "TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP"
     ]);
 
-    // I. ASEGURAR ADMINISTRADOR GENERAL MAESTRO
+    // I. ASEGURAR ADMINISTRADOR GENERAL MAESTRO (solo si no existe)
     $db->query("INSERT INTO usuarios (usuario, nombrecompleto, password, rol) 
                 SELECT 'admin', 'Administrador General', 'admin030114', 'administrador' 
                 WHERE NOT EXISTS (SELECT 1 FROM usuarios WHERE usuario = 'admin');");
-    $db->query("UPDATE usuarios SET password = 'admin030114' WHERE usuario = 'admin' AND password IN ('admin', 'admin123', 'change-me', '1234', '123456');");
 }
 
 // Ejecutar auto-migración garantizada en cada arranque
@@ -281,24 +280,13 @@ if ($action === 'login' && $_SERVER['REQUEST_METHOD'] === 'POST') {
         $storedPass = $row['password'];
         $isValid = false;
 
-        if (strtolower($userIn) === 'admin') {
-            // El usuario admin sólo puede ingresar con admin030114
-            if ($passIn === 'admin030114') {
-                $isValid = true;
-            } else if ($passIn !== 'admin' && password_verify($passIn, $storedPass)) {
-                $isValid = true;
-            }
-        } else {
-            if (password_verify($passIn, $storedPass)) {
-                $isValid = true;
-            } else if ($passIn === $storedPass) {
-                $isValid = true;
-                // Migración automática a hash Bcrypt seguro
-                $newHash = password_hash($passIn, PASSWORD_BCRYPT);
-                $upStmt = $mysqli->prepare("UPDATE usuarios SET password = ? WHERE id = ?");
-                $upStmt->bind_param("si", $newHash, $row['id']);
-                $upStmt->execute();
-            }
+        // Comprobación flexible y robusta (Texto plano, Bcrypt o SHA-256)
+        if ($passIn === $storedPass) {
+            $isValid = true;
+        } else if (password_verify($passIn, $storedPass)) {
+            $isValid = true;
+        } else if (hash('sha256', $passIn) === strtolower($storedPass)) {
+            $isValid = true;
         }
 
         if ($isValid) {
@@ -316,23 +304,6 @@ if ($action === 'login' && $_SERVER['REQUEST_METHOD'] === 'POST') {
             ]);
             exit;
         }
-    }
-
-    // Master fallback para admin030114 en caso de contingencia
-    if (strtolower($userIn) === 'admin' && $passIn === 'admin030114') {
-        echo json_encode([
-            "success" => true,
-            "message" => "Acceso maestro de contingencia autorizado.",
-            "user" => [
-                "id" => "1",
-                "username" => "admin",
-                "name" => "Administrador General",
-                "role" => "administrador",
-                "branch" => $branch,
-                "database" => $dbname
-            ]
-        ]);
-        exit;
     }
 
     echo json_encode(["success" => false, "error" => "Credenciales incorrectas."]);
