@@ -34,20 +34,20 @@ if not exist "!HTDOCS_DIR!" (
 
 :: 3. INSTALAR / COPIAR ARCHIVOS DEL SISTEMA
 echo [*] Desplegando archivos del sistema web a !HTDOCS_DIR!...
-set "CURRENT_DIR=%~dp0"
+set "ROOT_DIR=%~dp0..\..\"
 
-if exist "%CURRENT_DIR%mazal\dist" (
+if exist "%ROOT_DIR%mazal\dist" (
     echo [*] Copiando bundle optimizado de produccion...
-    xcopy /E /Y /I "%CURRENT_DIR%mazal\dist\*" "!HTDOCS_DIR!\" >nul
-) else if exist "%CURRENT_DIR%dist" (
+    xcopy /E /Y /I "%ROOT_DIR%mazal\dist\*" "!HTDOCS_DIR!\" >nul
+) else if exist "%ROOT_DIR%dist" (
     echo [*] Copiando bundle optimizado de produccion...
-    xcopy /E /Y /I "%CURRENT_DIR%dist\*" "!HTDOCS_DIR!\" >nul
+    xcopy /E /Y /I "%ROOT_DIR%dist\*" "!HTDOCS_DIR!\" >nul
 )
 
 :: Copiar backend api.php
-if exist "%CURRENT_DIR%api.php" (
-    copy /Y "%CURRENT_DIR%api.php" "!HTDOCS_DIR!\api.php" >nul
-    copy /Y "%CURRENT_DIR%api.php" "!XAMPP_DIR!\htdocs\api.php" >nul
+if exist "%ROOT_DIR%api.php" (
+    copy /Y "%ROOT_DIR%api.php" "!HTDOCS_DIR!\api.php" >nul
+    copy /Y "%ROOT_DIR%api.php" "!XAMPP_DIR!\htdocs\api.php" >nul
 )
 
 :: 4. EJECUTAR PROVISIONAMIENTO Y AUTO-MIGRACION DE BASE DE DATOS

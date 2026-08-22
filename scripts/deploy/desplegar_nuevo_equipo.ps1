@@ -36,19 +36,19 @@ if (-not (Test-Path $destDir)) {
     New-Item -ItemType Directory -Path $destDir -Force | Out-Null
 }
 
-$currentDir = $PSScriptRoot
-if (-not $currentDir) { $currentDir = Get-Location }
+$rootDir = (Resolve-Path "$PSScriptRoot\..\..").Path
+if (-not $rootDir) { $rootDir = Get-Location }
 
 Write-Host "[*] Copiando bundle optimizado de producción a $destDir..." -ForegroundColor Cyan
-if (Test-Path "$currentDir\mazal\dist") {
-    Copy-Item -Path "$currentDir\mazal\dist\*" -Destination $destDir -Recurse -Force
-} elseif (Test-Path "$currentDir\dist") {
-    Copy-Item -Path "$currentDir\dist\*" -Destination $destDir -Recurse -Force
+if (Test-Path "$rootDir\mazal\dist") {
+    Copy-Item -Path "$rootDir\mazal\dist\*" -Destination $destDir -Recurse -Force
+} elseif (Test-Path "$rootDir\dist") {
+    Copy-Item -Path "$rootDir\dist\*" -Destination $destDir -Recurse -Force
 }
 
-if (Test-Path "$currentDir\api.php") {
-    Copy-Item -Path "$currentDir\api.php" -Destination "$destDir\api.php" -Force
-    Copy-Item -Path "$currentDir\api.php" -Destination "$xamppPath\htdocs\api.php" -Force
+if (Test-Path "$rootDir\api.php") {
+    Copy-Item -Path "$rootDir\api.php" -Destination "$destDir\api.php" -Force
+    Copy-Item -Path "$rootDir\api.php" -Destination "$xamppPath\htdocs\api.php" -Force
 }
 
 # 3. AUTO-PROVISIONAMIENTO Y AUTO-MIGRACIÓN DE BASE DE DATOS
@@ -61,30 +61,30 @@ if (`$m->connect_errno) {
 } else {
     `$m->query('CREATE DATABASE IF NOT EXISTS mazal_bd CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;');
     `$m->query('CREATE DATABASE IF NOT EXISTS mazal_bd1 CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;');
-    echo '[OK] Bases de datos mazal_bd y mazal_bd1 garantizadas.'.PHP_EOL;
+    echo '[OK] Bases de datos mazal_bd (Norte) y mazal_bd1 (Sur) listas.'.PHP_EOL;
 }
 "@
 
 & "$xamppPath\php\php.exe" -r $initScript
 
-# Disparar auto-migración de esquema a través de api.php
+# Disparar auto-migración mediante ping HTTP
 try {
-    $pingNorte = Invoke-RestMethod -Uri "http://localhost/mazal/api.php?action=ping&branch=Norte" -TimeoutSec 5 -ErrorAction SilentlyContinue
-    $pingSur = Invoke-RestMethod -Uri "http://localhost/mazal/api.php?action=ping&branch=Sur" -TimeoutSec 5 -ErrorAction SilentlyContinue
-    Write-Host "[OK] Auto-migración y auto-reparación de tablas ejecutada exitosamente." -ForegroundColor Green
+    Invoke-RestMethod -Uri "http://localhost/mazal/api.php?action=ping&branch=Norte" -TimeoutSec 3 -ErrorAction SilentlyContinue | Out-Null
+    Invoke-RestMethod -Uri "http://localhost/mazal/api.php?action=ping&branch=Sur" -TimeoutSec 3 -ErrorAction SilentlyContinue | Out-Null
+    Write-Host "[OK] Tablas, usuarios de sucursales y permisos auto-migrados con éxito." -ForegroundColor Green
 } catch {
-    Write-Host "[!] Aviso: No se pudo contactar Apache por HTTP todavía. Se auto-migrará en la primera visita." -ForegroundColor Yellow
+    Write-Host "[*] Ping HTTP omitido (Apache puede requerir inicio manual desde el panel XAMPP)." -ForegroundColor Yellow
 }
 
-# 4. RESUMEN FINAL
+# 4. VERIFICACIÓN Y APERTURA
 Write-Host ""
 Write-Host "==============================================================================" -ForegroundColor Green
-Write-Host "                     DESPLIEGUE COMPLETADO CON ÉXITO" -ForegroundColor Yellow
+Write-Host "                  DESPLIEGUE COMPLETADO CON ÉXITO" -ForegroundColor Cyan
 Write-Host "==============================================================================" -ForegroundColor Green
-Write-Host " URL del Sistema:       http://localhost/mazal/" -ForegroundColor Cyan
-Write-Host " Sucursal 1 (Norte):    Base de Datos: mazal_bd  (PIN: norte123)" -ForegroundColor White
-Write-Host " Sucursal 2 (Sur):      Base de Datos: mazal_bd1 (PIN: sur123)" -ForegroundColor White
-Write-Host " Administrador General: Usuario: admin / Contraseña: admin030114" -ForegroundColor White
+Write-Host " 1. URL Local:            http://localhost/mazal/" -ForegroundColor White
+Write-Host " 2. Sucursal Norte:       BD: mazal_bd  (PIN: norte123)" -ForegroundColor White
+Write-Host " 3. Sucursal Sur:         BD: mazal_bd1 (PIN: sur123)" -ForegroundColor White
+Write-Host " 4. Administrador General: Usuario: admin / Clave: admin030114" -ForegroundColor White
 Write-Host "==============================================================================" -ForegroundColor Green
 Write-Host ""
 

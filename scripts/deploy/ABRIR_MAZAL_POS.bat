@@ -1,7 +1,7 @@
 @echo off
-title MAZAL POS [MODO LEGACY / DESARROLLO LOCAL]
+title MAZAL POS [MODO LOCAL / XAMPP]
 echo ======================================================
-echo    MAZAL POS - MODO LEGACY / DESARROLLO LOCAL OPCIONAL
+echo    MAZAL POS - LANZADOR LOCAL
 echo    (Produccion: Desplegado en Railway con Supabase)
 echo ======================================================
 echo.
@@ -28,7 +28,7 @@ if %errorlevel% neq 0 (
 
 echo.
 echo [OK] Abriendo sistema en tu navegador...
-start http://localhost/MAZAL_POS/
+start http://localhost/mazal/
 
 echo.
 echo ======================================================

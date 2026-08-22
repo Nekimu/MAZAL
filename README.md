@@ -87,11 +87,12 @@ PORT=3000
 ### 2. Inicialización de la Base de Datos y RLS en Supabase
 1. Ingresa a tu panel de control en [Supabase](https://supabase.com/).
 2. Ve a la sección **SQL Editor**.
-3. Abre el archivo [`supabase_schema.sql`](file:///c:/xampp/htdocs/MAZAL_POS/supabase_schema.sql) (o [`supabase_rls_policies.sql`](file:///c:/xampp/htdocs/MAZAL_POS/supabase_rls_policies.sql) si ya tienes tablas existentes).
+3. Abre el archivo [`scripts/sql/supabase_schema.sql`](file:///c:/xampp/htdocs/MAZAL/mazal/scripts/sql/supabase_schema.sql) (o [`scripts/sql/supabase_purge.sql`](file:///c:/xampp/htdocs/MAZAL/mazal/scripts/sql/supabase_purge.sql) para purgado total).
 4. Pégalo en el editor SQL de Supabase y presiona **Run**.
-5. *(Opcional)* Sube el catálogo inicial desde la consola:
+5. *(Opcional)* Purgar o sembrar desde la consola:
    ```bash
-   node scripts/seed_supabase.mjs
+   npm run purge:supabase
+   npm run seed:supabase
    ```
 
 ---
@@ -112,7 +113,7 @@ npm start
 El sistema estará activo en `http://localhost:3000`.
 
 #### En Railway:
-Railway detecta automáticamente el repositorio mediante [`railway.json`](file:///c:/xampp/htdocs/MAZAL_POS/railway.json) y [`Dockerfile`](file:///c:/xampp/htdocs/MAZAL_POS/Dockerfile), compila la aplicación y levanta el servidor web con compresión Gzip, cabeceras HSTS y HTTPS activo.
+Railway detecta automáticamente el repositorio mediante [`railway.json`](file:///c:/xampp/htdocs/MAZAL/mazal/railway.json) y [`Dockerfile`](file:///c:/xampp/htdocs/MAZAL/mazal/Dockerfile), compila la aplicación y levanta el servidor web con compresión Gzip, cabeceras HSTS y HTTPS activo.
 
 ---
 
@@ -129,12 +130,17 @@ Railway detecta automáticamente el repositorio mediante [`railway.json`](file:/
 
 ---
 
-## 🛠️ Herramientas de Migración y Desarrollo Local (Modo Legacy)
+## 🛠️ Herramientas de Despliegue y Scripts Organizados
 
-Los siguientes archivos se mantienen exclusivamente para soporte en entornos locales o migración histórica desde bases de datos MySQL previas:
-* [`api.php`](file:///c:/xampp/htdocs/MAZAL_POS/api.php): API PHP local para lectura de MySQL nativo en entornos XAMPP locales. *(No utilizado en el deploy de producción de Railway)*.
-* [`scripts/migrate_mysql_to_supabase.mjs`](file:///c:/xampp/htdocs/MAZAL_POS/scripts/migrate_mysql_to_supabase.mjs): Script para volcar datos de `mazal_bd` (Norte) y `mazal_bd1` (Sur) a Supabase.
-* [`MIGRAR_A_SUPABASE.bat`](file:///c:/xampp/htdocs/MAZAL_POS/MIGRAR_A_SUPABASE.bat) / [`ABRIR_MAZAL_POS.bat`](file:///c:/xampp/htdocs/MAZAL_POS/ABRIR_MAZAL_POS.bat): Lanzadores de entorno local Windows.
+Todos los scripts y utilidades están organizados en subcarpetas dedicadas:
+* [`docs/GUIA_DESPLIEGUE_NUEVO_EQUIPO.md`](file:///c:/xampp/htdocs/MAZAL/mazal/docs/GUIA_DESPLIEGUE_NUEVO_EQUIPO.md): Manual completo de instalación en equipos nuevos.
+* [`scripts/deploy/desplegar_nuevo_equipo.bat`](file:///c:/xampp/htdocs/MAZAL/mazal/scripts/deploy/desplegar_nuevo_equipo.bat) / [`.ps1`](file:///c:/xampp/htdocs/MAZAL/mazal/scripts/deploy/desplegar_nuevo_equipo.ps1): Asistente de despliegue en 1 clic.
+* [`scripts/deploy/ABRIR_MAZAL_POS.bat`](file:///c:/xampp/htdocs/MAZAL/mazal/scripts/deploy/ABRIR_MAZAL_POS.bat): Lanzador rápido de servicios locales en Windows.
+* [`scripts/deploy/MIGRAR_A_SUPABASE.bat`](file:///c:/xampp/htdocs/MAZAL/mazal/scripts/deploy/MIGRAR_A_SUPABASE.bat): Lanzador de migración de MySQL a Supabase.
+* [`scripts/sql/supabase_schema.sql`](file:///c:/xampp/htdocs/MAZAL/mazal/scripts/sql/supabase_schema.sql): Esquema DDL oficial de PostgreSQL.
+* [`scripts/sql/supabase_purge.sql`](file:///c:/xampp/htdocs/MAZAL/mazal/scripts/sql/supabase_purge.sql): Script de purgado limpio.
+* [`scripts/purge_and_verify_supabase.mjs`](file:///c:/xampp/htdocs/MAZAL/mazal/scripts/purge_and_verify_supabase.mjs): Verificador de conectividad y métodos Supabase.
+* [`scripts/migrate_mysql_to_supabase.mjs`](file:///c:/xampp/htdocs/MAZAL/mazal/scripts/migrate_mysql_to_supabase.mjs): Script Node.js de volcado de datos.
 
 ---
 

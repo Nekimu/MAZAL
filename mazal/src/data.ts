@@ -154,10 +154,10 @@ export const setActiveBranch = (branch: string | null) => {
   }
 
   // Preserve core catalogs (products, users, customers, suppliers) with baseline fallbacks
-  inMemoryDb.products = inMemoryDb.products && inMemoryDb.products.length > 50 ? inMemoryDb.products : [...INITIAL_PRODUCTS];
+  inMemoryDb.products = inMemoryDb.products || [];
   inMemoryDb.users = inMemoryDb.users && inMemoryDb.users.length > 0 ? inMemoryDb.users : [...INITIAL_USERS];
-  inMemoryDb.suppliers = inMemoryDb.suppliers && inMemoryDb.suppliers.length > 0 ? inMemoryDb.suppliers : [...INITIAL_SUPPLIERS];
-  inMemoryDb.customers = inMemoryDb.customers && inMemoryDb.customers.length > 0 ? inMemoryDb.customers : [...INITIAL_CUSTOMERS];
+  inMemoryDb.suppliers = inMemoryDb.suppliers || [];
+  inMemoryDb.customers = inMemoryDb.customers || [];
 
   // Clear transactional branch-specific arrays to refresh from active database
   ["sales", "movements", "expenses", "cashSessions", "purchaseOrders", "creditHistory"].forEach(key => {
@@ -215,17 +215,17 @@ const loadFromLocalStorage = () => {
     if (saved) {
       const parsed = JSON.parse(saved);
       if (parsed && typeof parsed === "object") {
-        if (!parsed.products || !Array.isArray(parsed.products) || parsed.products.length < 50) {
-          parsed.products = [...INITIAL_PRODUCTS];
+        if (!parsed.products || !Array.isArray(parsed.products)) {
+          parsed.products = [];
         }
         if (!parsed.users || !Array.isArray(parsed.users) || parsed.users.length === 0) {
           parsed.users = [...INITIAL_USERS];
         }
-        if (!parsed.suppliers || !Array.isArray(parsed.suppliers) || parsed.suppliers.length === 0) {
-          parsed.suppliers = [...INITIAL_SUPPLIERS];
+        if (!parsed.suppliers || !Array.isArray(parsed.suppliers)) {
+          parsed.suppliers = [];
         }
-        if (!parsed.customers || !Array.isArray(parsed.customers) || parsed.customers.length === 0) {
-          parsed.customers = [...INITIAL_CUSTOMERS];
+        if (!parsed.customers || !Array.isArray(parsed.customers)) {
+          parsed.customers = [];
         }
         if (!Array.isArray(parsed.sales)) parsed.sales = [];
         if (!Array.isArray(parsed.movements)) parsed.movements = [];
@@ -997,7 +997,17 @@ export const resetDatabaseToFactory = async () => {
     inMemoryDb[key] = [...seedData];
   });
   dbCache = JSON.parse(JSON.stringify(inMemoryDb));
+  saveToLocalStorage(inMemoryDb);
   notifySubscribers();
+
+  // Also sync clean state to Supabase if configured
+  if (isSupabaseConfigured) {
+    try {
+      await syncAllToSupabase(inMemoryDb, activeBranch || "Norte");
+    } catch (e) {
+      console.warn("Error syncing clean state to Supabase:", e);
+    }
+  }
 };
 
 export const logAction = (user: string, role: string, action: string, details: string): Promise<void> => {

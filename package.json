@@ -10,6 +10,7 @@
     "dev": "npm --prefix mazal run dev",
     "seed:supabase": "node scripts/seed_supabase.mjs",
     "migrate:supabase": "node scripts/migrate_mysql_to_supabase.mjs",
+    "purge:supabase": "node scripts/purge_and_verify_supabase.mjs",
     "check:secrets": "node scripts/check-secrets.js"
   },
   "keywords": [

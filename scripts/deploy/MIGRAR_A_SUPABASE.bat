@@ -13,12 +13,13 @@ echo  2. Mazal 2 (Sur / Secundaria)    -^> mazal_bd1
 echo.
 echo Requisitos previos:
 echo  [OK] XAMPP (Apache y MySQL) debe estar ENCENDIDO.
-echo  [OK] Las tablas deben estar creadas en Supabase (supabase_schema.sql).
+echo  [OK] Las tablas deben estar creadas en Supabase (scripts/sql/supabase_schema.sql).
 echo.
 echo Presiona cualquier tecla para comenzar la migracion...
 pause > nul
 echo.
 
+cd /d "%~dp0..\.."
 node scripts/migrate_mysql_to_supabase.mjs
 
 echo.
