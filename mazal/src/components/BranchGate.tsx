@@ -19,23 +19,27 @@ export default function BranchGate({ onBranchSelect, theme = "light", onToggleTh
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
+  const [successMsg, setSuccessMsg] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const handleBranchClick = (branch: "Norte" | "Sur") => {
     setSelected(branch);
     setPassword("");
     setErrorMsg("");
+    setSuccessMsg("");
   };
 
   const handleBack = () => {
     setSelected(null);
     setPassword("");
     setErrorMsg("");
+    setSuccessMsg("");
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMsg("");
+    setSuccessMsg("");
     setIsSubmitting(true);
 
     if (!selected) {
@@ -46,13 +50,18 @@ export default function BranchGate({ onBranchSelect, theme = "light", onToggleTh
     try {
       const isValid = await verifyBranchAccess(selected, password);
       if (isValid) {
-        onBranchSelect(selected);
+        setSuccessMsg(`Accediendo a Sucursal ${selected === "Sur" ? "Mazal 2 (Sur)" : "Mazal 1 (Norte)"}...`);
+        setTimeout(() => {
+          onBranchSelect(selected);
+        }, 400);
       } else {
         setErrorMsg("Contraseña de sucursal incorrecta. Verifica con el administrador.");
+        setPassword("");
+        setIsSubmitting(false);
       }
     } catch (err) {
       setErrorMsg("Error validando acceso de sucursal.");
-    } finally {
+      setPassword("");
       setIsSubmitting(false);
     }
   };
@@ -207,6 +216,14 @@ export default function BranchGate({ onBranchSelect, theme = "light", onToggleTh
                 <span>Acceso protegido por credencial de seguridad de sucursal.</span>
               </p>
             </div>
+
+            {/* Success Message */}
+            {successMsg && (
+              <div className="p-3 rounded-xl bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-900/40 text-emerald-700 dark:text-emerald-300 text-xs font-bold leading-relaxed flex items-center justify-center gap-2">
+                <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
+                <span>{successMsg}</span>
+              </div>
+            )}
 
             {/* Error Message */}
             {errorMsg && (

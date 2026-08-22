@@ -35,7 +35,7 @@ import {
   Zap,
   TrendingDown
 } from "lucide-react";
-import { Product, User, UserRole, ProductUnit, formatPrice } from "../types";
+import { Product, User, UserRole, ProductUnit, formatPrice, normalizeUserRole } from "../types";
 import { getDatabase, logAction } from "../data";
 import { MazalLogo } from "./MazalLogo";
 import { authenticateStaff } from "../services/authService";
@@ -207,7 +207,9 @@ export default function LoginAndCatalog({
       const result = await authenticateStaff(username, password);
 
       if (!result.success || !result.user) {
-        setErrorMsg(result.message || "Usuario o contraseña incorrectos.");
+        setErrorMsg("Usuario o contraseña incorrectos. Verifica tus credenciales.");
+        setUsername("");
+        setPassword("");
         setIsSubmitting(false);
         return;
       }
@@ -221,22 +223,20 @@ export default function LoginAndCatalog({
         `El colaborador @${authenticatedUser.username} ingresó al ERP central desde el portal de inicio.`
       );
 
-      if (result.isDefaultPassword) {
-        setSuccessMsg(`¡Bienvenido, ${authenticatedUser.name}! (Aviso: Recuerda cambiar tu contraseña en Seguridad).`);
-      } else {
-        setSuccessMsg(`¡Bienvenido de vuelta, ${authenticatedUser.name}! Redireccionando...`);
-      }
+      setSuccessMsg(`Iniciando sesión... ¡Bienvenido, ${authenticatedUser.name}!`);
       
       setTimeout(() => {
         setIsSubmitting(false);
         setShowStaffDrawer(false);
         onLoginSuccess({
           name: authenticatedUser.name,
-          role: authenticatedUser.role
+          role: normalizeUserRole(authenticatedUser.role)
         });
       }, 500);
     } catch (err: any) {
       setErrorMsg("Error inesperado al intentar autenticar. Intenta de nuevo.");
+      setUsername("");
+      setPassword("");
       setIsSubmitting(false);
     }
   };
@@ -333,6 +333,72 @@ export default function LoginAndCatalog({
       {/* 2. FULL-WIDTH CLIENT-CENTRIC STOREFRONT */}
       {/* ========================================================================= */}
       <main className="flex-1 max-w-[1720px] mx-auto w-full p-4 md:p-6 space-y-4">
+
+        {/* HERO PROMOTIONAL WHOLESALE BANNER - VIBRANT HIGH-CONTRAST PALETTE */}
+        <section 
+          aria-label="Banner Informativo de Precios de Mayoreo"
+          className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-emerald-600 via-emerald-700 to-teal-800 text-white p-5 sm:p-7 md:p-8 shadow-xl border-2 border-emerald-400/40 animate-fadeIn"
+        >
+          {/* Subtle ambient lighting */}
+          <div className="absolute top-0 right-0 -mr-12 -mt-12 w-64 h-64 bg-white/15 rounded-full blur-2xl pointer-events-none" />
+          <div className="absolute bottom-0 left-1/4 -mb-12 w-48 h-48 bg-teal-300/15 rounded-full blur-xl pointer-events-none" />
+
+          <div className="relative z-10 flex flex-col lg:flex-row lg:items-center justify-between gap-6">
+            
+            {/* Left Content Area */}
+            <div className="space-y-3.5 max-w-3xl">
+              
+              {/* Badge */}
+              <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-emerald-950/60 backdrop-blur-md border border-emerald-300/50 text-white text-xs font-black tracking-wide uppercase shadow-sm">
+                <Sparkles className="h-4 w-4 text-yellow-300 animate-pulse" />
+                <span>Precios de Mayoreo y Medio Mayoreo Directos de Fábrica</span>
+              </div>
+
+              {/* Main Headline */}
+              <h2 className="text-2xl sm:text-3xl md:text-4xl font-black tracking-tight text-white drop-shadow-md leading-tight">
+                ¡Bienvenido, Estimado Cliente!
+              </h2>
+
+              {/* Subheadline - Pure White */}
+              <p className="text-sm sm:text-base md:text-lg font-black text-white drop-shadow-md leading-snug">
+                Busca tus productos, compara precios y ahorra comprando por mayoreo
+              </p>
+
+              {/* Promotional Discount Explanation Box */}
+              <div className="p-4 rounded-2xl bg-emerald-950/70 backdrop-blur-md border border-emerald-300/40 text-xs sm:text-sm text-white leading-relaxed font-semibold flex items-start gap-3 shadow-md">
+                <BadgePercent className="h-5 w-5 text-yellow-300 shrink-0 mt-0.5" />
+                <p>
+                  Mostramos precios actualizados al minuto. Llevando más de <strong className="text-yellow-300 font-black text-sm">12</strong> o <strong className="text-yellow-300 font-black text-sm">50 piezas</strong> de cualquier artículo de la misma categoría, te aplicamos automáticamente precios preferenciales de medio mayoreo y mayoreo.
+                </p>
+              </div>
+            </div>
+
+            {/* Right Quick Badges / Feature Cards */}
+            <div className="grid grid-cols-2 gap-3 lg:w-80 shrink-0 text-xs">
+              <div className="p-3.5 rounded-2xl bg-emerald-950/70 backdrop-blur-md border-2 border-emerald-400/60 flex flex-col items-center text-center space-y-1 shadow-md">
+                <Tag className="h-5 w-5 text-yellow-300" />
+                <span className="font-black text-xs text-white">Menudeo</span>
+                <span className="text-xs font-bold text-white">
+                  <span className="text-yellow-300 font-black text-sm drop-shadow-xs">1 a 11</span> piezas
+                </span>
+              </div>
+              <div className="p-3.5 rounded-2xl bg-emerald-950/70 backdrop-blur-md border-2 border-emerald-400/60 flex flex-col items-center text-center space-y-1 shadow-md">
+                <BadgePercent className="h-5 w-5 text-yellow-300" />
+                <span className="font-black text-xs text-white">Medio Mayoreo</span>
+                <span className="text-xs font-bold text-white">
+                  <span className="text-yellow-300 font-black text-sm drop-shadow-xs">+12</span> piezas
+                </span>
+              </div>
+              <div className="col-span-2 p-3.5 rounded-2xl bg-emerald-950/80 backdrop-blur-md border-2 border-yellow-400/80 flex items-center justify-center gap-2 text-center shadow-lg">
+                <ShoppingBag className="h-4 w-4 text-yellow-300" />
+                <span className="font-black text-xs text-white uppercase tracking-wider">
+                  Gran Mayoreo Especial (<span className="text-yellow-300 font-black text-sm drop-shadow-xs">+50</span> pzs)
+                </span>
+              </div>
+            </div>
+
+          </div>
+        </section>
 
         {/* 1. Main Search Bar - STICKY ONLY TO SEARCH BAR WITH SAFE VERTICAL PADDING */}
         <div className="sticky top-[64px] sm:top-[68px] z-30 py-3 bg-[#f4f6f0] dark:bg-slate-950 transition-colors">

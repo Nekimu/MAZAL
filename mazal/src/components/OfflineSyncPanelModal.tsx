@@ -61,7 +61,7 @@ export const OfflineSyncPanelModal: React.FC<Props> = ({ isOpen, onClose }) => {
 
   const handleSyncNow = async () => {
     setIsSyncingManual(true);
-    setSyncMessage("Sincronizando operaciones encoladas con Firebase Firestore...");
+    setSyncMessage("Sincronizando operaciones encoladas con Supabase Cloud...");
     try {
       const res = await triggerAutoSync();
       if (res.success) {
@@ -114,7 +114,7 @@ export const OfflineSyncPanelModal: React.FC<Props> = ({ isOpen, onClose }) => {
                 </span>
               </h3>
               <p className="text-xs text-slate-400">
-                Sincronización automática de inventario, ventas y datos locales con Firebase
+                Sincronización automática de inventario, ventas y datos locales con Supabase Cloud
               </p>
             </div>
           </div>
@@ -153,7 +153,7 @@ export const OfflineSyncPanelModal: React.FC<Props> = ({ isOpen, onClose }) => {
               {syncState.isSyncing
                 ? "🟠 Sincronizando información en tiempo real con la nube..."
                 : syncState.isOnline
-                ? "🟢 En Línea: Conexión activa con Firebase Firestore"
+                ? "🟢 En Línea: Conexión activa con Supabase Cloud"
                 : "🔴 Trabajando Sin Conexión: Operaciones guardándose en Base Local cifrada"}
             </span>
           </div>
@@ -462,7 +462,7 @@ export const OfflineSyncPanelModal: React.FC<Props> = ({ isOpen, onClose }) => {
                           </pre>
                         </div>
                         <div className="p-2.5 bg-white dark:bg-slate-900 rounded-lg border border-slate-200 dark:border-slate-800">
-                          <div className="font-sans font-bold text-blue-600 mb-1">Versión Nube (Firebase)</div>
+                          <div className="font-sans font-bold text-blue-600 mb-1">Versión Nube (Supabase)</div>
                           <pre className="text-[10px] text-slate-600 dark:text-slate-400 overflow-x-auto">
                             {JSON.stringify(c.conflictDetails?.cloudData || {}, null, 2)}
                           </pre>

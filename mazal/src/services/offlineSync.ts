@@ -1,6 +1,5 @@
 import { PendingOperation, PendingOperationType, OfflineSyncState } from "../types";
-import { doc, setDoc, deleteDoc, getDoc } from "firebase/firestore";
-import { firestore, ensureAuth } from "../firebase";
+import { supabase, isSupabaseConfigured } from "../supabase";
 
 const QUEUE_STORAGE_KEY = "mazal_pending_sync_queue_v1";
 const LAST_SYNC_KEY = "mazal_last_sync_timestamp";
@@ -157,7 +156,6 @@ export const clearPendingQueue = () => {
 };
 
 // Auto Sync Algorithm with strict priority order:
-// 1. Inventario -> 2. Clientes -> 3. Productos -> 4. Compras -> 5. Ventas -> 6. Caja -> 7. Otros
 export const triggerAutoSync = async (): Promise<{ success: boolean; syncedCount: number; errors: number }> => {
   if (isSyncing) return { success: false, syncedCount: 0, errors: syncErrorsCount };
   if (!isOnline) return { success: false, syncedCount: 0, errors: syncErrorsCount };
@@ -175,9 +173,11 @@ export const triggerAutoSync = async (): Promise<{ success: boolean; syncedCount
   let errorsCount = 0;
 
   try {
-    await ensureAuth();
+    if (!isSupabaseConfigured) {
+      isSyncing = false;
+      return { success: true, syncedCount: 0, errors: 0 };
+    }
 
-    // Sort queue by requested priority
     const priorityOrder: Record<PendingOperationType, number> = {
       INVENTORY_MOVEMENT: 1,
       CUSTOMER: 2,
@@ -197,46 +197,23 @@ export const triggerAutoSync = async (): Promise<{ success: boolean; syncedCount
     });
 
     for (const op of sortedQueue) {
-      // Skip manually flagged conflicts until resolved by user
       if (op.status === "CONFLICT") continue;
 
       op.status = "SYNCING";
       notifySubscribers();
 
       try {
-        const docRef = doc(firestore, op.collectionName, op.docId);
+        const table = op.collectionName === "movements" ? "stock_movements" : op.collectionName;
 
         if (op.action === "DELETE") {
-          await deleteDoc(docRef);
+          await supabase.from(table).delete().eq("id", op.docId);
         } else {
-          // Check for cloud version if it's an update to detect potential conflicts
-          if (op.action === "UPDATE") {
-            try {
-              const cloudSnap = await getDoc(docRef);
-              if (cloudSnap.exists()) {
-                const cloudData = cloudSnap.data();
-                // Compare timestamps if cloud data was updated after local op was created
-                if (cloudData.updatedAt && new Date(cloudData.updatedAt).getTime() > op.timestamp) {
-                  op.status = "CONFLICT";
-                  op.conflictDetails = {
-                    localData: op.payload,
-                    cloudData: cloudData,
-                    detectedAt: new Date().toISOString().replace("T", " ").substring(0, 19),
-                  };
-                  saveQueueToStorage(pendingQueue);
-                  notifySubscribers();
-                  continue;
-                }
-              }
-            } catch (e) {
-              // Ignore read check error and proceed with setDoc
-            }
-          }
-
-          await setDoc(docRef, op.payload);
+          await supabase.from(table).upsert({
+            id: op.docId,
+            ...(op.payload || {})
+          }, { onConflict: "id" });
         }
 
-        // Successfully synced
         dequeueOperation(op.id);
         syncedCount++;
       } catch (err: any) {
@@ -272,14 +249,14 @@ export const resolveConflict = async (
   if (!op) return;
 
   try {
-    const docRef = doc(firestore, op.collectionName, op.docId);
+    const table = op.collectionName === "movements" ? "stock_movements" : op.collectionName;
 
-    if (choice === "USE_LOCAL") {
-      await setDoc(docRef, op.payload);
-    } else if (choice === "USE_CLOUD") {
-      // Drop local operation and accept cloud version
-    } else if (choice === "MERGE" && mergedData) {
-      await setDoc(docRef, mergedData);
+    if (isSupabaseConfigured) {
+      if (choice === "USE_LOCAL") {
+        await supabase.from(table).upsert(op.payload, { onConflict: "id" });
+      } else if (choice === "MERGE" && mergedData) {
+        await supabase.from(table).upsert(mergedData, { onConflict: "id" });
+      }
     }
 
     dequeueOperation(opId);

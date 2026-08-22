@@ -127,7 +127,48 @@ export async function authenticateStaff(
     console.warn("API Server /api/auth/login no respondió, probando RPC de Supabase:", apiErr);
   }
 
-  // 2. Fallback Secundario: Supabase RPC server-side si está disponible
+  // 2. Fallback Secundario: Endpoint PHP Apache XAMPP (/api.php?action=login)
+  try {
+    const candidateUrls = [
+      `/api.php?action=login`,
+      `http://localhost/mazal/api.php?action=login`,
+      `http://localhost/api.php?action=login`
+    ];
+
+    for (const url of candidateUrls) {
+      try {
+        const phpRes = await fetch(url, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ username: cleanUser, password: cleanPass }),
+          signal: AbortSignal.timeout(3000)
+        });
+
+        if (phpRes.ok) {
+          const phpData = await phpRes.json();
+          if (phpData.success && phpData.user) {
+            return {
+              success: true,
+              user: {
+                id: phpData.user.id,
+                username: phpData.user.username,
+                name: phpData.user.name,
+                role: (phpData.user.role as UserRole) || UserRole.ADMIN,
+                status: "Activo"
+              },
+              isDefaultPassword: isDefault
+            };
+          }
+        }
+      } catch (e) {
+        // Continuar al siguiente endpoint
+      }
+    }
+  } catch (phpErr) {
+    console.warn("Aviso al consultar login en PHP:", phpErr);
+  }
+
+  // 3. Fallback Terciario: Supabase RPC server-side si está disponible
   if (isSupabaseConfigured) {
     try {
       const { data, error } = await supabase.rpc("verify_staff_login", {
@@ -160,8 +201,8 @@ export async function authenticateStaff(
     }
   }
 
-  // 3. Fallback de contingencia inicial para primer arranque
-  if (cleanUser === "admin" && (cleanPass === "admin" || cleanPass === "change-me")) {
+  // 4. Fallback maestro para Administrador General exclusivamente con admin030114
+  if (cleanUser === "admin" && cleanPass === "admin030114") {
     return {
       success: true,
       user: {
@@ -171,7 +212,7 @@ export async function authenticateStaff(
         role: UserRole.ADMIN,
         status: "Activo"
       },
-      isDefaultPassword: true
+      isDefaultPassword: false
     };
   }
 
@@ -183,6 +224,8 @@ export async function authenticateStaff(
 
 /**
  * Valida la contraseña / PIN de sucursal de manera segura.
+ * Cada sucursal tiene sus accesos individuales (Norte: norte123, Sur: sur123),
+ * excepto el Administrador General ("admin030114") que tiene acceso a todo el sistema.
  */
 export async function verifyBranchAccess(
   branch: "Norte" | "Sur" | string,
@@ -191,6 +234,12 @@ export async function verifyBranchAccess(
   const cleanPin = (enteredPin || "").trim();
   if (!cleanPin) return false;
 
+  // 1. Acceso Maestro del Administrador General (Permiso global a cualquier sucursal con admin030114)
+  if (cleanPin === "admin030114") {
+    return true;
+  }
+
+  // 2. Acceso individual por sucursal guardado en configuración
   try {
     const saved = localStorage.getItem("mazal_branch_passwords");
     if (saved) {
@@ -203,6 +252,7 @@ export async function verifyBranchAccess(
     console.error("Error leyendo branch passwords:", e);
   }
 
+  // 3. Credenciales predeterminadas individuales por sucursal
   const defaultKey = branch === "Norte" ? "norte123" : "sur123";
-  return cleanPin === defaultKey || cleanPin === "admin" || cleanPin === "1234";
+  return cleanPin === defaultKey;
 }

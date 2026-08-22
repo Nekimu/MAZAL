@@ -1,5 +1,5 @@
 // Service Worker for Mazal POS - Offline & Cache Engine
-const CACHE_NAME = "mazal-pos-v2";
+const CACHE_NAME = "mazal-pos-v3";
 const ASSETS_TO_CACHE = [
   "./",
   "./index.html",
@@ -10,9 +10,8 @@ const ASSETS_TO_CACHE = [
 self.addEventListener("install", (event) => {
   event.waitUntil(
     caches.open(CACHE_NAME).then((cache) => {
-      console.log("[PWA Service Worker] Pre-caching app shell");
       return Promise.allSettled(
-        ASSETS_TO_CACHE.map((url) => cache.add(url).catch((err) => console.warn("Cache add failed for:", url, err)))
+        ASSETS_TO_CACHE.map((url) => cache.add(url).catch(() => {}))
       );
     }).then(() => self.skipWaiting())
   );
@@ -25,7 +24,6 @@ self.addEventListener("activate", (event) => {
       return Promise.all(
         cacheNames.map((cache) => {
           if (cache !== CACHE_NAME) {
-            console.log("[PWA Service Worker] Removing old cache:", cache);
             return caches.delete(cache);
           }
         })
@@ -34,16 +32,16 @@ self.addEventListener("activate", (event) => {
   );
 });
 
-// 3. Fetch Event - Cache-First for static assets, Network-First for API/Firebase
+// 3. Fetch Event - Cache-First for static assets, Network-First for dynamic endpoints
 self.addEventListener("fetch", (event) => {
   const request = event.request;
 
-  // Skip non-GET, API endpoints, or external Firebase WS requests
+  // Bypass non-GET, API calls or cross-origin external requests
   if (
     request.method !== "GET" || 
     request.url.includes("api.php") || 
-    request.url.includes("firestore.googleapis.com") || 
-    request.url.includes("identitytoolkit")
+    request.url.includes("supabase.co") ||
+    request.url.includes("/api/")
   ) {
     return;
   }
@@ -51,34 +49,35 @@ self.addEventListener("fetch", (event) => {
   event.respondWith(
     caches.match(request).then((cachedResponse) => {
       if (cachedResponse) {
-        // Fetch background update to refresh cache
+        // Refresh cache in background
         fetch(request).then((networkResponse) => {
-          if (networkResponse && networkResponse.status === 200) {
+          if (networkResponse && networkResponse.status === 200 && networkResponse.type === "basic") {
             caches.open(CACHE_NAME).then((cache) => cache.put(request, networkResponse));
           }
-        }).catch(() => {/* Offline - keep cached response */});
+        }).catch(() => {});
 
         return cachedResponse;
       }
 
-      // If not in cache, fetch from network and store in cache
+      // If not in cache, fetch from network
       return fetch(request).then((networkResponse) => {
-        if (!networkResponse || networkResponse.status !== 200 || networkResponse.type !== "basic") {
-          return networkResponse;
+        if (networkResponse && networkResponse.status === 200 && networkResponse.type === "basic") {
+          const responseToCache = networkResponse.clone();
+          caches.open(CACHE_NAME).then((cache) => {
+            cache.put(request, responseToCache);
+          });
         }
-
-        const responseToCache = networkResponse.clone();
-        caches.open(CACHE_NAME).then((cache) => {
-          cache.put(request, responseToCache);
-        });
-
         return networkResponse;
-      }).catch(() => {
-        // Fallback to index.html for navigation requests when offline
+      }).catch(async () => {
+        // Fallback for navigation requests
         if (request.mode === "navigate") {
-          return caches.match("./index.html");
+          const fallback = await caches.match("./index.html");
+          if (fallback) return fallback;
         }
+        return new Response("Offline", { status: 503, statusText: "Service Unavailable Offline" });
       });
+    }).catch(() => {
+      return new Response("Offline", { status: 503, statusText: "Service Unavailable Offline" });
     })
   );
 });

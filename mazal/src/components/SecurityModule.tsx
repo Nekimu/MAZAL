@@ -40,8 +40,7 @@ import { getDatabase, logAction, saveDatabase, subscribeToDb, resetDatabaseToFac
 import { migrateProducts, normalizePrice } from "../utils/migration";
 import { getBranchPasswords, saveBranchPasswords } from "../utils/BranchPasswordService";
 import { authenticateStaff } from "../services/authService";
-import { collection, doc, setDoc, deleteDoc, getDocs, onSnapshot, query, orderBy, addDoc } from "firebase/firestore";
-import { firestore } from "../firebase";
+import { supabase, isSupabaseConfigured, testSupabaseConnection } from "../supabase";
 
 interface SecurityModuleProps {
   currentUser: { name: string; role: UserRole };
@@ -115,73 +114,18 @@ export default function SecurityModule({ currentUser, onChangeRole }: SecurityMo
   const [userSuccessMessage, setUserSuccessMessage] = useState("");
   const [userErrorMessage, setUserErrorMessage] = useState("");
 
-  // Custom Firebase configuration states
-  const [customFirebaseConfig, setCustomFirebaseConfig] = useState(() => {
-    try {
-      const cached = localStorage.getItem("custom_firebase_config");
-      if (cached) {
-        return JSON.parse(cached);
-      }
-    } catch (e) {
-      console.error(e);
-    }
-    return {
-      projectId: "",
-      appId: "",
-      apiKey: "",
-      authDomain: "",
-      firestoreDatabaseId: "",
-      storageBucket: "",
-      messagingSenderId: ""
-    };
-  });
-  const [isFirebaseOverridden, setIsFirebaseOverridden] = useState(() => {
-    return !!localStorage.getItem("custom_firebase_config");
-  });
-  const [firebaseSuccessMsg, setFirebaseSuccessMsg] = useState("");
-  const [firebaseErrorMsg, setFirebaseErrorMsg] = useState("");
+  // Supabase & Local MySQL Database Diagnostics
+  const [supabaseStatus, setSupabaseStatus] = useState<string>("Verificando conexión...");
+  const [supabaseSuccessMsg, setSupabaseSuccessMsg] = useState("");
+  const [supabaseErrorMsg, setSupabaseErrorMsg] = useState("");
 
-  const handleSaveCustomFirebase = (e: React.FormEvent) => {
-    e.preventDefault();
-    setFirebaseSuccessMsg("");
-    setFirebaseErrorMsg("");
-
-    if (!customFirebaseConfig.projectId || !customFirebaseConfig.apiKey || !customFirebaseConfig.appId) {
-      setFirebaseErrorMsg("Por favor, ingresa al menos el ID del Proyecto (Project ID), la Clave de API (API Key) y el ID de la Aplicación (App ID).");
-      return;
-    }
-
-    try {
-      const cleanedConfig = {
-        projectId: customFirebaseConfig.projectId.trim(),
-        appId: customFirebaseConfig.appId.trim(),
-        apiKey: customFirebaseConfig.apiKey.trim(),
-        authDomain: customFirebaseConfig.authDomain?.trim() || `${customFirebaseConfig.projectId.trim()}.firebaseapp.com`,
-        firestoreDatabaseId: customFirebaseConfig.firestoreDatabaseId?.trim() || "(default)",
-        storageBucket: customFirebaseConfig.storageBucket?.trim() || `${customFirebaseConfig.projectId.trim()}.firebasestorage.app`,
-        messagingSenderId: customFirebaseConfig.messagingSenderId?.trim() || ""
-      };
-
-      localStorage.setItem("custom_firebase_config", JSON.stringify(cleanedConfig));
-      setFirebaseSuccessMsg("¡Configuración de base de datos guardada exitosamente! El sistema se reiniciará en 2 segundos para aplicar los cambios.");
-      setIsFirebaseOverridden(true);
-
-      setTimeout(() => {
-        window.location.reload();
-      }, 2000);
-    } catch (err: any) {
-      setFirebaseErrorMsg("Error al guardar la configuración: " + err.message);
-    }
-  };
-
-  const handleResetFirebaseToDefault = () => {
-    localStorage.removeItem("custom_firebase_config");
-    setFirebaseSuccessMsg("Restableciendo a la base de datos predeterminada de Google AI Studio... El sistema se reiniciará en 2 segundos.");
-    setIsFirebaseOverridden(false);
-    setTimeout(() => {
-      window.location.reload();
-    }, 2000);
-  };
+  useEffect(() => {
+    testSupabaseConnection().then((diag) => {
+      setSupabaseStatus(diag.message);
+    }).catch((e) => {
+      setSupabaseStatus("Sin conexión a Supabase: " + String(e));
+    });
+  }, []);
 
   // State for consolidated audit timeline
   const [selectedUserFilter, setSelectedUserFilter] = useState("Todos");
@@ -731,7 +675,7 @@ export default function SecurityModule({ currentUser, onChangeRole }: SecurityMo
       return;
     }
     
-    if (window.confirm(`¿Estás seguro de eliminar el registro "${docId}" de la colección "${colKey}" de forma irreversible en la nube de Firebase?`)) {
+    if (window.confirm(`¿Estás seguro de eliminar el registro "${docId}" de la colección "${colKey}"?`)) {
       try {
         let finalId = docId.trim();
         
@@ -752,8 +696,19 @@ export default function SecurityModule({ currentUser, onChangeRole }: SecurityMo
           }
         }
 
-        const docRef = doc(firestore, colKey, finalId);
-        await deleteDoc(docRef);
+        const currentDb = { ...getDatabase() };
+        if (currentDb[colKey] && Array.isArray(currentDb[colKey])) {
+          currentDb[colKey] = currentDb[colKey].filter((item: any) => item.id !== finalId);
+          saveDatabase(currentDb);
+        }
+
+        if (isSupabaseConfigured) {
+          try {
+            await supabase.from(colKey).delete().eq("id", finalId);
+          } catch (e) {
+            console.warn("Aviso al eliminar en Supabase:", e);
+          }
+        }
 
         setDeleteDocInputs(prev => ({ ...prev, [colKey]: "" }));
 
@@ -761,10 +716,10 @@ export default function SecurityModule({ currentUser, onChangeRole }: SecurityMo
           currentUser.name,
           currentUser.role,
           "Documento Eliminado",
-          `Eliminó individualmente el documento '${finalId}' de la colección '${colKey}' en la nube.`
+          `Eliminó individualmente el documento '${finalId}' de la colección '${colKey}'.`
         );
 
-        alert(`🎉 Registro "${finalId}" eliminado correctamente de la colección "${colKey}" en Firestore.`);
+        alert(`🎉 Registro "${finalId}" eliminado correctamente de la colección "${colKey}".`);
       } catch (error) {
         alert("❌ Error al eliminar: " + (error instanceof Error ? error.message : String(error)));
       }
@@ -772,21 +727,28 @@ export default function SecurityModule({ currentUser, onChangeRole }: SecurityMo
   };
 
   const handleEmptyCollection = async (colKey: string) => {
-    const typedConfirm = window.prompt(`⚠️ ALERTA DE SEGURIDAD EXTREMA ⚠️\n\nEstás a punto de vaciar COMPLETAMENTE la colección "${colKey}" en la nube de Firestore.\nEsto eliminará permanentemente todos los registros asociados.\n\nPara confirmar esta acción, escribe el nombre de la colección: "${colKey}"`);
+    const typedConfirm = window.prompt(`⚠️ ALERTA DE SEGURIDAD EXTREMA ⚠️\n\nEstás a punto de vaciar COMPLETAMENTE la colección "${colKey}".\nEsto eliminará permanentemente todos los registros asociados.\n\nPara confirmar esta acción, escribe el nombre de la colección: "${colKey}"`);
     
     if (typedConfirm === colKey) {
       try {
         setIsResetting(true);
-        const colRef = collection(firestore, colKey);
-        const snapshot = await getDocs(colRef);
-        const deletePromises = snapshot.docs.map((d) => deleteDoc(d.ref));
-        await Promise.all(deletePromises);
+        const currentDb = { ...getDatabase() };
+        currentDb[colKey] = [];
+        saveDatabase(currentDb);
+
+        if (isSupabaseConfigured) {
+          try {
+            await supabase.from(colKey).delete().neq("id", "KEEP_ALL_DELETED");
+          } catch (e) {
+            console.warn("Aviso al vaciar en Supabase:", e);
+          }
+        }
 
         await logAction(
           currentUser.name,
           currentUser.role,
           "Colección Vaciada",
-          `Vació completamente la colección '${colKey}' en la nube de Firestore.`
+          `Vació completamente la colección '${colKey}'.`
         );
 
         alert(`🎉 Colección "${colKey}" vaciada correctamente. Todos sus registros fueron borrados.`);
@@ -803,24 +765,30 @@ export default function SecurityModule({ currentUser, onChangeRole }: SecurityMo
   const handleDeleteAllData = async () => {
     try {
       setIsResetting(true);
+      const currentDb = { ...getDatabase() };
       const collectionsToClear = COLLECTIONS.filter(key => key !== "users");
       for (const key of collectionsToClear) {
-        const colRef = collection(firestore, key);
-        const snapshot = await getDocs(colRef);
-        const deletePromises = snapshot.docs.map((d) => deleteDoc(d.ref));
-        await Promise.all(deletePromises);
+        currentDb[key] = [];
+        if (isSupabaseConfigured) {
+          try {
+            await supabase.from(key).delete().neq("id", "KEEP_ALL_DELETED");
+          } catch (e) {
+            console.warn(`Aviso al purgar ${key} en Supabase:`, e);
+          }
+        }
       }
+      saveDatabase(currentDb);
 
       await logAction(
         currentUser.name,
         currentUser.role,
         "Purgado de Emergencia ERP",
-        "Ejecutó purgado de emergencia en la nube Firebase, eliminando catálogos de productos, ventas, inventarios, gastos, clientes y sesiones, manteniendo únicamente la colección de usuarios/administradores."
+        "Ejecutó purgado de emergencia en la base de datos, eliminando catálogos de productos, ventas, inventarios, gastos, clientes y sesiones, manteniendo únicamente la colección de usuarios/administradores."
       );
 
       setPurgeConfirmStep(0);
       setPurgeInputText("");
-      alert("🎉 El ERP en la nube ha sido restablecido y purgado por completo. Se eliminaron productos, ventas, movimientos, gastos, clientes y sesiones. Se conservaron los usuarios administradores.");
+      alert("🎉 El ERP ha sido restablecido y purgado por completo. Se eliminaron productos, ventas, movimientos, gastos, clientes y sesiones. Se conservaron los usuarios administradores.");
       window.location.reload();
     } catch (error) {
       alert("❌ Error al vaciar el ERP: " + (error instanceof Error ? error.message : String(error)));
@@ -1900,161 +1868,54 @@ export default function SecurityModule({ currentUser, onChangeRole }: SecurityMo
       {activeTab === "database" && (
         <div className="space-y-6 max-w-5xl mx-auto animate-fadeIn">
           
-          {/* SECCIÓN NUEVA: CONEXIÓN DE BASE DE DATOS PERSONALIZADA (TU PROPIO FIRESTORE) */}
+          {/* SECCIÓN: ESTADO DE SUPABASE CLOUD & XAMPP MYSQL */}
           <div className="p-6 bg-white dark:bg-slate-900 border border-gray-150 dark:border-slate-800 rounded-2xl shadow-xs space-y-6">
             <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 border-b border-gray-150 dark:border-slate-800 pb-4">
               <div>
                 <h3 className="font-extrabold text-gray-800 dark:text-slate-100 text-sm flex items-center gap-2">
                   <Database className="h-4.5 w-4.5 text-emerald-600 dark:text-emerald-400" />
-                  Configuración de Sincronización en la Nube
+                  Arquitectura de Base de Datos: Supabase Cloud + XAMPP MySQL Local
                 </h3>
                 <p className="text-xs text-gray-400 mt-1">
-                  Configura las credenciales de respaldo en la nube para sincronizar la información del sistema en tiempo real.
+                  El sistema opera en tiempo real con <strong>Supabase Cloud</strong> y se sincroniza con el servidor local <strong>MySQL / phpMyAdmin</strong> a través de XAMPP (puertos 80, 443, 3306).
                 </p>
               </div>
               <div className="flex items-center gap-2 text-xs font-bold">
-                {isFirebaseOverridden ? (
+                {isSupabaseConfigured ? (
                   <span className="px-2.5 py-1 rounded-full bg-emerald-100 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400 flex items-center gap-1.5 border border-emerald-200 dark:border-emerald-900/50">
                     <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
-                    Sincronización Activa
+                    Supabase Cloud Conectado
                   </span>
                 ) : (
-                  <span className="px-2.5 py-1 rounded-full bg-blue-100 dark:bg-blue-950/40 text-blue-700 dark:text-blue-400 flex items-center gap-1.5 border border-blue-200 dark:border-blue-900/50">
-                    <span className="h-2 w-2 rounded-full bg-blue-500 animate-pulse" />
-                    Servidor Nube Principal
+                  <span className="px-2.5 py-1 rounded-full bg-amber-100 dark:bg-amber-950/40 text-amber-700 dark:text-amber-400 flex items-center gap-1.5 border border-amber-200 dark:border-amber-900/50">
+                    <span className="h-2 w-2 rounded-full bg-amber-500" />
+                    Modo Local MySQL (XAMPP)
                   </span>
                 )}
               </div>
             </div>
 
-            {firebaseSuccessMsg && (
-              <div className="p-4 bg-emerald-50 dark:bg-emerald-950/30 text-emerald-700 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-900/40 rounded-xl text-xs font-semibold">
-                {firebaseSuccessMsg}
-              </div>
-            )}
-
-            {firebaseErrorMsg && (
-              <div className="p-4 bg-rose-50 dark:bg-rose-950/30 text-rose-700 dark:text-rose-400 border border-rose-200 dark:border-rose-900/40 rounded-xl text-xs font-semibold">
-                {firebaseErrorMsg}
-              </div>
-            )}
-
-            <form onSubmit={handleSaveCustomFirebase} className="space-y-4">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="space-y-1.5">
-                  <label className="text-xs font-bold text-gray-600 dark:text-slate-400 block">
-                    ID del Proyecto (Project ID) <span className="text-rose-500">*</span>
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    placeholder="ej. mi-proyecto-firebase-123"
-                    value={customFirebaseConfig.projectId || ""}
-                    onChange={(e) => setCustomFirebaseConfig(prev => ({ ...prev, projectId: e.target.value }))}
-                    className="w-full text-xs p-2.5 border border-gray-200 dark:border-slate-800 rounded-xl focus:outline-none focus:ring-1 focus:ring-emerald-500 bg-transparent text-gray-700 dark:text-slate-300"
-                  />
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="p-4 bg-slate-50 dark:bg-slate-950 rounded-xl border border-gray-150 dark:border-slate-800 space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold text-slate-800 dark:text-slate-200">Supabase Cloud PostgreSQL</span>
+                  <span className="text-[10px] font-mono font-bold text-emerald-600 dark:text-emerald-400">Nube & Realtime</span>
                 </div>
-
-                <div className="space-y-1.5">
-                  <label className="text-xs font-bold text-gray-600 dark:text-slate-400 block">
-                    Clave de API (API Key) <span className="text-rose-500">*</span>
-                  </label>
-                  <input
-                    type="password"
-                    required
-                    placeholder="ej. AIzaSy..."
-                    value={customFirebaseConfig.apiKey || ""}
-                    onChange={(e) => setCustomFirebaseConfig(prev => ({ ...prev, apiKey: e.target.value }))}
-                    className="w-full text-xs p-2.5 border border-gray-200 dark:border-slate-800 rounded-xl focus:outline-none focus:ring-1 focus:ring-emerald-500 bg-transparent text-gray-700 dark:text-slate-300"
-                  />
-                </div>
-
-                <div className="space-y-1.5">
-                  <label className="text-xs font-bold text-gray-600 dark:text-slate-400 block">
-                    ID de la Aplicación (App ID) <span className="text-rose-500">*</span>
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    placeholder="ej. 1:1234567890:web:abcdef..."
-                    value={customFirebaseConfig.appId || ""}
-                    onChange={(e) => setCustomFirebaseConfig(prev => ({ ...prev, appId: e.target.value }))}
-                    className="w-full text-xs p-2.5 border border-gray-200 dark:border-slate-800 rounded-xl focus:outline-none focus:ring-1 focus:ring-emerald-500 bg-transparent text-gray-700 dark:text-slate-300"
-                  />
-                </div>
-
-                <div className="space-y-1.5">
-                  <label className="text-xs font-bold text-gray-600 dark:text-slate-400 block">
-                    Dominio de Autenticación (Auth Domain)
-                  </label>
-                  <input
-                    type="text"
-                    placeholder="ej. mi-proyecto.firebaseapp.com"
-                    value={customFirebaseConfig.authDomain || ""}
-                    onChange={(e) => setCustomFirebaseConfig(prev => ({ ...prev, authDomain: e.target.value }))}
-                    className="w-full text-xs p-2.5 border border-gray-200 dark:border-slate-800 rounded-xl focus:outline-none focus:ring-1 focus:ring-emerald-500 bg-transparent text-gray-700 dark:text-slate-300"
-                  />
-                </div>
-
-                <div className="space-y-1.5">
-                  <label className="text-xs font-bold text-gray-600 dark:text-slate-400 block">
-                    ID de la Base de Datos Firestore (Database ID)
-                  </label>
-                  <input
-                    type="text"
-                    placeholder="ej. (default) o tu base de datos secundaria"
-                    value={customFirebaseConfig.firestoreDatabaseId || ""}
-                    onChange={(e) => setCustomFirebaseConfig(prev => ({ ...prev, firestoreDatabaseId: e.target.value }))}
-                    className="w-full text-xs p-2.5 border border-gray-200 dark:border-slate-800 rounded-xl focus:outline-none focus:ring-1 focus:ring-emerald-500 bg-transparent text-gray-700 dark:text-slate-300"
-                  />
-                </div>
-
-                <div className="space-y-1.5">
-                  <label className="text-xs font-bold text-gray-600 dark:text-slate-400 block">
-                    Bucket de Almacenamiento (Storage Bucket)
-                  </label>
-                  <input
-                    type="text"
-                    placeholder="ej. mi-proyecto.firebasestorage.app"
-                    value={customFirebaseConfig.storageBucket || ""}
-                    onChange={(e) => setCustomFirebaseConfig(prev => ({ ...prev, storageBucket: e.target.value }))}
-                    className="w-full text-xs p-2.5 border border-gray-200 dark:border-slate-800 rounded-xl focus:outline-none focus:ring-1 focus:ring-emerald-500 bg-transparent text-gray-700 dark:text-slate-300"
-                  />
-                </div>
-
-                <div className="space-y-1.5">
-                  <label className="text-xs font-bold text-gray-600 dark:text-slate-400 block">
-                    ID de Envío de Mensajes (Messaging Sender ID)
-                  </label>
-                  <input
-                    type="text"
-                    placeholder="ej. 1234567890"
-                    value={customFirebaseConfig.messagingSenderId || ""}
-                    onChange={(e) => setCustomFirebaseConfig(prev => ({ ...prev, messagingSenderId: e.target.value }))}
-                    className="w-full text-xs p-2.5 border border-gray-200 dark:border-slate-800 rounded-xl focus:outline-none focus:ring-1 focus:ring-emerald-500 bg-transparent text-gray-700 dark:text-slate-300"
-                  />
-                </div>
+                <p className="text-[11px] text-gray-500 dark:text-slate-400 font-mono">
+                  {supabaseStatus}
+                </p>
               </div>
 
-              <div className="flex flex-wrap items-center justify-end gap-3 pt-2">
-                {isFirebaseOverridden && (
-                  <button
-                    type="button"
-                    onClick={handleResetFirebaseToDefault}
-                    className="px-4 py-2.5 rounded-xl border border-gray-200 dark:border-slate-800 hover:bg-gray-50 dark:hover:bg-slate-800/50 text-xs font-bold transition-all text-slate-600 dark:text-slate-300 cursor-pointer"
-                  >
-                    Restablecer a AI Studio (Por Defecto)
-                  </button>
-                )}
-                <button
-                  type="submit"
-                  className="px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer shadow-xs"
-                >
-                  <RefreshCw className="h-4 w-4" />
-                  <span>Guardar Configuración de Sincronización</span>
-                </button>
+              <div className="p-4 bg-slate-50 dark:bg-slate-950 rounded-xl border border-gray-150 dark:border-slate-800 space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold text-slate-800 dark:text-slate-200">XAMPP MySQL / phpMyAdmin</span>
+                  <span className="text-[10px] font-mono font-bold text-teal-600 dark:text-teal-400">Localhost:3306</span>
+                </div>
+                <p className="text-[11px] text-gray-500 dark:text-slate-400">
+                  Bases de datos locales activas: <code className="font-mono bg-slate-200 dark:bg-slate-800 px-1 py-0.5 rounded text-emerald-600 font-bold">mazal_bd</code> (Norte) y <code className="font-mono bg-slate-200 dark:bg-slate-800 px-1 py-0.5 rounded text-teal-600 font-bold">mazal_bd1</code> (Sur).
+                </p>
               </div>
-            </form>
+            </div>
           </div>
 
           {/* SECTION 1: LIVE COLECTIONS STATUS & ACTION PANEL */}

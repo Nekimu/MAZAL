@@ -55,20 +55,18 @@ import BranchGate from "./components/BranchGate";
 import { MazalLogo } from "./components/MazalLogo";
 import { OfflineStatusIndicator } from "./components/OfflineStatusIndicator";
 import { OfflineDashboardWidget } from "./components/OfflineDashboardWidget";
+import { UserRole, Product, Sale, CashSession, PaymentMethod, MovementType, Customer, normalizeUserRole, getRolePermissionsForUser, RolePermissions } from "./types";
 
-import { UserRole, Product, Sale, CashSession, PaymentMethod, MovementType, Customer } from "./types";
 import { 
   getDatabase, 
   saveDatabase, 
   logAction, 
-  loadDatabaseFromFirebase, 
   loadDatabaseFromSupabase,
   syncWithLocalMySQL,
   subscribeToDb, 
   activeBranch, 
   setActiveBranch,
   subscribeNetworkStatus,
-  syncToFirebase,
   syncDatabaseWithSupabase
 } from "./data";
 
@@ -85,18 +83,22 @@ export default function App() {
   });
 
   // Current logged in simulation user - always null initially so that visiting the link directs to the login screen
-  const [currentUser, setCurrentUser] = useState<{ name: string; role: UserRole } | null>(null);
+  const [currentUser, setCurrentUser] = useState<{ name: string; role: any } | null>(null);
   const [onlyPOSMode, setOnlyPOSMode] = useState(false);
 
-  const handleLoginSuccess = (user: { name: string; role: UserRole }, onlyPOS: boolean = false) => {
-    setCurrentUser(user);
+  const handleLoginSuccess = (user: { name: string; role: any }, onlyPOS: boolean = false) => {
+    const normalizedUser = {
+      name: user.name || "Administrador General",
+      role: normalizeUserRole(user.role)
+    };
+    setCurrentUser(normalizedUser);
     setOnlyPOSMode(onlyPOS);
     if (onlyPOS) {
       setActiveTab("pos");
     } else {
       setActiveTab("dashboard");
     }
-    localStorage.setItem("mazal_session", JSON.stringify(user));
+    localStorage.setItem("mazal_session", JSON.stringify(normalizedUser));
   };
 
   const handleLogout = () => {
@@ -155,9 +157,6 @@ export default function App() {
 
       // Sincronizar con Supabase Cloud (Base de datos principal en línea)
       await loadDatabaseFromSupabase(currentBranch);
-
-      // Then optionally sync with Firebase (safeguarded)
-      await loadDatabaseFromFirebase();
       
       setDb(getDatabase());
 
@@ -279,19 +278,16 @@ export default function App() {
   // Check module role restrictions
   const isRoleAllowed = (tabId: string) => {
     if (!currentUser) return false;
-    if (currentUser.role === UserRole.ADMIN) return true;
+    const role = normalizeUserRole(currentUser.role);
+    if (role === UserRole.ADMIN) return true;
+    if (tabId === "dashboard" || tabId === "docs") return true;
     
-    const allowedRoles: Record<string, string[]> = {
-      dashboard: [UserRole.ADMIN, UserRole.MANAGER, UserRole.CASHIER, UserRole.WAREHOUSE, UserRole.PURCHASING, UserRole.ACCOUNTANT],
-      pos: [UserRole.ADMIN, UserRole.MANAGER, UserRole.CASHIER, UserRole.WAREHOUSE, UserRole.PURCHASING, UserRole.ACCOUNTANT],
-      inventory: [UserRole.ADMIN, UserRole.MANAGER, UserRole.WAREHOUSE, UserRole.PURCHASING, UserRole.CASHIER, UserRole.ACCOUNTANT],
-      customers: [UserRole.ADMIN, UserRole.MANAGER, UserRole.CASHIER, UserRole.ACCOUNTANT, UserRole.WAREHOUSE, UserRole.PURCHASING],
-      purchases: [UserRole.ADMIN, UserRole.MANAGER, UserRole.PURCHASING, UserRole.ACCOUNTANT, UserRole.CASHIER, UserRole.WAREHOUSE],
-      reports: [UserRole.ADMIN, UserRole.MANAGER, UserRole.ACCOUNTANT, UserRole.PURCHASING, UserRole.CASHIER, UserRole.WAREHOUSE],
-      receipts: [UserRole.ADMIN, UserRole.MANAGER, UserRole.CASHIER, UserRole.ACCOUNTANT, UserRole.PURCHASING, UserRole.WAREHOUSE],
-      security: [UserRole.ADMIN, UserRole.MANAGER],
-    };
-    return allowedRoles[tabId]?.includes(currentUser.role) ?? true;
+    const perms = getRolePermissionsForUser(role);
+    const permKey = tabId as keyof RolePermissions;
+    if (perms && perms[permKey] !== undefined) {
+      return perms[permKey];
+    }
+    return true;
   };
 
   const handleTabClick = (tabId: string) => {

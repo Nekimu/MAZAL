@@ -9,8 +9,10 @@ import {
   Clock,
   Layers,
   ArrowUpRight,
-  ShieldCheck,
-  Server
+  ChevronDown,
+  ChevronUp,
+  Server,
+  Zap
 } from "lucide-react";
 import { getOfflineState, subscribeOfflineSyncState, triggerAutoSync } from "../services/offlineSync";
 import { OfflineSyncState } from "../types";
@@ -20,6 +22,7 @@ export const OfflineDashboardWidget: React.FC = () => {
   const [syncState, setSyncState] = useState<OfflineSyncState>(getOfflineState());
   const [isSyncing, setIsSyncing] = useState(false);
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isExpanded, setIsExpanded] = useState(false);
 
   useEffect(() => {
     const unsub = subscribeOfflineSyncState((newState) => {
@@ -28,7 +31,8 @@ export const OfflineDashboardWidget: React.FC = () => {
     return () => unsub();
   }, []);
 
-  const handleSyncNow = async () => {
+  const handleSyncNow = async (e: React.MouseEvent) => {
+    e.stopPropagation();
     setIsSyncing(true);
     try {
       await triggerAutoSync();
@@ -39,19 +43,16 @@ export const OfflineDashboardWidget: React.FC = () => {
 
   return (
     <>
-      <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-5 shadow-xs relative overflow-hidden transition-all hover:shadow-md">
-        {/* Background Decorative Accent */}
-        <div
-          className={`absolute -right-6 -bottom-6 w-28 h-28 rounded-full opacity-10 pointer-events-none ${
-            syncState.isOnline ? "bg-emerald-500" : "bg-rose-500"
-          }`}
-        />
-
-        {/* Header */}
-        <div className="flex items-center justify-between mb-4">
-          <div className="flex items-center gap-2.5">
+      <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/80 dark:border-slate-800 shadow-xs transition-all duration-300 overflow-hidden">
+        
+        {/* COMPACT COLLAPSIBLE TAB HEADER (Always Visible as a sleek bar) */}
+        <div 
+          onClick={() => setIsExpanded(!isExpanded)}
+          className="flex items-center justify-between p-3.5 sm:px-4 cursor-pointer hover:bg-slate-50/80 dark:hover:bg-slate-850/50 transition-colors select-none"
+        >
+          <div className="flex items-center gap-2.5 min-w-0">
             <div
-              className={`p-2 rounded-xl ${
+              className={`p-1.5 rounded-lg shrink-0 ${
                 syncState.isOnline
                   ? "bg-emerald-50 text-emerald-600 dark:bg-emerald-950/50 dark:text-emerald-400"
                   : "bg-rose-50 text-rose-600 dark:bg-rose-950/50 dark:text-rose-400"
@@ -59,84 +60,126 @@ export const OfflineDashboardWidget: React.FC = () => {
             >
               {syncState.isOnline ? <Wifi className="h-4 w-4" /> : <WifiOff className="h-4 w-4" />}
             </div>
-            <div>
-              <h3 className="text-xs font-black uppercase tracking-wider text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
-                Estado del Motor Offline First
-                <span className="bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300 text-[10px] px-1.5 py-0.2 rounded-full font-mono">
-                  ACTIVO
+
+            <div className="flex items-center gap-2 truncate">
+              <span className="text-xs font-black text-slate-800 dark:text-slate-200 tracking-tight flex items-center gap-1.5">
+                <span className="hidden sm:inline">Motor Híbrido:</span> Supabase & Local MySQL
+              </span>
+              
+              <span className="inline-flex items-center gap-1 bg-emerald-100 dark:bg-emerald-950/70 text-emerald-800 dark:text-emerald-300 text-[10px] font-black px-2 py-0.5 rounded-full uppercase tracking-wider">
+                <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                {syncState.isOnline ? "En Línea" : "Offline"}
+              </span>
+
+              {syncState.pendingCount > 0 && (
+                <span className="bg-amber-100 dark:bg-amber-950/80 text-amber-800 dark:text-amber-300 text-[10px] font-bold px-2 py-0.5 rounded-full">
+                  {syncState.pendingCount} pendientes
                 </span>
-              </h3>
-              <p className="text-[11px] text-slate-400">Garantía de ventas e inventario sin internet</p>
+              )}
             </div>
           </div>
 
-          <button
-            onClick={() => setIsModalOpen(true)}
-            className="text-xs font-bold text-emerald-600 hover:text-emerald-700 dark:text-emerald-400 flex items-center gap-1 cursor-pointer hover:underline"
-          >
-            Ver Detalles <ArrowUpRight className="h-3.5 w-3.5" />
-          </button>
-        </div>
+          <div className="flex items-center gap-2 shrink-0">
+            <button
+              type="button"
+              onClick={handleSyncNow}
+              disabled={isSyncing || syncState.isSyncing}
+              className="hidden sm:flex items-center gap-1 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-750 text-slate-700 dark:text-slate-200 text-[11px] font-bold px-2.5 py-1 rounded-lg transition-colors cursor-pointer disabled:opacity-50"
+              title="Sincronizar ahora con Supabase y base local"
+            >
+              <RefreshCw className={`h-3 w-3 text-emerald-600 ${isSyncing || syncState.isSyncing ? "animate-spin" : ""}`} />
+              <span>Sincronizar</span>
+            </button>
 
-        {/* Grid Stats */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
-          <div className="p-3 bg-slate-50 dark:bg-slate-800/50 rounded-xl border border-slate-100 dark:border-slate-800">
-            <div className="text-[10px] text-slate-400 font-bold mb-1 flex items-center justify-between">
-              Estado de Internet
-              {syncState.isOnline ? <CheckCircle2 className="h-3 w-3 text-emerald-500" /> : <WifiOff className="h-3 w-3 text-rose-500" />}
-            </div>
-            <div className={`font-black text-sm ${syncState.isOnline ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600 dark:text-rose-400"}`}>
-              {syncState.isOnline ? "🟢 En línea" : "🔴 Sin Conexión"}
-            </div>
-          </div>
-
-          <div className="p-3 bg-slate-50 dark:bg-slate-800/50 rounded-xl border border-slate-100 dark:border-slate-800">
-            <div className="text-[10px] text-slate-400 font-bold mb-1 flex items-center justify-between">
-              Operaciones Pendientes
-              <Layers className="h-3 w-3 text-amber-500" />
-            </div>
-            <div className="font-black text-sm text-amber-600 dark:text-amber-400 font-mono">
-              {syncState.pendingCount} en cola
-            </div>
-          </div>
-
-          <div className="p-3 bg-slate-50 dark:bg-slate-800/50 rounded-xl border border-slate-100 dark:border-slate-800">
-            <div className="text-[10px] text-slate-400 font-bold mb-1 flex items-center justify-between">
-              Última Sincronización
-              <Clock className="h-3 w-3 text-blue-500" />
-            </div>
-            <div className="font-black text-xs text-slate-800 dark:text-slate-200 truncate">
-              {syncState.lastSyncTime ? syncState.lastSyncTime.split(" ")[1] || syncState.lastSyncTime : "Hace un momento"}
-            </div>
-          </div>
-
-          <div className="p-3 bg-slate-50 dark:bg-slate-800/50 rounded-xl border border-slate-100 dark:border-slate-800">
-            <div className="text-[10px] text-slate-400 font-bold mb-1 flex items-center justify-between">
-              Base Local
-              <Database className="h-3 w-3 text-purple-500" />
-            </div>
-            <div className="font-black text-xs text-emerald-600 dark:text-emerald-400">
-              Cifrada & Lista
-            </div>
+            <button
+              type="button"
+              className="p-1 rounded-lg text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition-colors cursor-pointer flex items-center gap-1 text-xs font-semibold"
+            >
+              <span className="text-[11px] hidden md:inline">{isExpanded ? "Ocultar" : "Desplegar"}</span>
+              {isExpanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+            </button>
           </div>
         </div>
 
-        {/* Footer Actions */}
-        <div className="mt-4 pt-3 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between text-xs">
-          <div className="flex items-center gap-1.5 text-slate-500 text-[11px]">
-            <Cloud className="h-3.5 w-3.5 text-emerald-500" />
-            <span>Base Nube: Firebase Firestore Enterprise</span>
-          </div>
+        {/* EXPANDABLE ACCORDION BODY (Hidden by default to save Dashboard space) */}
+        {isExpanded && (
+          <div className="p-4 pt-1 border-t border-slate-100 dark:border-slate-800/80 bg-slate-50/40 dark:bg-slate-950/20 animate-fadeIn">
+            
+            {/* Grid Stats */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 text-xs pt-2">
+              <div className="p-3 bg-white dark:bg-slate-850 rounded-xl border border-slate-200/70 dark:border-slate-800 shadow-2xs">
+                <div className="text-[10px] text-slate-400 font-bold mb-1 flex items-center justify-between">
+                  Estado Conexión
+                  {syncState.isOnline ? <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" /> : <WifiOff className="h-3.5 w-3.5 text-rose-500" />}
+                </div>
+                <div className={`font-black text-xs sm:text-sm ${syncState.isOnline ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600 dark:text-rose-400"}`}>
+                  {syncState.isOnline ? "🟢 En línea" : "🔴 Sin Conexión"}
+                </div>
+              </div>
 
-          <button
-            onClick={handleSyncNow}
-            disabled={isSyncing || syncState.isSyncing}
-            className="flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-black px-3 py-1.5 rounded-lg shadow-xs transition-all cursor-pointer disabled:opacity-50"
-          >
-            <RefreshCw className={`h-3.5 w-3.5 ${isSyncing || syncState.isSyncing ? "animate-spin" : ""}`} />
-            <span>{isSyncing || syncState.isSyncing ? "Sincronizando..." : "Sincronizar Ahora"}</span>
-          </button>
-        </div>
+              <div className="p-3 bg-white dark:bg-slate-850 rounded-xl border border-slate-200/70 dark:border-slate-800 shadow-2xs">
+                <div className="text-[10px] text-slate-400 font-bold mb-1 flex items-center justify-between">
+                  Cola de Operaciones
+                  <Layers className="h-3.5 w-3.5 text-amber-500" />
+                </div>
+                <div className="font-black text-xs sm:text-sm text-amber-600 dark:text-amber-400 font-mono">
+                  {syncState.pendingCount} pendientes
+                </div>
+              </div>
+
+              <div className="p-3 bg-white dark:bg-slate-850 rounded-xl border border-slate-200/70 dark:border-slate-800 shadow-2xs">
+                <div className="text-[10px] text-slate-400 font-bold mb-1 flex items-center justify-between">
+                  Última Sincronización
+                  <Clock className="h-3.5 w-3.5 text-blue-500" />
+                </div>
+                <div className="font-bold text-[11px] text-slate-700 dark:text-slate-300 truncate">
+                  {syncState.lastSyncTime ? syncState.lastSyncTime.split(" ")[1] || syncState.lastSyncTime : "Hace un momento"}
+                </div>
+              </div>
+
+              <div className="p-3 bg-white dark:bg-slate-850 rounded-xl border border-slate-200/70 dark:border-slate-800 shadow-2xs">
+                <div className="text-[10px] text-slate-400 font-bold mb-1 flex items-center justify-between">
+                  Almacenamiento Local
+                  <Database className="h-3.5 w-3.5 text-purple-500" />
+                </div>
+                <div className="font-black text-[11px] text-emerald-600 dark:text-emerald-400">
+                  MySQL XAMPP Activo
+                </div>
+              </div>
+            </div>
+
+            {/* Footer Details & Modal trigger */}
+            <div className="mt-3 pt-2.5 border-t border-slate-200/60 dark:border-slate-800 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 text-xs">
+              <div className="flex items-center gap-2 text-slate-500 dark:text-slate-400 text-[11px]">
+                <Cloud className="h-3.5 w-3.5 text-emerald-500 shrink-0" />
+                <span>Arquitectura Híbrida: Supabase Cloud PostgreSQL + Local MySQL</span>
+              </div>
+
+              <div className="flex items-center gap-3 w-full sm:w-auto justify-end">
+                <button
+                  type="button"
+                  onClick={() => setIsModalOpen(true)}
+                  className="text-xs font-bold text-emerald-600 hover:text-emerald-700 dark:text-emerald-400 flex items-center gap-1 cursor-pointer hover:underline"
+                >
+                  <span>Ver Panel y Registros</span>
+                  <ArrowUpRight className="h-3.5 w-3.5" />
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleSyncNow}
+                  disabled={isSyncing || syncState.isSyncing}
+                  className="flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold px-3 py-1.5 rounded-lg shadow-xs transition-all cursor-pointer disabled:opacity-50"
+                >
+                  <RefreshCw className={`h-3.5 w-3.5 ${isSyncing || syncState.isSyncing ? "animate-spin" : ""}`} />
+                  <span>{isSyncing || syncState.isSyncing ? "Sincronizando..." : "Sincronizar"}</span>
+                </button>
+              </div>
+            </div>
+
+          </div>
+        )}
+
       </div>
 
       <OfflineSyncPanelModal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} />

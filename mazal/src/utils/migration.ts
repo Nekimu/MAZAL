@@ -3,10 +3,9 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { doc, setDoc, getDocs, collection, query, where } from "firebase/firestore";
-import { firestore } from "../firebase";
 import { Product, ProductUnit } from "../types";
 import { getDatabase, saveDatabase } from "../data";
+import { supabase, isSupabaseConfigured } from "../supabase";
 
 export interface MigrationResult {
   success: boolean;
@@ -23,7 +22,6 @@ export interface MigrationResult {
 export function normalizePrice(rawVal: any): number {
   if (rawVal === undefined || rawVal === null) return 0;
   const strVal = String(rawVal).trim();
-  // Check if string contains a decimal point that is already a valid float separator
   const hasDecimalDot = strVal.includes(".") && !strVal.endsWith(".");
   let val = parseFloat(strVal.replace(/[^\d.]/g, "")) || 0;
 
@@ -38,10 +36,9 @@ export function normalizePrice(rawVal: any): number {
 }
 
 /**
- * Migrates a list of products (typically parsed from a zapatos/productos.json) into Firestore.
- * Performs barcode duplication checks to prevent inserting duplicates.
+ * Migrates a list of products into local database and Supabase Cloud.
  */
-export async function migrateProductsToFirestore(rawProducts: any[]): Promise<MigrationResult> {
+export async function migrateProductsToDatabase(rawProducts: any[]): Promise<MigrationResult> {
   const result: MigrationResult = {
     success: true,
     totalProcessed: rawProducts.length,
@@ -52,53 +49,39 @@ export async function migrateProductsToFirestore(rawProducts: any[]): Promise<Mi
   };
 
   try {
-    // 1. Fetch existing barcodes from Firestore to have a fast lookup map
-    const existingBarcodes = new Set<string>();
-    const productsColRef = collection(firestore, "products");
-    const snapshot = await getDocs(productsColRef);
-    snapshot.forEach((doc) => {
-      const data = doc.data() as Product;
-      if (data.barcode) {
-        existingBarcodes.add(data.barcode.trim());
-      }
-    });
+    const db = getDatabase();
+    const existingProducts: Product[] = db.products || [];
+    const existingBarcodes = new Set<string>(existingProducts.map(p => (p.barcode || p.code || "").trim()).filter(Boolean));
+    const newProductsList: Product[] = [...existingProducts];
 
-    // 2. Process each raw product and upload
     for (const raw of rawProducts) {
       try {
         const rawBarcode = raw.codigoBarras !== undefined ? raw.codigoBarras : (raw.barcode !== undefined ? raw.barcode : (raw.codigo !== undefined ? raw.codigo : (raw.code !== undefined ? raw.code : "")));
         const barcode = rawBarcode !== "" ? String(rawBarcode).trim() : "";
         
-        // Skip products without a barcode or with empty barcode if we can't identify them
         if (!barcode) {
           result.errors.push(`Producto omitido por falta de código de barras/código: "${raw.nombre || raw.name || 'Sin nombre'}"`);
           result.skippedCount++;
           continue;
         }
 
-        // Validate duplicates by barcode
         if (existingBarcodes.has(barcode)) {
           result.skippedBarcodes.push(barcode);
           result.skippedCount++;
           continue;
         }
 
-        // Generate clean ID matching firestore.rules valid ID regex: ^[a-zA-Z0-9_\-]+$
         const safeId = barcode.replace(/[^a-zA-Z0-9_\-]/g, "_");
         const id = raw.id || `PROD_${safeId || Math.random().toString(36).substring(2, 9).toUpperCase()}`;
-
-        // Name
         const name = String(raw.nombre || raw.name || "Producto sin nombre");
         const lowerName = name.toLowerCase();
 
-        // Directly use custom classification from JSON if already provided
         const departamento = String(raw.departamento || raw.department || "Sin clasificar").trim();
         const rawCategoryValue = raw.categoria || raw.category || raw.linea || raw.sublinea || raw.subCategoria || raw.subcategoria || "";
         const categoria = rawCategoryValue ? String(rawCategoryValue).trim() : "Sin clasificar";
         const rawSubCategoryValue = raw.subcategoria || raw.subcategory || "";
         const subcategoria = rawSubCategoryValue ? String(rawSubCategoryValue).trim() : "Sin clasificar";
 
-        // Auto Unit and Type of Sale Detection
         let tipoVenta = "pieza";
         let unit = ProductUnit.PIECE;
         let permiteVentaFraccionada = false;
@@ -109,11 +92,11 @@ export async function migrateProductsToFirestore(rawProducts: any[]): Promise<Mi
 
         if (rawUnitStr.includes("kg") || rawUnitStr.includes("kilo") || rawUnitStr.includes("gramo") || rawUnitStr.includes("g") || lowerName.includes(" kg") || lowerName.includes(" kilo")) {
           tipoVenta = "peso";
-          unit = ProductUnit.KILO; // Kg is the base unit in the DB!
+          unit = ProductUnit.KILO;
           permiteVentaFraccionada = true;
         } else if (rawUnitStr.includes("l") || rawUnitStr.includes("litro") || rawUnitStr.includes("ml") || rawUnitStr.includes("mililitro") || lowerName.includes(" lt") || lowerName.includes(" litro") || lowerName.includes(" ml")) {
           tipoVenta = "volumen";
-          unit = ProductUnit.LITER; // Liter is the base unit in the DB!
+          unit = ProductUnit.LITER;
           permiteVentaFraccionada = true;
         } else if (rawUnitStr.includes("paq") || rawUnitStr.includes("paquete")) {
           tipoVenta = "pieza";
@@ -121,7 +104,6 @@ export async function migrateProductsToFirestore(rawProducts: any[]): Promise<Mi
           permiteVentaFraccionada = false;
         }
 
-        // Parse Stock fields
         const rawStock = raw.stock !== undefined ? raw.stock : (raw.cantidad !== undefined ? raw.cantidad : 0);
         let stock = typeof rawStock === "number" ? rawStock : (parseFloat(rawStock) || 0);
         let stockReservado = typeof raw.stockReservado === "number" ? raw.stockReservado : 0;
@@ -129,7 +111,6 @@ export async function migrateProductsToFirestore(rawProducts: any[]): Promise<Mi
         let stockMaximo = typeof raw.stockMaximo === "number" ? raw.stockMaximo : (typeof raw.stockMax === "number" ? raw.stockMax : 100);
 
         if (isGramInput || isMlInput) {
-          // If imported raw unit was grams/ml, convert raw stock to Kg/L
           stock = stock / 1000;
           stockReservado = stockReservado / 1000;
           stockMinimo = stockMinimo / 1000;
@@ -138,7 +119,6 @@ export async function migrateProductsToFirestore(rawProducts: any[]): Promise<Mi
         const stockDisponible = stock - stockReservado;
         const puntoReorden = typeof raw.puntoReorden === "number" ? raw.puntoReorden : (stockMinimo + 2);
 
-        // Parse Price fields using normalizePrice helper
         const rawCostoVal = raw.costo !== undefined ? raw.costo : (raw.cost !== undefined ? raw.cost : (raw.precioUtilidad !== undefined ? raw.precioUtilidad : 0));
         let costo = normalizePrice(rawCostoVal);
         let ultimoCosto = raw.ultimoCosto !== undefined ? normalizePrice(raw.ultimoCosto) : costo;
@@ -151,7 +131,6 @@ export async function migrateProductsToFirestore(rawProducts: any[]): Promise<Mi
         let precioEspecial = raw.precioEspecial !== undefined ? normalizePrice(raw.precioEspecial) : (raw.priceSpecial !== undefined ? normalizePrice(raw.priceSpecial) : precioMenudeo);
 
         if (isGramInput || isMlInput) {
-          // If imported raw pricing was per gram/ml, convert to price per Kg/L
           costo = costo * 1000;
           ultimoCosto = ultimoCosto * 1000;
           costoPromedio = costoPromedio * 1000;
@@ -162,40 +141,9 @@ export async function migrateProductsToFirestore(rawProducts: any[]): Promise<Mi
         }
 
         const utilidad = precioMenudeo > 0 ? ((precioMenudeo - costo) / precioMenudeo) * 100 : 0;
-
-        // Taxes
         const aplicaIVA = raw.aplicaIVA !== undefined ? !!raw.aplicaIVA : true;
         const porcentajeIVA = raw.porcentajeIVA !== undefined ? Number(raw.porcentajeIVA) : 16;
 
-        // Supplier
-        const proveedorId = raw.proveedorId || raw.supplierId || "PROV_DIRECTO";
-        const proveedorNombre = raw.proveedorNombre || "Proveedor Directo";
-
-        // Location
-        const sucursal = raw.sucursal || "Sucursal Principal";
-        const almacen = raw.almacen || "Almacén General";
-        const pasillo = raw.pasillo || "Pasillo A";
-        const estante = raw.estante || "Estante 1";
-        const ubicacion = raw.location || raw.ubicacion || "Almacén";
-
-        // Caducidad
-        const manejaCaducidad = raw.manejaCaducidad !== undefined ? !!raw.manejaCaducidad : false;
-        const lote = raw.lote || "L-001";
-        const fechaCaducidad = raw.fechaCaducidad || raw.expiryDate || "";
-
-        // Additional Info
-        const descripcion = raw.descripcion || raw.name || "Sin descripción";
-        const imagen = raw.imagen || raw.imageUrl || "https://images.unsplash.com/photo-1542291026-7eec264c27ff?auto=format&fit=crop&q=80&w=400";
-        const observaciones = raw.observaciones || "";
-
-        // Stats
-        const totalVentas = Number(raw.totalVentas || 0);
-        const totalCompras = Number(raw.totalCompras || 0);
-        const ultimaVenta = raw.ultimaVenta || "";
-        const ultimaCompra = raw.ultimaCompra || "";
-        const rotacion = Number(raw.rotacion || 0);
-
-        // Construct standard product object combining old and new properties
         const product: Product = {
           id,
           code: String(raw.codigo || raw.code || barcode),
@@ -214,19 +162,13 @@ export async function migrateProductsToFirestore(rawProducts: any[]): Promise<Mi
           stock,
           stockMin: stockMinimo,
           stockMax: stockMaximo,
-          location: ubicacion,
-          expiryDate: fechaCaducidad || undefined,
-          isCompound: !!raw.isCompound,
-          components: Array.isArray(raw.components) ? raw.components : undefined,
-          imageUrl: imagen,
-          supplierId: proveedorId,
-
-          // New Fields
+          location: raw.location || raw.ubicacion || "Almacén",
+          imageUrl: raw.imagen || raw.imageUrl || "https://images.unsplash.com/photo-1542291026-7eec264c27ff?auto=format&fit=crop&q=80&w=400",
+          supplierId: raw.proveedorId || raw.supplierId || "PROV_DIRECTO",
           codigo: String(raw.codigo || raw.code || barcode),
           codigoBarras: barcode,
           codigoInterno: String(raw.codigoInterno || raw.codigo || raw.code || barcode),
           activo: raw.activo !== undefined ? !!raw.activo : true,
-
           departamento,
           categoria,
           subcategoria,
@@ -235,7 +177,6 @@ export async function migrateProductsToFirestore(rawProducts: any[]): Promise<Mi
           marca: raw.brand || raw.marca || "Genérico",
           tipoProducto: raw.tipoProducto || "Estándar",
           presentacion: raw.presentacion || "Individual",
-
           unidadVenta: String(unit),
           unidadCompra: String(unit),
           permiteVentaFraccionada,
@@ -244,7 +185,6 @@ export async function migrateProductsToFirestore(rawProducts: any[]): Promise<Mi
           stockMinimo,
           stockMaximo,
           puntoReorden,
-
           costo,
           ultimoCosto,
           costoPromedio,
@@ -253,44 +193,57 @@ export async function migrateProductsToFirestore(rawProducts: any[]): Promise<Mi
           precioMayoreo,
           precioEspecial,
           utilidad,
-
           aplicaIVA,
           porcentajeIVA,
-
-          proveedorId,
-          proveedorNombre,
-
-          sucursal,
-          almacen,
-          pasillo,
-          estante,
-          ubicacion,
-
-          manejaCaducidad,
-          lote,
-          fechaCaducidad,
-
-          descripcion,
-          imagen,
-          observaciones,
-
-          totalVentas,
-          totalCompras,
-          ultimaVenta,
-          ultimaCompra,
-          rotacion,
-
+          proveedorId: raw.proveedorId || raw.supplierId || "PROV_DIRECTO",
+          proveedorNombre: raw.proveedorNombre || "Proveedor Directo",
+          sucursal: raw.sucursal || "Norte",
+          almacen: raw.almacen || "Almacén General",
+          pasillo: raw.pasillo || "Pasillo A",
+          estante: raw.estante || "Estante 1",
+          ubicacion: raw.location || raw.ubicacion || "Almacén",
+          manejaCaducidad: raw.manejaCaducidad !== undefined ? !!raw.manejaCaducidad : false,
+          lote: raw.lote || "L-001",
+          fechaCaducidad: raw.fechaCaducidad || raw.expiryDate || "",
+          descripcion: raw.descripcion || raw.name || "Sin descripción",
+          imagen: raw.imagen || raw.imageUrl || "https://images.unsplash.com/photo-1542291026-7eec264c27ff?auto=format&fit=crop&q=80&w=400",
+          observaciones: raw.observaciones || "",
+          totalVentas: Number(raw.totalVentas || 0),
+          totalCompras: Number(raw.totalCompras || 0),
+          ultimaVenta: raw.ultimaVenta || "",
+          ultimaCompra: raw.ultimaCompra || "",
+          rotacion: Number(raw.rotacion || 0),
           tipoVenta,
           unidad: String(unit)
         };
 
-        // Write directly to Firestore
-        const docRef = doc(firestore, "products", id);
-        await setDoc(docRef, product);
-
-        // Add to our lookup set in case the upload list contains internal duplicates
+        newProductsList.push(product);
         existingBarcodes.add(barcode);
         result.migratedCount++;
+
+        // Save to Supabase Cloud if configured
+        if (isSupabaseConfigured) {
+          supabase.from("products").upsert({
+            id: product.id,
+            code: product.code,
+            barcode: product.barcode,
+            sku: product.sku,
+            name: product.name,
+            brand: product.brand,
+            category: product.category,
+            unit: product.unit,
+            cost: product.cost,
+            price_min: product.priceMin,
+            price_med: product.priceMed,
+            price_max: product.priceMax,
+            price_special: product.priceSpecial,
+            stock: product.stock,
+            stock_min: product.stockMin,
+            stock_max: product.stockMax,
+            sucursal: product.sucursal,
+            raw_data: product
+          }, { onConflict: "id" }).catch(e => console.warn("Supabase upsert warning:", e));
+        }
       } catch (err) {
         const errMsg = err instanceof Error ? err.message : String(err);
         result.errors.push(`Error migrando producto "${raw.name || 'Sin nombre'}": ${errMsg}`);
@@ -298,12 +251,8 @@ export async function migrateProductsToFirestore(rawProducts: any[]): Promise<Mi
       }
     }
 
-    // Trigger local memory database update if active
-    const db = getDatabase();
-    if (db) {
-      saveDatabase(db);
-    }
-
+    db.products = newProductsList;
+    saveDatabase(db);
   } catch (error) {
     result.success = false;
     const errMsg = error instanceof Error ? error.message : String(error);
@@ -313,5 +262,5 @@ export async function migrateProductsToFirestore(rawProducts: any[]): Promise<Mi
   return result;
 }
 
-// Alias for backwards-compatibility or GUI usage
-export const migrateProducts = migrateProductsToFirestore;
+export const migrateProducts = migrateProductsToDatabase;
+export const migrateProductsToFirestore = migrateProductsToDatabase;

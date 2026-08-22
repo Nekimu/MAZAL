@@ -20,8 +20,8 @@ import {
   ShieldCheck,
   ShieldAlert
 } from "lucide-react";
-import { Customer, CustomerRole, formatPrice } from "../types";
-import { getDatabase, saveDatabase, logAction, subscribeToDb } from "../data";
+import { Customer, CustomerRole, formatPrice, normalizeUserRole, UserRole } from "../types";
+import { getDatabase, saveDatabase, logAction, subscribeToDb, callLocalApi } from "../data";
 
 interface CustomersModuleProps {
   currentUser: { name: string; role: string };
@@ -163,6 +163,13 @@ export default function CustomersModule({ currentUser }: CustomersModuleProps) {
     database.customers = (database.customers || []).filter((c: Customer) => c.id !== cust.id);
     saveDatabase(database);
     setDb(database);
+
+    // Sincronizar eliminación permanente en MySQL local
+    callLocalApi(`action=delete_customer`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: cust.id, name: cust.name })
+    }).catch(() => {});
 
     if (selectedCustomer?.id === cust.id) {
       setSelectedCustomer(null);

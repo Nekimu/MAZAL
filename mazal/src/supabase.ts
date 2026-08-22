@@ -32,7 +32,9 @@ export const isSupabaseConfigured = Boolean(
   SUPABASE_URL &&
   SUPABASE_ANON_KEY &&
   SUPABASE_URL.includes("supabase.co") &&
-  !SUPABASE_URL.includes("placeholder-project")
+  !SUPABASE_URL.includes("placeholder-project") &&
+  !SUPABASE_URL.includes("your-project") &&
+  !SUPABASE_ANON_KEY.includes("your-anon-key")
 );
 
 // Create the Supabase client instance with realtime enabled (or safe placeholder if not configured)

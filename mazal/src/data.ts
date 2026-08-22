@@ -36,8 +36,6 @@ import {
   REAL_MAZAL_CUSTOMERS,
   REAL_MAZAL_USERS
 } from "./data/realCatalog";
-import { doc, setDoc, deleteDoc, getDocs, collection, onSnapshot } from "firebase/firestore";
-import { firestore, auth, ensureAuth } from "./firebase";
 import { enqueueOperation, triggerAutoSync } from "./services/offlineSync";
 import { 
   loadAllFromSupabase, 
@@ -59,43 +57,22 @@ export enum OperationType {
   WRITE = 'write',
 }
 
-export interface FirestoreErrorInfo {
+export interface DbErrorInfo {
   error: string;
   operationType: OperationType;
   path: string | null;
-  authInfo: {
-    userId?: string | null;
-    email?: string | null;
-    emailVerified?: boolean | null;
-    isAnonymous?: boolean | null;
-    tenantId?: string | null;
-    providerInfo?: {
-      providerId?: string | null;
-      email?: string | null;
-    }[];
-  }
 }
 
-export function handleFirestoreError(error: unknown, operationType: OperationType, path: string | null) {
-  const errInfo: FirestoreErrorInfo = {
+export function handleDbError(error: unknown, operationType: OperationType, path: string | null) {
+  const errInfo: DbErrorInfo = {
     error: error instanceof Error ? error.message : String(error),
-    authInfo: {
-      userId: auth.currentUser?.uid,
-      email: auth.currentUser?.email,
-      emailVerified: auth.currentUser?.emailVerified,
-      isAnonymous: auth.currentUser?.isAnonymous,
-      tenantId: auth.currentUser?.tenantId,
-      providerInfo: auth.currentUser?.providerData?.map(provider => ({
-        providerId: provider.providerId,
-        email: provider.email,
-      })) || []
-    },
     operationType,
     path
   };
-  console.error('Firestore Error: ', JSON.stringify(errInfo));
-  throw new Error(JSON.stringify(errInfo));
+  console.error('Database Error: ', JSON.stringify(errInfo));
 }
+
+export const handleFirestoreError = handleDbError;
 
 // Helper to generate IDs
 const generateId = () => Math.random().toString(36).substring(2, 9).toUpperCase();
@@ -473,62 +450,40 @@ export const notifySubscribers = () => {
   });
 };
 
-export const syncToFirebase = async (newDb: any) => {
-  if (typeof navigator !== "undefined" && !navigator.onLine) {
-    pendingOfflineSync = true;
-    notifyNetworkSubscribers();
-    return;
+// Helper for local API calls with fallback endpoints
+export const callLocalApi = async (queryString: string, options?: RequestInit): Promise<Response> => {
+  const candidateUrls = [
+    `http://localhost/mazal/api.php?${queryString}`,
+    `http://localhost/api.php?${queryString}`,
+    `http://localhost/MAZAL_POS/api.php?${queryString}`,
+    `/api.php?${queryString}`
+  ];
+
+  for (const url of candidateUrls) {
+    try {
+      const res = await fetch(url, {
+        ...options,
+        signal: options?.signal || AbortSignal.timeout(4000)
+      });
+      if (res.ok) return res;
+    } catch (e) {
+      // Continue to next endpoint candidate
+    }
   }
+  throw new Error(`No se pudo contactar el backend PHP en localhost para: ${queryString}`);
+};
 
-  isSyncingState = true;
-  notifyNetworkSubscribers();
-
+export const persistToLocalMySQL = async (dbToSave: any, branchParam?: string) => {
+  const branch = branchParam || activeBranch || "Norte";
   try {
-    await ensureAuth();
-    if (!dbCache) {
-      dbCache = JSON.parse(JSON.stringify(newDb));
-    }
-    
-    for (const key of COLLECTIONS) {
-      const oldList = dbCache[key] || [];
-      const newList = newDb[key] || [];
-
-      const oldMap = new Map(oldList.map((item: any) => [item.id, item]));
-      const newMap = new Map(newList.map((item: any) => [item.id, item]));
-
-      // Delete items
-      for (const [id, oldItem] of oldMap.entries()) {
-        if (!newMap.has(id)) {
-          try {
-            const docRef = doc(firestore, getCollectionName(key), String(id));
-            await deleteDoc(docRef);
-          } catch (error) {
-            handleFirestoreError(error, OperationType.DELETE, `${getCollectionName(key)}/${id}`);
-          }
-        }
-      }
-
-      // Add or update items
-      for (const [id, newItem] of newMap.entries()) {
-        const oldItem = oldMap.get(id);
-        if (!oldItem || JSON.stringify(oldItem) !== JSON.stringify(newItem)) {
-          try {
-            const docRef = doc(firestore, getCollectionName(key), String(id));
-            await setDoc(docRef, newItem);
-          } catch (error) {
-            handleFirestoreError(error, OperationType.WRITE, `${getCollectionName(key)}/${id}`);
-          }
-        }
-      }
-    }
-    dbCache = JSON.parse(JSON.stringify(newDb));
-    pendingOfflineSync = false;
-    saveToLocalStorage(newDb);
-  } catch (error) {
-    console.error("Error synchronizing to Firebase:", error);
-  } finally {
-    isSyncingState = false;
-    notifyNetworkSubscribers();
+    const payload = JSON.stringify(dbToSave);
+    await callLocalApi(`action=save_state&branch=${encodeURIComponent(branch)}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: payload
+    });
+  } catch (e) {
+    // Non-blocking local notice
   }
 };
 
@@ -571,7 +526,7 @@ export const saveDatabase = (db: any): Promise<void> => {
             type: opType,
             isoDate: new Date().toISOString(),
             branch: activeBranch || "Centro",
-            user: auth.currentUser?.email || "Usuario Local",
+            user: "Usuario Local",
             action: !oldItem ? "CREATE" : "UPDATE",
             collectionName: getCollectionName(key),
             docId: String(id),
@@ -587,7 +542,7 @@ export const saveDatabase = (db: any): Promise<void> => {
             type: opType,
             isoDate: new Date().toISOString(),
             branch: activeBranch || "Centro",
-            user: auth.currentUser?.email || "Usuario Local",
+            user: "Usuario Local",
             action: "DELETE",
             collectionName: getCollectionName(key),
             docId: String(id),
@@ -602,6 +557,9 @@ export const saveDatabase = (db: any): Promise<void> => {
   saveToLocalStorage(inMemoryDb);
   notifySubscribers();
 
+  // Persistir en base de datos local MySQL (mazal_bd para Norte, mazal_bd1 para Sur)
+  persistToLocalMySQL(updatedDb, activeBranch || "Norte").catch(() => {});
+
   if (typeof navigator !== "undefined" && navigator.onLine) {
     triggerAutoSync();
     
@@ -612,11 +570,11 @@ export const saveDatabase = (db: any): Promise<void> => {
       });
     }
 
-    return syncToFirebase(updatedDb);
+    return Promise.resolve();
   } else {
     pendingOfflineSync = true;
     notifyNetworkSubscribers();
-    console.log("🔴 Modo Sin Conexión: Cambios e inventario guardados en Base Local y encolados en Pending Operations Queue.");
+    console.log("🔴 Modo Sin Conexión: Cambios e inventario guardados en Base Local MySQL y encolados en Pending Operations Queue.");
     return Promise.resolve();
   }
 };
@@ -626,11 +584,10 @@ if (typeof window !== "undefined") {
   window.addEventListener("online", () => {
     isOnlineState = true;
     notifyNetworkSubscribers();
-    console.log("🌐 Conexión a Internet restablecida. Sincronizando ventas e inventario con la nube (Supabase & Firebase)...");
+    console.log("🌐 Conexión a Internet restablecida. Sincronizando con Supabase Cloud...");
     if (isSupabaseConfigured) {
       syncAllToSupabase(getDatabase(), activeBranch || "Norte");
     }
-    syncToFirebase(getDatabase());
   });
 
   window.addEventListener("offline", () => {
@@ -641,114 +598,19 @@ if (typeof window !== "undefined") {
   });
 }
 
-// Real-time Firestore Listeners Setup
-let activeUnsubscribers: (() => void)[] = [];
-
+// Real-time Listeners Setup
 export const initFirestoreListeners = () => {
-  if (typeof window === "undefined") return;
-
-  // Unsubscribe from any previously active listeners (crucial for clean branch switching)
-  activeUnsubscribers.forEach((unsub) => {
-    try {
-      unsub();
-    } catch (e) {
-      console.warn("Error unsubscribing listener:", e);
-    }
-  });
-  activeUnsubscribers = [];
-
-  COLLECTIONS.forEach((colName) => {
-    const colRef = collection(firestore, getCollectionName(colName));
-    const unsub = onSnapshot(colRef, (snapshot) => {
-      let items: any[] = [];
-      snapshot.forEach((doc) => {
-        items.push(doc.data());
-      });
-
-      if (colName === "products") {
-        // If Firestore returns empty or partial data (e.g. 1 test item), DO NOT overwrite MySQL 908 products
-        if (items.length < 50 && inMemoryDb.products && inMemoryDb.products.length >= 50) {
-          console.warn("Firestore snapshot has fewer products than local MySQL. Preserving master catalog.");
-          return;
-        }
-        items = items.map(normalizeProduct);
-      }
-
-      // Synchronize in-memory db and cache
-      if (items.length > 0) {
-        inMemoryDb[colName] = items;
-        dbCache[colName] = JSON.parse(JSON.stringify(items));
-        notifySubscribers();
-      }
-    }, (error) => {
-      console.warn(`Firestore collection (${getCollectionName(colName)}) update error on snapshot:`, error);
-    });
-    activeUnsubscribers.push(unsub);
+  if (typeof window === "undefined" || !isSupabaseConfigured) return () => {};
+  return initSupabaseRealtime((table, payload) => {
+    console.log(`[Supabase Realtime] Evento recibido en tabla ${table}:`, payload.eventType);
+    loadDatabaseFromSupabase(activeBranch);
   });
 };
 
 export const loadDatabaseFromFirebase = async () => {
-  try {
-    await ensureAuth();
-
-    const loadPromises = COLLECTIONS.map(async (colName) => {
-      const colRef = collection(firestore, getCollectionName(colName));
-      try {
-        const snapshot = await getDocs(colRef);
-        let items: any[] = [];
-        snapshot.forEach((doc) => {
-          items.push(doc.data());
-        });
-
-        if (colName === "products") {
-          // If Firestore is empty or only has a test product, preserve full MySQL / seed catalog
-          if (items.length < 50 && inMemoryDb.products && inMemoryDb.products.length >= 50) {
-            return;
-          }
-          if (items.length > 0) {
-            items = items.map(normalizeProduct);
-          }
-        }
-
-        if (items.length === 0) {
-          // Fallback to seed / existing data for empty collections
-          if (!inMemoryDb[colName] || inMemoryDb[colName].length === 0) {
-            const seedData = colName === "products" ? INITIAL_PRODUCTS :
-                             colName === "customers" ? INITIAL_CUSTOMERS :
-                             colName === "suppliers" ? INITIAL_SUPPLIERS :
-                             colName === "movements" ? INITIAL_MOVEMENTS :
-                             colName === "sales" ? INITIAL_SALES :
-                             colName === "expenses" ? INITIAL_EXPENSES :
-                             colName === "cashSessions" ? INITIAL_CASH_SESSIONS :
-                             colName === "auditLogs" ? INITIAL_AUDIT_LOGS :
-                             colName === "purchaseOrders" ? INITIAL_PURCHASE_ORDERS :
-                             colName === "users" ? INITIAL_USERS :
-                             colName === "bankAccounts" ? INITIAL_BANK_ACCOUNTS :
-                             colName === "bankMovements" ? INITIAL_BANK_MOVEMENTS :
-                             colName === "budgets" ? INITIAL_BUDGETS :
-                             colName === "costCenters" ? INITIAL_COST_CENTERS :
-                             colName === "vehicles" ? INITIAL_VEHICLES : [];
-            inMemoryDb[colName] = seedData;
-          }
-        } else {
-          inMemoryDb[colName] = items;
-        }
-      } catch (error) {
-        console.warn(`Firestore load skipped/failed for ${colName}:`, error);
-      }
-    });
-
-    await Promise.all(loadPromises);
-    saveToLocalStorage(inMemoryDb);
-    dbCache = JSON.parse(JSON.stringify(inMemoryDb));
-    notifySubscribers();
-
-    // Initialize background real-time listeners for updates
-    initFirestoreListeners();
-  } catch (err) {
-    console.warn("Firestore initialization deferred / local mode active:", err);
+  if (isSupabaseConfigured) {
+    return loadDatabaseFromSupabase(activeBranch);
   }
-
   return inMemoryDb;
 };
 
@@ -831,33 +693,35 @@ export const syncDatabaseWithSupabase = async (branchParam?: string) => {
   return syncAllToSupabase(getDatabase(), branch);
 };
 
-// Helper for local API calls with fallback endpoints
-const callLocalApi = async (queryString: string, options?: RequestInit): Promise<Response> => {
-  const candidateUrls = [
-    `http://localhost/api.php?${queryString}`,
-    `http://localhost/MAZAL_POS/api.php?${queryString}`,
-    `http://localhost/mazal/api.php?${queryString}`,
-    `/api.php?${queryString}`
-  ];
 
-  for (const url of candidateUrls) {
-    try {
-      const res = await fetch(url, {
-        ...options,
-        signal: options?.signal || AbortSignal.timeout(4000)
-      });
-      if (res.ok) return res;
-    } catch (e) {
-      // Continue to next endpoint candidate
-    }
-  }
-  throw new Error(`No se pudo contactar el backend PHP en localhost para: ${queryString}`);
-};
 
 export const syncWithLocalMySQL = async (branchParam?: string): Promise<{ success: boolean; totalProducts: number; message: string }> => {
   const targetBranch = branchParam || activeBranch || "Norte";
 
   try {
+    // 1. Intentar cargar estado completo previamente guardado en mazal_app_state
+    try {
+      const resState = await callLocalApi(`action=get_state&branch=${encodeURIComponent(targetBranch)}`);
+      const stateData = await resState.json();
+      if (stateData.success && stateData.data) {
+        const saved = stateData.data;
+        if (saved.customers && Array.isArray(saved.customers)) {
+          inMemoryDb.customers = saved.customers;
+        }
+        if (saved.suppliers && Array.isArray(saved.suppliers)) {
+          inMemoryDb.suppliers = saved.suppliers;
+        }
+        if (saved.sales && Array.isArray(saved.sales)) {
+          inMemoryDb.sales = saved.sales;
+        }
+        if (saved.cashSessions && Array.isArray(saved.cashSessions)) {
+          inMemoryDb.cashSessions = saved.cashSessions;
+        }
+      }
+    } catch (e) {
+      // Continuar con tablas nativas
+    }
+
     const res = await callLocalApi(`action=get_native_tables&branch=${encodeURIComponent(targetBranch)}`);
     const data = await res.json();
 
@@ -927,7 +791,7 @@ export const syncWithLocalMySQL = async (branchParam?: string): Promise<{ succes
         }));
       }
 
-      if (data.proveedores && Array.isArray(data.proveedores) && data.proveedores.length > 0) {
+      if (data.proveedores && Array.isArray(data.proveedores) && data.proveedores.length > 0 && (!inMemoryDb.suppliers || inMemoryDb.suppliers.length === 0)) {
         inMemoryDb.suppliers = data.proveedores.map((p: any) => ({
           id: `PROV_${p.id}`,
           code: `PRV-${String(p.id).padStart(3, '0')}`,
@@ -944,7 +808,7 @@ export const syncWithLocalMySQL = async (branchParam?: string): Promise<{ succes
         }));
       }
 
-      if (data.clientes && Array.isArray(data.clientes) && data.clientes.length > 0) {
+      if (data.clientes && Array.isArray(data.clientes) && (!inMemoryDb.customers || inMemoryDb.customers.length === 0)) {
         inMemoryDb.customers = data.clientes.map((c: any) => ({
           id: `CLI_${c.id_cliente}`,
           name: c.nombre_c || `Cliente ${c.id_cliente}`,
@@ -959,8 +823,6 @@ export const syncWithLocalMySQL = async (branchParam?: string): Promise<{ succes
           notes: "Cliente registrado en base de datos MySQL",
           status: "Activo"
         }));
-      } else if (!inMemoryDb.customers || inMemoryDb.customers.length === 0) {
-        inMemoryDb.customers = [...INITIAL_CUSTOMERS];
       }
 
       try {

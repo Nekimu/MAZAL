@@ -21,12 +21,12 @@ import {
   Store,
   Clock
 } from "lucide-react";
-import { UserRole, getRolePermissionsForUser } from "../types";
+import { UserRole, getRolePermissionsForUser, normalizeUserRole } from "../types";
 
 interface SidebarProps {
   activeTab: string;
   setActiveTab: (tab: string) => void;
-  currentUser: { name: string; role: UserRole };
+  currentUser: { name: string; role: any };
   theme: "light" | "dark";
   setTheme: (theme: "light" | "dark") => void;
   cashSessionActive: boolean;
@@ -58,10 +58,11 @@ export default function Sidebar({
   };
 
   // Filter menu items dynamically by current user role permissions
-  const userPerms = getRolePermissionsForUser(currentUser.role);
+  const normalizedRole = normalizeUserRole(currentUser?.role);
+  const userPerms = getRolePermissionsForUser(normalizedRole);
   const allowedMenuItems = menuItems.filter(item => {
     if (item.permKey === "always") return true;
-    if (currentUser.role === UserRole.ADMIN) return true;
+    if (normalizedRole === UserRole.ADMIN) return true;
     return !!userPerms[item.permKey as keyof typeof userPerms];
   });
 

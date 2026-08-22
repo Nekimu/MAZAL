@@ -624,12 +624,24 @@ export async function saveRolePermissionsToDB(permissions: Record<string, RolePe
   return { success: true, message: "Permisos guardados localmente." };
 }
 
-export function getRolePermissionsForUser(role: string): RolePermissions {
-  if (role === UserRole.ADMIN || role === "Administrador") {
+export function normalizeUserRole(role: any): UserRole {
+  const r = String(role || "").trim().toLowerCase();
+  if (r === "admin" || r === "administrador" || r === "administrator" || r.includes("admin")) return UserRole.ADMIN;
+  if (r === "gerente" || r === "manager") return UserRole.MANAGER;
+  if (r === "cajero" || r === "caja" || r === "cashier" || r === "vendedor") return UserRole.CASHIER;
+  if (r === "almacenista" || r === "almacen" || r === "warehouse") return UserRole.WAREHOUSE;
+  if (r === "compras" || r === "purchasing") return UserRole.PURCHASING;
+  if (r === "contabilidad" || r === "contador" || r === "accountant") return UserRole.ACCOUNTANT;
+  return UserRole.ADMIN;
+}
+
+export function getRolePermissionsForUser(role: any): RolePermissions {
+  const normalized = normalizeUserRole(role);
+  if (normalized === UserRole.ADMIN) {
     return { pos: true, inventory: true, customers: true, purchases: true, reports: true, security: true };
   }
   const allPerms = getSavedRolePermissions();
-  return allPerms[role] || { pos: false, inventory: false, customers: false, purchases: false, reports: false, security: false };
+  return allPerms[normalized] || allPerms[role] || { pos: false, inventory: false, customers: false, purchases: false, reports: false, security: false };
 }
 
 // --- STOCK TRANSFER INTERFACE ---
