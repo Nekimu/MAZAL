@@ -335,7 +335,7 @@ export async function loadAllFromSupabase(branch: string = "Norte"): Promise<{
       .from("app_state")
       .select("data")
       .eq("id", `mazal_state_${branch.toLowerCase()}`)
-      .single();
+      .maybeSingle();
 
     if (stateData && stateData.data) {
       const snap = stateData.data;

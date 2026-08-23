@@ -465,10 +465,12 @@ export const notifySubscribers = () => {
 
 // Helper for local API calls with fallback endpoints
 export const callLocalApi = async (queryString: string, options?: RequestInit): Promise<Response> => {
+  if (typeof window !== "undefined" && window.location.hostname !== "localhost" && window.location.hostname !== "127.0.0.1") {
+    throw new Error("Local backend is only available on localhost");
+  }
+
   const candidateUrls = [
     `http://localhost/mazal/api.php?${queryString}`,
-    `http://localhost/api.php?${queryString}`,
-    `http://localhost/MAZAL_POS/api.php?${queryString}`,
     `/api.php?${queryString}`
   ];
 
@@ -476,7 +478,7 @@ export const callLocalApi = async (queryString: string, options?: RequestInit): 
     try {
       const res = await fetch(url, {
         ...options,
-        signal: options?.signal || AbortSignal.timeout(4000)
+        signal: options?.signal || AbortSignal.timeout(1000)
       });
       if (res.ok) return res;
     } catch (e) {
@@ -487,6 +489,9 @@ export const callLocalApi = async (queryString: string, options?: RequestInit): 
 };
 
 export const persistToLocalMySQL = async (dbToSave: any, branchParam?: string) => {
+  if (typeof window !== "undefined" && window.location.hostname !== "localhost" && window.location.hostname !== "127.0.0.1") {
+    return;
+  }
   const branch = branchParam || activeBranch || "Norte";
   try {
     const payload = JSON.stringify(dbToSave);
@@ -722,6 +727,10 @@ export const syncDatabaseWithSupabase = async (branchParam?: string) => {
 
 export const syncWithLocalMySQL = async (branchParam?: string): Promise<{ success: boolean; totalProducts: number; message: string }> => {
   const targetBranch = branchParam || activeBranch || "Norte";
+
+  if (typeof window !== "undefined" && window.location.hostname !== "localhost" && window.location.hostname !== "127.0.0.1") {
+    return { success: false, totalProducts: 0, message: "Modo nube activo (Supabase)" };
+  }
 
   try {
     // 1. Intentar cargar estado completo previamente guardado en mazal_app_state

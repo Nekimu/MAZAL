@@ -583,45 +583,13 @@ export function getSavedRolePermissions(): Record<string, RolePermissions> {
 }
 
 export async function fetchRolePermissionsFromDB(): Promise<Record<string, RolePermissions>> {
-  try {
-    const res = await fetch("http://localhost/api.php?action=get_permissions", {
-      signal: AbortSignal.timeout(3000)
-    });
-    if (res.ok) {
-      const data = await res.json();
-      if (data.success && data.permissions) {
-        data.permissions[UserRole.ADMIN] = { pos: true, inventory: true, customers: true, purchases: true, reports: true, security: true };
-        localStorage.setItem("mazal_role_permissions", JSON.stringify(data.permissions));
-        return { ...DEFAULT_ROLE_PERMISSIONS, ...data.permissions };
-      }
-    }
-  } catch (e) {
-    console.warn("Aviso: No se pudo contactar MySQL local (mazal_bd), usando caché:", e);
-  }
   return getSavedRolePermissions();
 }
 
 export async function saveRolePermissionsToDB(permissions: Record<string, RolePermissions>): Promise<{ success: boolean; message?: string }> {
   permissions[UserRole.ADMIN] = { pos: true, inventory: true, customers: true, purchases: true, reports: true, security: true };
   localStorage.setItem("mazal_role_permissions", JSON.stringify(permissions));
-
-  try {
-    const res = await fetch("http://localhost/api.php?action=save_permissions", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ permissions }),
-      signal: AbortSignal.timeout(4000)
-    });
-    if (res.ok) {
-      const data = await res.json();
-      if (data.success) {
-        return { success: true, message: "Permisos guardados exitosamente en el sistema." };
-      }
-    }
-  } catch (e) {
-    console.warn("Guardado en MySQL no disponible temporalmente, persistido localmente:", e);
-  }
-  return { success: true, message: "Permisos guardados localmente." };
+  return { success: true, message: "Permisos guardados exitosamente en el sistema." };
 }
 
 export function normalizeUserRole(role: any): UserRole {

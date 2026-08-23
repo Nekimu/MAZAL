@@ -50,12 +50,25 @@
     <script>
       if ('serviceWorker' in navigator) {
         window.addEventListener('load', () => {
+          // Clear any stale caches from older build versions
+          if (window.caches) {
+            caches.keys().then((names) => {
+              for (const name of names) {
+                if (name.includes('mazal-pos-v5') || name.includes('mazal-pos-v6')) {
+                  console.log('Purging legacy cache:', name);
+                  caches.delete(name);
+                }
+              }
+            }).catch(() => {});
+          }
+
           navigator.serviceWorker.register('./sw.js')
             .then(reg => {
-              console.log('Service Worker registrado correctamente:', reg.scope);
-              reg.update();
+              reg.update().catch(() => {});
             })
-            .catch(err => console.log('Info Service Worker:', err));
+            .catch(() => {
+              // Non-blocking in dev / environments without sw.js
+            });
         });
       }
     </script>

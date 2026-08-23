@@ -222,12 +222,10 @@ export default function App() {
   const [showPwaModal, setShowPwaModal] = useState(false);
 
   useEffect(() => {
-    // Initial sync with local MySQL on boot
-    syncWithLocalMySQL().then((res) => {
-      if (res.success) {
-        setDb(getDatabase());
-      }
-    });
+    // Initial sync with Supabase Cloud on boot
+    loadDatabaseFromSupabase().then(() => {
+      setDb(getDatabase());
+    }).catch(() => {});
 
     const unsubNet = subscribeNetworkStatus((status) => {
       setNetStatus(status);
@@ -252,10 +250,7 @@ export default function App() {
       // Set the active branch in our data engine
       setActiveBranch(currentBranch);
 
-      // Sync with local MySQL for selected branch (mazal_bd for Norte, mazal_bd1 for Sur)
-      await syncWithLocalMySQL(currentBranch);
-
-      // Sincronizar con Supabase Cloud (Base de datos principal en línea)
+      // Sincronizar directamente con Supabase Cloud (Base de datos principal en línea)
       await loadDatabaseFromSupabase(currentBranch);
       
       setDb(getDatabase());

@@ -3,7 +3,7 @@
  * Autenticación server-side con Bcrypt, JWT y almacenamiento seguro en memoria/sessionStorage.
  */
 
-import { supabase, isSupabaseConfigured, ensureSupabaseConfigured } from "../supabase";
+import { supabase, isSupabaseConfigured, ensureSupabaseConfigured, getSupabaseClient } from "../supabase";
 import { User, UserRole } from "../types";
 import { getDatabase, logAction } from "../data";
 import { 
@@ -136,17 +136,15 @@ export async function authenticateStaff(
       };
     }
   } catch (apiErr) {
-    console.warn("API Server /api/auth/login no respondió, probando fallbacks:", apiErr);
+    // API server not present, fallback seamlessly to Supabase
   }
 
   // 2. Fallback Secundario: Supabase Cloud directo (users table o RPC)
-  if (!isSupabaseConfigured) {
-    await ensureSupabaseConfigured();
-  }
-
-  if (isSupabaseConfigured) {
-    try {
-      const { data: dbUser, error: dbErr } = await supabase
+  try {
+    const isConfigured = await ensureSupabaseConfigured();
+    if (isConfigured) {
+      const client = getSupabaseClient();
+      const { data: dbUser, error: dbErr } = await client
         .from("users")
         .select("*")
         .ilike("username", cleanUser)
@@ -175,9 +173,9 @@ export async function authenticateStaff(
           };
         }
       }
-    } catch (rpcErr) {
-      console.warn("Aviso al validar en Supabase:", rpcErr);
     }
+  } catch (rpcErr) {
+    console.warn("Aviso al validar en Supabase:", rpcErr);
   }
 
   // 3. Fallback maestro para Administrador General con Contraseña Maestra Dinámica

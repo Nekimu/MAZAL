@@ -5,7 +5,7 @@
  * Manejo seguro de hashing (SHA-256 / Bcrypt), validación y sincronización en Supabase y Base Local.
  */
 
-import { supabase, isSupabaseConfigured, ensureSupabaseConfigured } from "../supabase";
+import { supabase, isSupabaseConfigured, ensureSupabaseConfigured, getSupabaseClient } from "../supabase";
 import { saveUserToMySQL } from "../data";
 
 export const DEFAULT_MASTER_ADMIN_PASSWORD = "admin030114";
@@ -41,7 +41,7 @@ export async function hashPassword(plainText: string): Promise<string> {
 }
 
 /**
- * Valida si una contraseña ingresada coincide con la contraseña almacenada (texto plano, hash SHA-256 o bcrypt).
+ * Valida si una contraseña ingresada coincide con la contraseña almacenada (texto plano o hash SHA-256).
  */
 export async function verifyPasswordHash(
   enteredPassword: string,
@@ -52,20 +52,14 @@ export async function verifyPasswordHash(
 
   const cleanStored = String(storedHashOrPlain).trim();
 
-  // 1. Comparación directa (texto plano o token coincidente)
+  // 1. Comparación directa en texto plano
   if (cleanEntered === cleanStored) {
     return true;
   }
 
-  // 2. Si el hash almacenado es SHA-256 (64 hex characters)
-  if (/^[a-f0-9]{64}$/i.test(cleanStored)) {
-    const enteredHash = await hashPassword(cleanEntered);
-    if (enteredHash.toLowerCase() === cleanStored.toLowerCase()) {
-      return true;
-    }
-  }
-
-  return false;
+  // 2. Comparación con hash SHA-256
+  const computedHash = await hashPassword(cleanEntered);
+  return computedHash.toLowerCase() === cleanStored.toLowerCase();
 }
 
 /**
@@ -73,16 +67,15 @@ export async function verifyPasswordHash(
  * Consulta Supabase Cloud primero; si no está disponible, utiliza el almacenamiento local o la clave por defecto.
  */
 export async function getActiveMasterAdminPassword(): Promise<string> {
-  if (!isSupabaseConfigured) {
-    await ensureSupabaseConfigured();
-  }
+  const isConfigured = await ensureSupabaseConfigured();
 
   // 1. Intentar consultar Supabase Cloud
-  if (isSupabaseConfigured) {
+  if (isConfigured) {
     try {
-      const { data, error } = await supabase
+      const client = getSupabaseClient();
+      const { data, error } = await client
         .from("users")
-        .select("password, password_hash")
+        .select("password")
         .ilike("username", "admin")
         .maybeSingle();
 
@@ -114,7 +107,7 @@ export async function getActiveMasterAdminPassword(): Promise<string> {
 }
 
 /**
- * Actualiza la Contraseña Maestra del Administrador General tanto en Supabase Cloud como en MySQL local.
+ * Actualiza la Contraseña Maestra del Administrador General en Supabase Cloud.
  */
 export async function updateMasterAdminPassword(
   newPassword: string
@@ -137,37 +130,18 @@ export async function updateMasterAdminPassword(
     console.warn("Error guardando contraseña maestra en localStorage:", e);
   }
 
-  // 2. Intentar guardar mediante endpoint Server-Side
+  // 2. Guardar directamente en Supabase Cloud
   let cloudSynced = false;
   try {
-    const res = await fetch("/api/users", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        id: "USR_ADMIN",
-        username: "admin",
-        name: "Administrador General",
-        password: cleanPass,
-        role: "Administrador",
-        status: "Activo"
-      })
-    });
-    if (res.ok) {
-      cloudSynced = true;
-    }
-  } catch (e) {}
-
-  // Fallback directo a Supabase
-  if (!cloudSynced && isSupabaseConfigured) {
-    try {
-      const passHash = await hashPassword(cleanPass);
-      const { error } = await supabase.from("users").upsert(
+    const isConfigured = await ensureSupabaseConfigured();
+    if (isConfigured) {
+      const client = getSupabaseClient();
+      const { error } = await client.from("users").upsert(
         {
           id: "USR_ADMIN",
           username: "admin",
           name: "Administrador General",
           password: cleanPass,
-          password_hash: passHash,
           role: "Administrador",
           status: "Activo"
         },
@@ -177,9 +151,9 @@ export async function updateMasterAdminPassword(
       if (!error) {
         cloudSynced = true;
       }
-    } catch (supabaseErr) {
-      console.warn("Excepción al guardar admin en Supabase:", supabaseErr);
     }
+  } catch (supabaseErr) {
+    console.warn("Excepción al guardar admin en Supabase:", supabaseErr);
   }
 
   // 3. Sincronizar en MySQL local
@@ -194,7 +168,7 @@ export async function updateMasterAdminPassword(
     success: true,
     message: cloudSynced
       ? "¡Contraseña Maestra actualizada y sincronizada en la Nube con éxito!"
-      : "¡Contraseña Maestra actualizada localmente! Se sincronizará con la Nube al haber conexión."
+      : "¡Contraseña Maestra actualizada localmente!"
   };
 }
 
@@ -211,37 +185,10 @@ export async function saveUserToSupabase(user: {
 }): Promise<boolean> {
   const cleanUser = (user.username || "").trim().toLowerCase();
 
-  // 1. Intento principal: Endpoint Server-side Express con hash Bcrypt
   try {
-    const res = await fetch("/api/users", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        id: user.id || `USER_${cleanUser.toUpperCase()}`,
-        username: cleanUser,
-        name: user.name.trim(),
-        password: user.password,
-        role: user.role,
-        status: user.status || "Activo"
-      })
-    });
-
-    if (res.ok) {
-      return true;
-    }
-  } catch (apiErr) {
-    // Si el servidor Express no está disponible (modo offline o standalone Vite), continuar a fallback
-  }
-
-  // 2. Fallback Secundario: Supabase Cloud directo
-  if (!isSupabaseConfigured) {
-    await ensureSupabaseConfigured();
-  }
-
-  if (isSupabaseConfigured) {
-    try {
-      const passHash = user.password ? await hashPassword(user.password) : undefined;
-
+    const isConfigured = await ensureSupabaseConfigured();
+    if (isConfigured) {
+      const client = getSupabaseClient();
       const rowData: Record<string, any> = {
         id: user.id || `USER_${cleanUser.toUpperCase()}`,
         username: cleanUser,
@@ -252,17 +199,16 @@ export async function saveUserToSupabase(user: {
 
       if (user.password) {
         rowData.password = user.password;
-        rowData.password_hash = passHash;
       }
 
-      const { error } = await supabase.from("users").upsert(rowData, { onConflict: "username" });
+      const { error } = await client.from("users").upsert(rowData, { onConflict: "username" });
       if (!error) {
         return true;
       }
       console.warn("Error guardando usuario en Supabase:", error);
-    } catch (err) {
-      console.warn("Excepción al guardar usuario en Supabase:", err);
     }
+  } catch (err) {
+    console.warn("Excepción al guardar usuario en Supabase:", err);
   }
 
   return false;
