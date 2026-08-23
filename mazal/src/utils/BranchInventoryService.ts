@@ -214,9 +214,13 @@ export async function confirmStockTransferReceipt(transfer: StockTransfer, recei
     const products: Product[] = db.products || [];
 
     // 1. Buscar si el producto ya existe en la sucursal de destino
-    let destDoc = products.find(
-      (p) => (p.code || p.barcode || p.id).trim() === productCode.trim()
-    );
+    const isToSur = toBranch.toLowerCase() === "sur";
+    let destDoc = products.find((p) => {
+      const pBranch = (p.sucursal || "Norte").toLowerCase();
+      const matchBranch = isToSur ? pBranch === "sur" : pBranch !== "sur";
+      const matchCode = (p.code || p.barcode || p.id).trim() === productCode.trim();
+      return matchBranch && matchCode;
+    });
 
     if (destDoc) {
       // Sumar al stock existente en destino
@@ -269,11 +273,83 @@ export async function confirmStockTransferReceipt(transfer: StockTransfer, recei
     db.stockTransfers = (db.stockTransfers || []).map((t: StockTransfer) => t.id === transfer.id ? completedTransfer : t);
     await saveDatabase(db);
 
-    // 3. Sincronizar producto en Supabase Cloud en la sucursal de destino
-    await saveProductToSupabase(destDoc, toBranch).catch(() => {});
-
-    // 4. Sincronizar lista global de traspasos en Supabase Cloud
+    // 3. Sincronizar producto en Supabase Cloud en la sucursal de destino directamente
     if (isSupabaseConfigured) {
+      try {
+        const { data: dbDestList } = await supabase
+          .from("products")
+          .select("*")
+          .eq("sucursal", toBranch)
+          .or(`code.eq.${productCode.trim()},barcode.eq.${productCode.trim()},id.eq.${productCode.trim()}`);
+
+        if (dbDestList && dbDestList.length > 0) {
+          const dbDest = dbDestList[0];
+          const newStock = Number(((dbDest.stock || 0) + quantity).toFixed(3));
+          await supabase
+            .from("products")
+            .update({ stock: newStock, updated_at: new Date().toISOString() })
+            .eq("id", dbDest.id);
+        } else {
+          // Fetch from origin in Supabase to clone full item
+          const { data: dbOrigList } = await supabase
+            .from("products")
+            .select("*")
+            .or(`code.eq.${productCode.trim()},barcode.eq.${productCode.trim()},id.eq.${productCode.trim()}`);
+
+          const dbOrig = dbOrigList && dbOrigList.length > 0 ? dbOrigList[0] : null;
+
+          const newDestId = `PROD_${toBranch.toUpperCase()}_${Date.now()}`;
+          const newDestRow = {
+            id: newDestId,
+            code: productCode.trim(),
+            barcode: dbOrig?.barcode || productCode.trim(),
+            sku: dbOrig?.sku || productCode.trim(),
+            name: productName,
+            brand: dbOrig?.brand || "MAZAL",
+            category: dbOrig?.category || "General",
+            subcategory: dbOrig?.subcategory || "",
+            unit: dbOrig?.unit || "pz",
+            cost: Number(dbOrig?.cost || 0),
+            price_min: Number(dbOrig?.price_min || 0),
+            price_med: Number(dbOrig?.price_med || 0),
+            price_max: Number(dbOrig?.price_max || 0),
+            price_special: Number(dbOrig?.price_special || 0),
+            stock: quantity,
+            stock_min: Number(dbOrig?.stock_min || 5),
+            stock_max: Number(dbOrig?.stock_max || 100),
+            location: `Sucursal ${toBranch}`,
+            sucursal: toBranch,
+            image_url: dbOrig?.image_url || "",
+            supplier_id: dbOrig?.supplier_id || "SUPP1",
+            updated_at: new Date().toISOString()
+          };
+          await supabase.from("products").insert(newDestRow);
+        }
+      } catch (errSup) {
+        console.warn("Aviso actualizando destino en Supabase:", errSup);
+      }
+
+      // 4. Sincronizar deducción en origen en Supabase Cloud
+      try {
+        const { data: dbOrigList } = await supabase
+          .from("products")
+          .select("*")
+          .eq("sucursal", fromBranch)
+          .or(`code.eq.${productCode.trim()},barcode.eq.${productCode.trim()},id.eq.${productCode.trim()}`);
+
+        if (dbOrigList && dbOrigList.length > 0) {
+          const dbOrig = dbOrigList[0];
+          const newOriginStock = Math.max(0, Number(((dbOrig.stock || 0) - quantity).toFixed(3)));
+          await supabase
+            .from("products")
+            .update({ stock: newOriginStock, updated_at: new Date().toISOString() })
+            .eq("id", dbOrig.id);
+        }
+      } catch (errOrig) {
+        console.warn("Aviso actualizando origen en Supabase:", errOrig);
+      }
+
+      // 5. Sincronizar lista global de traspasos en Supabase Cloud
       try {
         await supabase.from("app_state").upsert({
           id: "mazal_stock_transfers",

@@ -557,33 +557,13 @@ export default function App() {
                 <MazalLogo size="md" />
               </div>
 
-              {/* Chip / Selector de Sucursal Activa */}
-              {currentUser && (currentUser.role === UserRole.ADMIN || String(currentUser.role).toUpperCase().includes("ADMIN")) ? (
-                <div className="flex items-center gap-1.5 bg-emerald-50 dark:bg-emerald-950/40 px-2.5 py-1 rounded-xl border border-emerald-200 dark:border-emerald-900/40 text-xs font-black text-emerald-800 dark:text-emerald-300 font-mono shadow-2xs">
-                  <Store className="h-4 w-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
-                  <select
-                    value={currentBranch || "Norte"}
-                    onChange={(e) => {
-                      const nb = e.target.value as "Norte" | "Sur";
-                      setCurrentBranch(nb);
-                      setActiveBranch(nb);
-                      loadDatabaseFromSupabase(nb);
-                    }}
-                    className="bg-transparent font-black uppercase text-xs text-emerald-800 dark:text-emerald-300 focus:outline-none cursor-pointer pr-1"
-                    title="Cambiar sucursal activa de trabajo"
-                  >
-                    <option value="Norte" className="bg-white dark:bg-slate-900 text-slate-850 dark:text-white">MAZAL 1 (Norte)</option>
-                    <option value="Sur" className="bg-white dark:bg-slate-900 text-slate-850 dark:text-white">MAZAL 2 (Sur)</option>
-                  </select>
-                </div>
-              ) : (
-                <div className="flex items-center gap-2 bg-emerald-50 dark:bg-emerald-950/40 px-3 py-1.5 rounded-xl border border-emerald-200 dark:border-emerald-900/40 text-xs font-black text-emerald-800 dark:text-emerald-300 font-mono shadow-2xs">
-                  <Store className="h-4 w-4 text-emerald-600 dark:text-emerald-400 animate-pulse shrink-0" />
-                  <span className="tracking-wide uppercase">
-                    {currentBranch === "Sur" ? "MAZAL 2 (Sur)" : "MAZAL 1 (Norte)"}
-                  </span>
-                </div>
-              )}
+              {/* Chip de Sucursal Activa Fija */}
+              <div className="flex items-center gap-2 bg-emerald-50 dark:bg-emerald-950/40 px-3 py-1.5 rounded-xl border border-emerald-200 dark:border-emerald-900/40 text-xs font-black text-emerald-800 dark:text-emerald-300 font-mono shadow-2xs">
+                <Store className="h-4 w-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                <span className="tracking-wide uppercase">
+                  {currentBranch === "Sur" ? "MAZAL 2 (SUR)" : "MAZAL 1 (NORTE)"}
+                </span>
+              </div>
             </div>
 
             {/* Derecha: Barra de Herramientas con 'En línea' primero y sus demás elementos */}
