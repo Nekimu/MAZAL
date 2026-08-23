@@ -149,19 +149,18 @@ export async function loadAllFromSupabase(branch: string = "Norte"): Promise<{
   data?: any;
   error?: string;
 }> {
-  if (!isSupabaseConfigured) {
-    await ensureSupabaseConfigured();
-  }
-
-  if (!isSupabaseConfigured) {
+  const isConfigured = await ensureSupabaseConfigured();
+  if (!isConfigured) {
     return { success: false, error: "Supabase no está configurado." };
   }
+
+  const client = getSupabaseClient();
 
   try {
     const results: any = {};
 
     // 1. Cargar productos (todos o de la sucursal activa)
-    const { data: prodData, error: prodErr } = await supabase
+    const { data: prodData, error: prodErr } = await client
       .from("products")
       .select("*")
       .order("name", { ascending: true });
@@ -171,7 +170,7 @@ export async function loadAllFromSupabase(branch: string = "Norte"): Promise<{
     }
 
     // 2. Cargar clientes
-    const { data: custData, error: custErr } = await supabase
+    const { data: custData, error: custErr } = await client
       .from("customers")
       .select("*");
     if (!custErr && custData) {
@@ -193,7 +192,7 @@ export async function loadAllFromSupabase(branch: string = "Norte"): Promise<{
     }
 
     // 3. Cargar proveedores
-    const { data: suppData, error: suppErr } = await supabase
+    const { data: suppData, error: suppErr } = await client
       .from("suppliers")
       .select("*");
     if (!suppErr && suppData) {
@@ -211,7 +210,7 @@ export async function loadAllFromSupabase(branch: string = "Norte"): Promise<{
     }
 
     // 4. Cargar ventas
-    const { data: salesData, error: salesErr } = await supabase
+    const { data: salesData, error: salesErr } = await client
       .from("sales")
       .select("*")
       .order("created_at", { ascending: false })
@@ -237,7 +236,7 @@ export async function loadAllFromSupabase(branch: string = "Norte"): Promise<{
     }
 
     // 5. Cargar movimientos de stock
-    const { data: movData, error: movErr } = await supabase
+    const { data: movData, error: movErr } = await client
       .from("stock_movements")
       .select("*")
       .order("created_at", { ascending: false })
@@ -259,7 +258,7 @@ export async function loadAllFromSupabase(branch: string = "Norte"): Promise<{
     }
 
     // 6. Cargar sesiones de caja
-    const { data: sessData, error: sessErr } = await supabase
+    const { data: sessData, error: sessErr } = await client
       .from("cash_sessions")
       .select("*")
       .order("created_at", { ascending: false })
@@ -281,7 +280,7 @@ export async function loadAllFromSupabase(branch: string = "Norte"): Promise<{
     }
 
     // 7. Cargar gastos
-    const { data: expData, error: expErr } = await supabase
+    const { data: expData, error: expErr } = await client
       .from("cash_expenses")
       .select("*")
       .order("created_at", { ascending: false })
@@ -299,7 +298,7 @@ export async function loadAllFromSupabase(branch: string = "Norte"): Promise<{
     }
 
     // 8. Cargar usuarios
-    const { data: usersData, error: usersErr } = await supabase
+    const { data: usersData, error: usersErr } = await client
       .from("users")
       .select("*");
     if (!usersErr && usersData && usersData.length > 0) {
@@ -315,7 +314,7 @@ export async function loadAllFromSupabase(branch: string = "Norte"): Promise<{
     }
 
     // 9. Cargar sucursales
-    const { data: branchData, error: branchErr } = await supabase
+    const { data: branchData, error: branchErr } = await client
       .from("branches")
       .select("*");
     if (!branchErr && branchData && branchData.length > 0) {
@@ -332,7 +331,7 @@ export async function loadAllFromSupabase(branch: string = "Norte"): Promise<{
     }
 
     // 10. Cargar estado de respaldo (app_state)
-    const { data: stateData } = await supabase
+    const { data: stateData } = await client
       .from("app_state")
       .select("data")
       .eq("id", `mazal_state_${branch.toLowerCase()}`)
@@ -553,14 +552,13 @@ export async function syncAllToSupabase(db: any, branch: string = "Norte"): Prom
  * Guarda o actualiza un producto directamente en Supabase Cloud.
  */
 export async function saveProductToSupabase(product: Product, branch: string = "Norte"): Promise<boolean> {
-  if (!isSupabaseConfigured) {
-    await ensureSupabaseConfigured();
-  }
-  if (!isSupabaseConfigured) return false;
+  const isConfigured = await ensureSupabaseConfigured();
+  if (!isConfigured) return false;
 
   try {
+    const client = getSupabaseClient();
     const row = mapLocalProductToDb(product, branch);
-    const { error } = await supabase.from("products").upsert(row, { onConflict: "id" });
+    const { error } = await client.from("products").upsert(row, { onConflict: "id" });
     return !error;
   } catch (e) {
     console.warn("Error guardando producto individual en Supabase:", e);
@@ -572,12 +570,11 @@ export async function saveProductToSupabase(product: Product, branch: string = "
  * Guarda una venta directamente en Supabase.
  */
 export async function saveSaleToSupabase(sale: Sale, branch: string = "Norte"): Promise<boolean> {
-  if (!isSupabaseConfigured) {
-    await ensureSupabaseConfigured();
-  }
-  if (!isSupabaseConfigured) return false;
+  const isConfigured = await ensureSupabaseConfigured();
+  if (!isConfigured) return false;
 
   try {
+    const client = getSupabaseClient();
     const row = {
       id: String(sale.id),
       ticket_number: sale.ticketNumber || `TICK-${sale.id}`,
@@ -596,7 +593,7 @@ export async function saveSaleToSupabase(sale: Sale, branch: string = "Norte"): 
       items: sale.items || [],
       raw_data: sale
     };
-    const { error } = await supabase.from("sales").upsert(row, { onConflict: "id" });
+    const { error } = await client.from("sales").upsert(row, { onConflict: "id" });
     return !error;
   } catch (e) {
     console.warn("Error guardando venta en Supabase:", e);
@@ -608,12 +605,11 @@ export async function saveSaleToSupabase(sale: Sale, branch: string = "Norte"): 
  * Registra un movimiento de stock en Supabase.
  */
 export async function saveMovementToSupabase(movement: StockMovement, branch: string = "Norte"): Promise<boolean> {
-  if (!isSupabaseConfigured) {
-    await ensureSupabaseConfigured();
-  }
-  if (!isSupabaseConfigured) return false;
+  const isConfigured = await ensureSupabaseConfigured();
+  if (!isConfigured) return false;
 
   try {
+    const client = getSupabaseClient();
     const row = {
       id: String(movement.id),
       product_id: String(movement.productId),
@@ -628,7 +624,7 @@ export async function saveMovementToSupabase(movement: StockMovement, branch: st
       sucursal: branch,
       raw_data: movement
     };
-    const { error } = await supabase.from("stock_movements").upsert(row, { onConflict: "id" });
+    const { error } = await client.from("stock_movements").upsert(row, { onConflict: "id" });
     return !error;
   } catch (e) {
     console.warn("Error guardando movimiento en Supabase:", e);
@@ -642,29 +638,30 @@ export async function saveMovementToSupabase(movement: StockMovement, branch: st
 let realtimeChannel: any = null;
 
 export function initSupabaseRealtime(onTableChange: (table: string, payload: any) => void) {
-  if (!isSupabaseConfigured || typeof window === "undefined") return () => {};
+  if (typeof window === "undefined") return () => {};
 
+  const client = getSupabaseClient();
   if (realtimeChannel) {
-    supabase.removeChannel(realtimeChannel);
+    client.removeChannel(realtimeChannel);
   }
 
-  realtimeChannel = supabase
+  realtimeChannel = client
     .channel("mazal-db-changes")
     .on(
       "postgres_changes",
       { event: "*", schema: "public" },
-      (payload) => {
+      (payload: any) => {
         console.log("⚡ Supabase Realtime evento recibido:", payload.table, payload.eventType);
         onTableChange(payload.table, payload);
       }
     )
-    .subscribe((status) => {
+    .subscribe((status: string) => {
       console.log("Supabase Realtime status:", status);
     });
 
   return () => {
     if (realtimeChannel) {
-      supabase.removeChannel(realtimeChannel);
+      client.removeChannel(realtimeChannel);
       realtimeChannel = null;
     }
   };

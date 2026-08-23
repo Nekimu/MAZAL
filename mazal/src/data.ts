@@ -641,11 +641,8 @@ let supabaseRealtimeUnsub: (() => void) | null = null;
 export const loadDatabaseFromSupabase = async (branchParam?: string): Promise<typeof inMemoryDb> => {
   const branch = branchParam || activeBranch || "Norte";
   try {
-    if (!isSupabaseConfigured) {
-      await ensureSupabaseConfigured();
-    }
-
-    if (!isSupabaseConfigured) {
+    const isConfigured = await ensureSupabaseConfigured();
+    if (!isConfigured) {
       console.warn("Supabase no está configurado. Omitiendo carga desde la nube.");
       return inMemoryDb;
     }
