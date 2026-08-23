@@ -36,14 +36,14 @@ import {
   TrendingDown
 } from "lucide-react";
 import { Product, User, UserRole, ProductUnit, formatPrice, normalizeUserRole } from "../types";
-import { getDatabase, logAction } from "../data";
+import { getDatabase, logAction, subscribeToDb, loadDatabaseFromSupabase } from "../data";
 import { MazalLogo } from "./MazalLogo";
 import { authenticateStaff } from "../services/authService";
 
 interface LoginAndCatalogProps {
   currentBranch?: string;
   onBranchChange?: (branch: "Norte" | "Sur") => void;
-  onLoginSuccess: (user: { name: string; role: UserRole }, onlyPOS?: boolean) => void;
+  onLoginSuccess: (user: { name: string; role: any }, onlyPOS?: boolean) => void;
   onBackToBranch?: () => void;
   theme?: "light" | "dark";
   onToggleTheme?: () => void;
@@ -59,7 +59,15 @@ export default function LoginAndCatalog({
   theme = "light", 
   onToggleTheme 
 }: LoginAndCatalogProps) {
-  const db = getDatabase();
+  const [db, setDb] = useState(getDatabase());
+
+  useEffect(() => {
+    loadDatabaseFromSupabase(currentBranch);
+    return subscribeToDb((updated) => {
+      setDb({ ...updated });
+    });
+  }, [currentBranch]);
+
   const products: Product[] = Array.isArray(db?.products) ? db.products : [];
   const users: User[] = Array.isArray(db?.users) ? db.users : [];
 
@@ -121,9 +129,18 @@ export default function LoginAndCatalog({
   // Fast Memoized Product Filtering and Sorting
   const filteredAndSortedProducts = useMemo(() => {
     const cleanSearch = searchTerm.trim().toLowerCase();
+    const isSur = (currentBranch || "Norte").trim().toLowerCase() === "sur";
 
     const filtered = products.filter(p => {
       if (!p) return false;
+
+      // Aislamiento estricto de sucursal en catálogo público
+      const pBranch = (p.sucursal || "Norte").trim().toLowerCase();
+      if (isSur) {
+        if (pBranch !== "sur") return false;
+      } else {
+        if (pBranch === "sur") return false;
+      }
 
       // Text search
       if (cleanSearch) {
