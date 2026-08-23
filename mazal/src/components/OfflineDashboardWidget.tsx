@@ -15,6 +15,8 @@ import {
   Zap
 } from "lucide-react";
 import { getOfflineState, subscribeOfflineSyncState, triggerAutoSync } from "../services/offlineSync";
+import { ensureSupabaseConfigured } from "../supabase";
+import { syncDatabaseWithSupabase, loadDatabaseFromSupabase } from "../data";
 import { OfflineSyncState } from "../types";
 import { OfflineSyncPanelModal } from "./OfflineSyncPanelModal";
 
@@ -23,6 +25,7 @@ export const OfflineDashboardWidget: React.FC = () => {
   const [isSyncing, setIsSyncing] = useState(false);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isExpanded, setIsExpanded] = useState(false);
+  const [syncFeedback, setSyncFeedback] = useState<{ success: boolean; message: string } | null>(null);
 
   useEffect(() => {
     const unsub = subscribeOfflineSyncState((newState) => {
@@ -34,10 +37,31 @@ export const OfflineDashboardWidget: React.FC = () => {
   const handleSyncNow = async (e: React.MouseEvent) => {
     e.stopPropagation();
     setIsSyncing(true);
+    setSyncFeedback(null);
     try {
+      await ensureSupabaseConfigured();
       await triggerAutoSync();
+      const cloudRes = await syncDatabaseWithSupabase();
+      await loadDatabaseFromSupabase();
+      if (cloudRes.success) {
+        setSyncFeedback({
+          success: true,
+          message: cloudRes.message || "Sincronizado con Supabase Cloud exitosamente."
+        });
+      } else {
+        setSyncFeedback({
+          success: false,
+          message: cloudRes.error || "Aviso al sincronizar con la nube."
+        });
+      }
+    } catch (err: any) {
+      setSyncFeedback({
+        success: false,
+        message: "Error: " + (err?.message || String(err))
+      });
     } finally {
       setIsSyncing(false);
+      setTimeout(() => setSyncFeedback(null), 5000);
     }
   };
 
@@ -100,6 +124,21 @@ export const OfflineDashboardWidget: React.FC = () => {
             </button>
           </div>
         </div>
+
+        {/* Sync Feedback Message */}
+        {syncFeedback && (
+          <div className={`px-4 py-2 text-xs border-t flex items-center justify-between gap-2 transition-all ${
+            syncFeedback.success
+              ? "bg-emerald-50 dark:bg-emerald-950/40 text-emerald-800 dark:text-emerald-300 border-emerald-200 dark:border-emerald-900/40"
+              : "bg-rose-50 dark:bg-rose-950/40 text-rose-800 dark:text-rose-300 border-rose-200 dark:border-rose-900/40"
+          }`}>
+            <div className="flex items-center gap-2">
+              {syncFeedback.success ? <CheckCircle2 className="h-4 w-4 text-emerald-600 dark:text-emerald-400 shrink-0" /> : <Zap className="h-4 w-4 text-rose-600 dark:text-rose-400 shrink-0" />}
+              <span className="font-semibold">{syncFeedback.message}</span>
+            </div>
+            <button onClick={() => setSyncFeedback(null)} className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer">✕</button>
+          </div>
+        )}
 
         {/* EXPANDABLE ACCORDION BODY (Hidden by default to save Dashboard space) */}
         {isExpanded && (

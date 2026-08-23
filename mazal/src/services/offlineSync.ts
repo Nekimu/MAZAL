@@ -1,5 +1,5 @@
 import { PendingOperation, PendingOperationType, OfflineSyncState } from "../types";
-import { supabase, isSupabaseConfigured } from "../supabase";
+import { supabase, isSupabaseConfigured, ensureSupabaseConfigured, getSupabaseClient } from "../supabase";
 
 const QUEUE_STORAGE_KEY = "mazal_pending_sync_queue_v1";
 const LAST_SYNC_KEY = "mazal_last_sync_timestamp";
@@ -173,10 +173,13 @@ export const triggerAutoSync = async (): Promise<{ success: boolean; syncedCount
   let errorsCount = 0;
 
   try {
-    if (!isSupabaseConfigured) {
+    const isConfigured = await ensureSupabaseConfigured();
+    if (!isConfigured) {
       isSyncing = false;
       return { success: true, syncedCount: 0, errors: 0 };
     }
+
+    const client = getSupabaseClient();
 
     const priorityOrder: Record<PendingOperationType, number> = {
       INVENTORY_MOVEMENT: 1,
@@ -206,9 +209,9 @@ export const triggerAutoSync = async (): Promise<{ success: boolean; syncedCount
         const table = op.collectionName === "movements" ? "stock_movements" : op.collectionName;
 
         if (op.action === "DELETE") {
-          await supabase.from(table).delete().eq("id", op.docId);
+          await client.from(table).delete().eq("id", op.docId);
         } else {
-          await supabase.from(table).upsert({
+          await client.from(table).upsert({
             id: op.docId,
             ...(op.payload || {})
           }, { onConflict: "id" });
@@ -250,12 +253,14 @@ export const resolveConflict = async (
 
   try {
     const table = op.collectionName === "movements" ? "stock_movements" : op.collectionName;
+    const isConfigured = await ensureSupabaseConfigured();
 
-    if (isSupabaseConfigured) {
+    if (isConfigured) {
+      const client = getSupabaseClient();
       if (choice === "USE_LOCAL") {
-        await supabase.from(table).upsert(op.payload, { onConflict: "id" });
+        await client.from(table).upsert(op.payload, { onConflict: "id" });
       } else if (choice === "MERGE" && mergedData) {
-        await supabase.from(table).upsert(mergedData, { onConflict: "id" });
+        await client.from(table).upsert(mergedData, { onConflict: "id" });
       }
     }
 

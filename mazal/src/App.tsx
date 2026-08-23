@@ -71,20 +71,62 @@ import {
 } from "./data";
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState("dashboard");
   const [theme, setTheme] = useState<"light" | "dark">(() => {
     const saved = localStorage.getItem("mazal_theme");
     return (saved === "dark" || saved === "light") ? saved : "light";
   });
   
-  // Default branch state - defaults to 'Norte' so Sucursal Norte Public Wholesale Catalog is the main landing page
+  // Default branch state - defaults to 'Norte'
   const [currentBranch, setCurrentBranch] = useState<string | null>(() => {
     return (localStorage.getItem("mazal_active_branch") as string) || "Norte";
   });
 
-  // Current logged in simulation user - always null initially so that visiting the link directs to the login screen
-  const [currentUser, setCurrentUser] = useState<{ name: string; role: any } | null>(null);
-  const [onlyPOSMode, setOnlyPOSMode] = useState(false);
+  // Current logged in simulation user - restored from localStorage to persist across refreshes
+  const [currentUser, setCurrentUser] = useState<{ name: string; role: any } | null>(() => {
+    try {
+      const saved = localStorage.getItem("mazal_session");
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (parsed && parsed.name) {
+          return {
+            name: parsed.name,
+            role: normalizeUserRole(parsed.role)
+          };
+        }
+      }
+    } catch (e) {}
+    return null;
+  });
+
+  const [activeTab, setActiveTab] = useState<string>(() => {
+    try {
+      const saved = localStorage.getItem("mazal_active_tab");
+      return saved || "dashboard";
+    } catch (e) {
+      return "dashboard";
+    }
+  });
+
+  const [onlyPOSMode, setOnlyPOSMode] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem("mazal_only_pos") === "true";
+    } catch (e) {
+      return false;
+    }
+  });
+
+  const [syncModalState, setSyncModalState] = useState<{
+    isOpen: boolean;
+    loading: boolean;
+    result: {
+      success: boolean;
+      message: string;
+      error?: string;
+      syncedTables?: string[];
+      totalRecords?: number;
+      pendingSynced?: number;
+    } | null;
+  } | null>(null);
 
   const handleLoginSuccess = (user: { name: string; role: any }, onlyPOS: boolean = false) => {
     const normalizedUser = {
@@ -93,12 +135,16 @@ export default function App() {
     };
     setCurrentUser(normalizedUser);
     setOnlyPOSMode(onlyPOS);
+    try {
+      localStorage.setItem("mazal_session", JSON.stringify(normalizedUser));
+      localStorage.setItem("mazal_only_pos", onlyPOS ? "true" : "false");
+    } catch (e) {}
     if (onlyPOS) {
-      setActiveTab("pos");
+      handleTabClick("pos");
     } else {
-      setActiveTab("dashboard");
+      const savedTab = localStorage.getItem("mazal_active_tab");
+      handleTabClick(savedTab && savedTab !== "pos" ? savedTab : "dashboard");
     }
-    localStorage.setItem("mazal_session", JSON.stringify(normalizedUser));
   };
 
   const handleLogout = () => {
@@ -112,7 +158,61 @@ export default function App() {
     }
     setCurrentUser(null);
     setOnlyPOSMode(false);
-    localStorage.removeItem("mazal_session");
+    try {
+      localStorage.removeItem("mazal_session");
+      localStorage.removeItem("mazal_only_pos");
+      localStorage.removeItem("mazal_active_tab");
+    } catch (e) {}
+  };
+
+  const handleTriggerManualSync = async () => {
+    setSyncModalState({ isOpen: true, loading: true, result: null });
+    try {
+      // 1. Ensure config is active on device
+      await ensureSupabaseConfigured();
+      // 2. Trigger offline queue sync
+      const queueRes = await triggerAutoSync();
+      // 3. Sync full database state to Supabase Cloud
+      const cloudRes = await syncDatabaseWithSupabase(currentBranch || "Norte");
+      // 4. Reload latest fresh data from Supabase
+      await loadDatabaseFromSupabase(currentBranch || "Norte");
+      setDb(getDatabase());
+
+      if (cloudRes.success) {
+        setSyncModalState({
+          isOpen: true,
+          loading: false,
+          result: {
+            success: true,
+            message: "Todos los registros locales se han guardado y sincronizado con Supabase Cloud exitosamente.",
+            syncedTables: cloudRes.syncedTables || [],
+            totalRecords: cloudRes.totalRecords || 0,
+            pendingSynced: queueRes.syncedCount || 0
+          }
+        });
+      } else {
+        setSyncModalState({
+          isOpen: true,
+          loading: false,
+          result: {
+            success: false,
+            message: "Ocurrió un problema al sincronizar con Supabase Cloud.",
+            error: cloudRes.error || "No se pudo completar la transferencia a la base de datos en la nube."
+          }
+        });
+      }
+    } catch (err: any) {
+      console.error("Manual sync error:", err);
+      setSyncModalState({
+        isOpen: true,
+        loading: false,
+        result: {
+          success: false,
+          message: "Error de red o excepción inesperada al conectar con Supabase.",
+          error: err?.message || String(err)
+        }
+      });
+    }
   };
 
   // DB state
@@ -294,6 +394,9 @@ export default function App() {
     if (!currentUser) return;
     if (isRoleAllowed(tabId)) {
       setActiveTab(tabId);
+      try {
+        localStorage.setItem("mazal_active_tab", tabId);
+      } catch (e) {}
     } else {
       alert(`Tu rol de operador actual (${currentUser.role}) no tiene autorización para ingresar a este módulo.`);
     }
@@ -463,6 +566,17 @@ export default function App() {
               {/* 1. Botón 'En Línea' (Abre ventana emergente) */}
               <OfflineStatusIndicator />
 
+              {/* Botón Sincronizar Inmediato con Confirmación Real */}
+              <button
+                onClick={handleTriggerManualSync}
+                disabled={syncModalState?.loading}
+                className="h-8.5 px-2.5 sm:px-3 py-1 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer shadow-2xs disabled:opacity-50"
+                title="Sincronizar todos los datos con Supabase Cloud ahora"
+              >
+                <RefreshCw className={`h-3.5 w-3.5 ${syncModalState?.loading ? "animate-spin" : ""}`} />
+                <span className="hidden sm:inline">{syncModalState?.loading ? "Sincronizando..." : "Sincronizar"}</span>
+              </button>
+
               {!onlyPOSMode ? (
                 <>
                   {/* 2. Abrir / Cerrar Turno de Caja */}
@@ -556,12 +670,12 @@ export default function App() {
             </div>
           </div>
 
-          {/* TIER 2 (Fila Inferior): Barra de navegación centrada con Tablero, Vender Ahora / POS, Inventario, Clientes, Compras, Finanzas, Recibos, Seguridad */}
+          {/* TIER 2 (Fila Inferior): Barra de navegación con scroll horizontal sin corte en móvil */}
           {!onlyPOSMode && (
-            <div className="w-full flex justify-center items-center pt-1 border-t border-gray-100 dark:border-slate-800/60">
-              <div className="flex items-center justify-center gap-1 sm:gap-1.5 bg-slate-100/90 dark:bg-slate-950/80 p-1 sm:p-1.5 rounded-2xl border border-slate-200/90 dark:border-slate-800/80 overflow-x-auto max-w-full no-scrollbar shadow-inner">
+            <div className="w-full flex items-center justify-start sm:justify-center pt-1.5 pb-0.5 border-t border-gray-100 dark:border-slate-800/60 overflow-x-auto no-scrollbar scroll-smooth">
+              <div className="flex items-center gap-1 sm:gap-1.5 bg-slate-100/90 dark:bg-slate-950/80 p-1 sm:p-1.5 rounded-2xl border border-slate-200/90 dark:border-slate-800/80 shrink-0 min-w-max px-2.5 shadow-inner">
                 <button 
-                  onClick={() => setActiveTab("dashboard")}
+                  onClick={() => handleTabClick("dashboard")}
                   className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 shrink-0 cursor-pointer ${
                     activeTab === "dashboard"
                       ? "bg-emerald-600 text-white shadow-xs font-semibold"
@@ -957,11 +1071,129 @@ export default function App() {
             <div className="pt-2 flex justify-end">
               <button
                 onClick={() => setShowPwaModal(false)}
-                className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl text-xs transition-all shadow-xs"
+                className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl text-xs transition-all shadow-xs cursor-pointer"
               >
                 Entendido
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* --- REAL SUPABASE SYNC CONFIRMATION POPUP / MODAL --- */}
+      {syncModalState?.isOpen && (
+        <div className="fixed inset-0 z-[999999] bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in duration-150">
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl max-w-md w-full p-6 shadow-2xl relative space-y-4">
+            
+            {/* Close Button */}
+            {!syncModalState.loading && (
+              <button
+                onClick={() => setSyncModalState(null)}
+                className="absolute top-4 right-4 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 p-1.5 rounded-lg transition-colors cursor-pointer"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            )}
+
+            {/* Header & Icon */}
+            <div className="flex items-center gap-3.5">
+              <div className={`p-3 rounded-2xl ${
+                syncModalState.loading
+                  ? "bg-amber-100 text-amber-600 dark:bg-amber-950/60 dark:text-amber-400"
+                  : syncModalState.result?.success
+                  ? "bg-emerald-100 text-emerald-600 dark:bg-emerald-950/60 dark:text-emerald-400"
+                  : "bg-rose-100 text-rose-600 dark:bg-rose-950/60 dark:text-rose-400"
+              }`}>
+                {syncModalState.loading ? (
+                  <RefreshCw className="h-6 w-6 animate-spin" />
+                ) : syncModalState.result?.success ? (
+                  <CheckCircle2 className="h-6 w-6" />
+                ) : (
+                  <AlertTriangle className="h-6 w-6" />
+                )}
+              </div>
+              <div>
+                <h3 className="text-base font-black text-slate-900 dark:text-white">
+                  {syncModalState.loading
+                    ? "Sincronizando con Supabase..."
+                    : syncModalState.result?.success
+                    ? "¡Sincronización Exitosa!"
+                    : "Error al Sincronizar"}
+                </h3>
+                <p className="text-xs text-slate-500 dark:text-slate-400">
+                  {syncModalState.loading
+                    ? "Enviando registros locales a la nube en tiempo real"
+                    : syncModalState.result?.success
+                    ? "Base de datos en la nube actualizada correctamente"
+                    : "Verificación de conexión o subida fallida"}
+                </p>
+              </div>
+            </div>
+
+            {/* Body Info */}
+            <div className="space-y-2.5 text-xs">
+              {syncModalState.loading ? (
+                <div className="p-3 bg-slate-50 dark:bg-slate-800/60 rounded-xl border border-slate-200/80 dark:border-slate-700/80 space-y-2">
+                  <div className="flex items-center gap-2 text-slate-600 dark:text-slate-300">
+                    <span className="h-2 w-2 rounded-full bg-amber-500 animate-ping" />
+                    <span>Comunicando con https://omyrorntudpnpimevtya.supabase.co</span>
+                  </div>
+                  <p className="text-[11px] text-slate-400">
+                    Procesando productos, clientes, ventas, sesiones y kardex...
+                  </p>
+                </div>
+              ) : syncModalState.result?.success ? (
+                <div className="space-y-2">
+                  <div className="p-3 bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-900/50 rounded-xl text-emerald-800 dark:text-emerald-300 font-medium">
+                    {syncModalState.result.message}
+                  </div>
+                  {syncModalState.result.syncedTables && syncModalState.result.syncedTables.length > 0 && (
+                    <div className="p-2.5 bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 rounded-xl">
+                      <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1.5 block">
+                        Tablas Sincronizadas:
+                      </span>
+                      <div className="flex flex-wrap gap-1">
+                        {syncModalState.result.syncedTables.map((t, idx) => (
+                          <span key={idx} className="bg-white dark:bg-slate-700 px-2 py-0.5 rounded text-[10px] font-bold text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-600">
+                            {t}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div className="p-3 bg-rose-50 dark:bg-rose-950/30 border border-rose-200 dark:border-rose-900/50 rounded-xl text-rose-800 dark:text-rose-300 space-y-1.5">
+                  <p className="font-bold">{syncModalState.result?.message}</p>
+                  <p className="text-[11px] font-mono text-rose-600 dark:text-rose-400 break-all">
+                    Detalle: {syncModalState.result?.error}
+                  </p>
+                </div>
+              )}
+            </div>
+
+            {/* Actions */}
+            <div className="pt-2 flex justify-end gap-2">
+              {!syncModalState.loading && (
+                <>
+                  {!syncModalState.result?.success && (
+                    <button
+                      onClick={handleTriggerManualSync}
+                      className="px-3.5 py-1.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 font-bold rounded-xl text-xs transition-all cursor-pointer"
+                    >
+                      Reintentar
+                    </button>
+                  )}
+                  <button
+                    onClick={() => setSyncModalState(null)}
+                    className="px-4 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl text-xs transition-all shadow-xs cursor-pointer"
+                  >
+                    Aceptar
+                  </button>
+                </>
+              )}
+            </div>
+
           </div>
         </div>
       )}

@@ -67,6 +67,22 @@ function createSupabaseInstance(url: string, key: string): SupabaseClient {
 // Create the Supabase client instance with realtime enabled
 export let supabase: SupabaseClient = createSupabaseInstance(SUPABASE_URL, SUPABASE_ANON_KEY);
 
+export function getSupabaseClient(): SupabaseClient {
+  if (!isSupabaseConfigured) {
+    const windowConf = (typeof window !== "undefined" && (window as any).__MAZAL_CONFIG__) || {};
+    const metaEnv = (import.meta as any).env || {};
+    const url = windowConf.supabaseUrl || metaEnv.VITE_SUPABASE_URL || SUPABASE_URL;
+    const key = windowConf.supabaseAnonKey || metaEnv.VITE_SUPABASE_ANON_KEY || SUPABASE_ANON_KEY;
+    if (checkIsConfigured(url, key)) {
+      SUPABASE_URL = url;
+      SUPABASE_ANON_KEY = key;
+      isSupabaseConfigured = true;
+      supabase = createSupabaseInstance(url, key);
+    }
+  }
+  return supabase;
+}
+
 const configListeners: Array<(configured: boolean) => void> = [];
 
 export function onSupabaseConfigChange(listener: (configured: boolean) => void) {
@@ -78,10 +94,23 @@ export function onSupabaseConfigChange(listener: (configured: boolean) => void) 
 }
 
 /**
- * Asegura que Supabase esté configurado consultando /api/config en runtime.
+ * Asegura que Supabase esté configurado consultando /api/config en runtime si es necesario.
  */
 export async function ensureSupabaseConfigured(): Promise<boolean> {
-  if (isSupabaseConfigured) return true;
+  if (isSupabaseConfigured && checkIsConfigured(SUPABASE_URL, SUPABASE_ANON_KEY)) {
+    return true;
+  }
+
+  // Check window config again
+  const windowConf = (typeof window !== "undefined" && (window as any).__MAZAL_CONFIG__) || {};
+  if (windowConf.supabaseUrl && windowConf.supabaseAnonKey && checkIsConfigured(windowConf.supabaseUrl, windowConf.supabaseAnonKey)) {
+    SUPABASE_URL = windowConf.supabaseUrl;
+    SUPABASE_ANON_KEY = windowConf.supabaseAnonKey;
+    isSupabaseConfigured = true;
+    supabase = createSupabaseInstance(SUPABASE_URL, SUPABASE_ANON_KEY);
+    configListeners.forEach((fn) => fn(true));
+    return true;
+  }
 
   try {
     const res = await fetch("/api/config");

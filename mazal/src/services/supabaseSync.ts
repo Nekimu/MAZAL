@@ -2,7 +2,7 @@
  * MAZAL POS & ERP - Supabase Sync Engine
  * Sincronización en la nube bidireccional, tiempo real y contingencia offline.
  */
-import { supabase, isSupabaseConfigured, ensureSupabaseConfigured } from "../supabase";
+import { supabase, isSupabaseConfigured, ensureSupabaseConfigured, getSupabaseClient } from "../supabase";
 import { 
   Product, 
   Customer, 
@@ -361,14 +361,17 @@ export async function syncAllToSupabase(db: any, branch: string = "Norte"): Prom
   success: boolean;
   message?: string;
   error?: string;
+  syncedTables?: string[];
+  totalRecords?: number;
 }> {
-  if (!isSupabaseConfigured) {
-    await ensureSupabaseConfigured();
-  }
-
-  if (!isSupabaseConfigured) {
+  const isConfigured = await ensureSupabaseConfigured();
+  if (!isConfigured) {
     return { success: false, error: "Supabase no está configurado." };
   }
+
+  const client = getSupabaseClient();
+  const syncedTables: string[] = [];
+  let totalRecords = 0;
 
   try {
     // 1. Subir productos en lotes (batch upsert de 100 en 100)
@@ -377,11 +380,13 @@ export async function syncAllToSupabase(db: any, branch: string = "Norte"): Prom
       const formatted = db.products.map((p: Product) => mapLocalProductToDb(p, branch));
       for (let i = 0; i < formatted.length; i += batchSize) {
         const chunk = formatted.slice(i, i + batchSize);
-        const { error } = await supabase.from("products").upsert(chunk, { onConflict: "id" });
+        const { error } = await client.from("products").upsert(chunk, { onConflict: "id" });
         if (error) {
           console.warn("Error subiendo lote de productos a Supabase:", error);
         }
       }
+      syncedTables.push(`Productos (${db.products.length})`);
+      totalRecords += db.products.length;
     }
 
     // 2. Subir clientes
@@ -402,7 +407,9 @@ export async function syncAllToSupabase(db: any, branch: string = "Norte"): Prom
         raw_data: c,
         updated_at: new Date().toISOString()
       }));
-      await supabase.from("customers").upsert(custRows, { onConflict: "id" });
+      await client.from("customers").upsert(custRows, { onConflict: "id" });
+      syncedTables.push(`Clientes (${db.customers.length})`);
+      totalRecords += db.customers.length;
     }
 
     // 3. Subir proveedores
@@ -419,7 +426,9 @@ export async function syncAllToSupabase(db: any, branch: string = "Norte"): Prom
         raw_data: s,
         updated_at: new Date().toISOString()
       }));
-      await supabase.from("suppliers").upsert(suppRows, { onConflict: "id" });
+      await client.from("suppliers").upsert(suppRows, { onConflict: "id" });
+      syncedTables.push(`Proveedores (${db.suppliers.length})`);
+      totalRecords += db.suppliers.length;
     }
 
     // 4. Subir ventas recientes
@@ -442,7 +451,9 @@ export async function syncAllToSupabase(db: any, branch: string = "Norte"): Prom
         items: s.items || [],
         raw_data: s
       }));
-      await supabase.from("sales").upsert(salesRows, { onConflict: "id" });
+      await client.from("sales").upsert(salesRows, { onConflict: "id" });
+      syncedTables.push(`Ventas (${db.sales.length})`);
+      totalRecords += db.sales.length;
     }
 
     // 5. Subir sesiones de caja
@@ -461,10 +472,50 @@ export async function syncAllToSupabase(db: any, branch: string = "Norte"): Prom
         sucursal: branch,
         raw_data: cs
       }));
-      await supabase.from("cash_sessions").upsert(sessRows, { onConflict: "id" });
+      await client.from("cash_sessions").upsert(sessRows, { onConflict: "id" });
+      syncedTables.push(`Sesiones Caja (${db.cashSessions.length})`);
+      totalRecords += db.cashSessions.length;
     }
 
-    // 6. Subir usuarios
+    // 6. Subir movimientos de inventario (Kardex)
+    if (db.movements && Array.isArray(db.movements) && db.movements.length > 0) {
+      const movRows = db.movements.slice(-100).map((m: StockMovement) => ({
+        id: String(m.id),
+        product_id: String(m.productId),
+        product_name: m.productName || "",
+        type: m.type || "AJUSTE",
+        quantity: Number(m.quantity || 0),
+        previous_stock: Number(m.previousStock || 0),
+        new_stock: Number(m.newStock || 0),
+        date: m.date || new Date().toISOString(),
+        user_name: m.userName || "Admin",
+        notes: m.notes || "",
+        sucursal: branch,
+        raw_data: m
+      }));
+      await client.from("stock_movements").upsert(movRows, { onConflict: "id" });
+      syncedTables.push(`Kardex (${db.movements.length})`);
+      totalRecords += db.movements.length;
+    }
+
+    // 7. Subir gastos de caja
+    if (db.expenses && Array.isArray(db.expenses) && db.expenses.length > 0) {
+      const expRows = db.expenses.map((e: CashExpense) => ({
+        id: String(e.id),
+        description: e.description || "",
+        amount: Number(e.amount || 0),
+        category: e.category || "General",
+        date: e.date || new Date().toISOString(),
+        user_name: e.userName || "Admin",
+        sucursal: branch,
+        raw_data: e
+      }));
+      await client.from("cash_expenses").upsert(expRows, { onConflict: "id" });
+      syncedTables.push(`Gastos (${db.expenses.length})`);
+      totalRecords += db.expenses.length;
+    }
+
+    // 8. Subir usuarios
     if (db.users && Array.isArray(db.users) && db.users.length > 0) {
       const userRows = db.users.map((u: User) => ({
         id: String(u.id),
@@ -474,11 +525,13 @@ export async function syncAllToSupabase(db: any, branch: string = "Norte"): Prom
         status: u.status || "Activo",
         ...(u.password ? { password: u.password } : {})
       }));
-      await supabase.from("users").upsert(userRows, { onConflict: "username" });
+      await client.from("users").upsert(userRows, { onConflict: "username" });
+      syncedTables.push(`Usuarios (${db.users.length})`);
+      totalRecords += db.users.length;
     }
 
-    // 7. Subir snapshot completo a app_state
-    await supabase.from("app_state").upsert({
+    // 9. Subir snapshot completo a app_state
+    await client.from("app_state").upsert({
       id: `mazal_state_${branch.toLowerCase()}`,
       data: db,
       updated_at: new Date().toISOString()
@@ -486,7 +539,9 @@ export async function syncAllToSupabase(db: any, branch: string = "Norte"): Prom
 
     return {
       success: true,
-      message: "Base de datos sincronizada exitosamente con Supabase Cloud."
+      message: `Sincronización exitosa: ${totalRecords} registros actualizados en Supabase Cloud.`,
+      syncedTables,
+      totalRecords
     };
   } catch (err: any) {
     console.error("Error sincronizando a Supabase:", err);
