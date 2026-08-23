@@ -141,7 +141,7 @@ export default function PurchasesModule({ currentUser }: PurchasesModuleProps) {
     );
   };
 
-  const handleDeleteSupplier = (supp: Supplier) => {
+  const handleDeleteSupplier = async (supp: Supplier) => {
     const isAdmin = currentUser?.role === UserRole.ADMIN || String(currentUser?.role || "").toUpperCase().includes("ADMIN");
     if (!isAdmin) {
       alert("🔒 Permiso Denegado: Solo administradores pueden eliminar proveedores.");
@@ -152,9 +152,9 @@ export default function PurchasesModule({ currentUser }: PurchasesModuleProps) {
       alert(`⚠️ No es posible eliminar al proveedor "${supp.name}" porque tiene cuentas por pagar pendientes de $${formatPrice(debt)} MXN.`);
       return;
     }
-    if (!window.confirm(`¿Deseas eliminar permanentemente al proveedor "${supp.name}"?`)) return;
+    if (!window.confirm(`¿Deseas eliminar permanentemente al proveedor "${supp.name}"?\n\nEsta acción lo eliminará tanto del sistema local como de Supabase Cloud.`)) return;
 
-    deleteSupplierFromSupabase(supp.id).catch((err) => {
+    await deleteSupplierFromSupabase(supp.id).catch((err) => {
       console.warn("Aviso al eliminar proveedor de Supabase:", err);
     });
     const database = getDatabase();
@@ -164,15 +164,15 @@ export default function PurchasesModule({ currentUser }: PurchasesModuleProps) {
     logAction(currentUser.name, currentUser.role, "Proveedor Eliminado", `Eliminó el proveedor: ${supp.name}`);
   };
 
-  const handleDeleteOrder = (order: PurchaseOrder) => {
+  const handleDeleteOrder = async (order: PurchaseOrder) => {
     const isAdmin = currentUser?.role === UserRole.ADMIN || String(currentUser?.role || "").toUpperCase().includes("ADMIN");
     if (!isAdmin) {
       alert("🔒 Permiso Denegado: Solo administradores pueden eliminar órdenes de compra.");
       return;
     }
-    if (!window.confirm(`¿Deseas eliminar la orden de compra "${order.id}"?`)) return;
+    if (!window.confirm(`¿Deseas eliminar permanentemente la orden de compra "${order.id}"?\n\nEsta acción la eliminará de Supabase Cloud.`)) return;
 
-    deletePurchaseOrderFromSupabase(order.id).catch((err) => {
+    await deletePurchaseOrderFromSupabase(order.id).catch((err) => {
       console.warn("Aviso al eliminar orden de compra de Supabase:", err);
     });
     const database = getDatabase();

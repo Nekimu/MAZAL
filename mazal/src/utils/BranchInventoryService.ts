@@ -6,7 +6,7 @@
  */
 
 import { Product, StockTransfer } from "../types";
-import { getDatabase, saveDatabase, logAction } from "../data";
+import { getDatabase, saveDatabase, logAction, saveProductToSupabase } from "../data";
 import { supabase, isSupabaseConfigured } from "../supabase";
 
 export interface BranchStockItem {
@@ -98,16 +98,18 @@ export async function getConsolidatedInventory(): Promise<BranchStockItem[]> {
 }
 
 /**
- * Initiates a double-confirmation stock transfer request.
+ * Creates a pending transfer request.
+ * Deducts stock from origin immediately and registers the pending dispatch in Supabase.
  */
 export async function createPendingStockTransfer(params: InventoryTransferParams): Promise<{ success: boolean; transfer?: StockTransfer; message: string }> {
   const { productCode, productName, fromBranch, toBranch, quantity, userName, userRole, notes } = params;
 
   if (fromBranch === toBranch) {
-    return { success: false, message: "La sucursal de origen y destino deben ser distintas." };
+    return { success: false, message: "La sucursal de origen y destino no pueden ser la misma." };
   }
-  if (!quantity || quantity <= 0) {
-    return { success: false, message: "Ingresa una cantidad válida mayor a 0 para transferir." };
+
+  if (quantity <= 0) {
+    return { success: false, message: "La cantidad a traspasar debe ser mayor a 0." };
   }
 
   try {
@@ -116,7 +118,10 @@ export async function createPendingStockTransfer(params: InventoryTransferParams
     const originDoc = products.find((p) => (p.code || p.barcode || p.id).trim() === productCode.trim());
 
     if (!originDoc) {
-      return { success: false, message: `El producto "${productName}" no se encontró en el inventario.` };
+      return {
+        success: false,
+        message: `El producto con código ${productCode} no fue encontrado en el catálogo de ${fromBranch}.`
+      };
     }
 
     if ((originDoc.stock || 0) < quantity) {
@@ -125,6 +130,10 @@ export async function createPendingStockTransfer(params: InventoryTransferParams
         message: `Stock insuficiente en ${fromBranch}. Stock disponible: ${originDoc.stock || 0}, requerido: ${quantity}.`
       };
     }
+
+    // 1. Restar stock en origen de inmediato
+    originDoc.stock = Number(((originDoc.stock || 0) - quantity).toFixed(3));
+    originDoc.stockDisponible = (originDoc.stock || 0) - (originDoc.stockReservado || 0);
 
     const transferId = "TRF_" + Math.random().toString(36).substring(2, 9).toUpperCase();
     const dateNow = new Date().toISOString().replace("T", " ").substring(0, 19);
@@ -148,30 +157,27 @@ export async function createPendingStockTransfer(params: InventoryTransferParams
       notes: notes || "Traspaso inter-sucursal despachado y pendiente de verificación en destino"
     };
 
-    // Save to local database
+    // 2. Guardar en base de datos local
     db.stockTransfers = [newTransfer, ...(db.stockTransfers || [])];
     await saveDatabase(db);
 
-    // Save to Supabase Cloud if configured
+    // 3. Sincronizar producto descontado en Supabase Cloud
+    await saveProductToSupabase(originDoc, fromBranch).catch(() => {});
+
+    // 4. Sincronizar estado global de traspasos en Supabase Cloud
     if (isSupabaseConfigured) {
       try {
-        await supabase.from("stock_transfers").upsert({
-          id: newTransfer.id,
-          transfer_code: newTransfer.transferCode,
-          product_code: newTransfer.productCode,
-          product_name: newTransfer.productName,
-          quantity: newTransfer.quantity,
-          from_branch: newTransfer.fromBranch,
-          to_branch: newTransfer.toBranch,
-          status: newTransfer.status,
-          raw_data: newTransfer
+        await supabase.from("app_state").upsert({
+          id: "mazal_stock_transfers",
+          data: db.stockTransfers,
+          updated_at: new Date().toISOString()
         });
       } catch (e) {
-        console.warn("Aviso al guardar traspaso en Supabase:", e);
+        console.warn("Aviso al guardar traspaso en Supabase app_state:", e);
       }
     }
 
-    // Log action
+    // 5. Registrar en bitácora de auditoría
     await logAction(
       userName,
       userRole as any,
@@ -194,7 +200,7 @@ export async function createPendingStockTransfer(params: InventoryTransferParams
 }
 
 /**
- * Confirms physical receipt of a stock transfer, applying stock changes in both origin and destination.
+ * Confirms physical receipt of a stock transfer, applying stock changes in destination branch in Supabase.
  */
 export async function confirmStockTransferReceipt(transfer: StockTransfer, receiverUserName: string, userRole: string): Promise<{ success: boolean; message: string }> {
   if (transfer.status !== "PENDIENTE_RECEPCION") {
@@ -206,21 +212,51 @@ export async function confirmStockTransferReceipt(transfer: StockTransfer, recei
   try {
     const db = getDatabase();
     const products: Product[] = db.products || [];
-    const originDoc = products.find((p) => (p.code || p.barcode || p.id).trim() === productCode.trim());
 
-    if (!originDoc) {
-      return { success: false, message: `El producto "${productName}" ya no existe en el catálogo.` };
+    // 1. Buscar si el producto ya existe en la sucursal de destino
+    let destDoc = products.find(
+      (p) => (p.code || p.barcode || p.id).trim() === productCode.trim()
+    );
+
+    if (destDoc) {
+      // Sumar al stock existente en destino
+      destDoc.stock = Number(((destDoc.stock || 0) + quantity).toFixed(3));
+      destDoc.stockDisponible = (destDoc.stock || 0) - (destDoc.stockReservado || 0);
+      destDoc.sucursal = toBranch;
+    } else {
+      // Si no existía en el catálogo de destino, crear registro para toBranch
+      const originDoc = products.find((p) => (p.code || p.barcode || p.id).trim() === productCode.trim());
+      destDoc = {
+        id: `PROD_${toBranch.toUpperCase()}_${Date.now()}`,
+        code: productCode.trim(),
+        barcode: originDoc?.barcode || productCode.trim(),
+        sku: originDoc?.sku || productCode.trim(),
+        name: productName,
+        brand: originDoc?.brand || "MAZAL",
+        category: originDoc?.category || "General",
+        subcategory: originDoc?.subcategory || "",
+        unit: (originDoc?.unit as any) || "Pza",
+        cost: originDoc?.cost || 0,
+        priceMin: originDoc?.priceMin || 0,
+        priceMed: originDoc?.priceMed || 0,
+        priceMax: originDoc?.priceMax || 0,
+        priceSpecial: originDoc?.priceSpecial || 0,
+        stock: quantity,
+        stockMin: originDoc?.stockMin || 5,
+        stockMax: originDoc?.stockMax || 100,
+        location: `Sucursal ${toBranch}`,
+        isCompound: false,
+        imageUrl: originDoc?.imageUrl || "",
+        supplierId: originDoc?.supplierId || "SUPP1",
+        sucursal: toBranch,
+        tipoVenta: originDoc?.tipoVenta || "pieza",
+        permiteVentaFraccionada: Boolean(originDoc?.permiteVentaFraccionada),
+        gramajeBase: originDoc?.gramajeBase || 0
+      };
+      db.products.unshift(destDoc);
     }
 
-    if ((originDoc.stock || 0) < quantity) {
-      return { success: false, message: `El stock bajó durante la espera. Disponible: ${originDoc.stock || 0}, requerido: ${quantity}.` };
-    }
-
-    // Deduct stock from origin
-    originDoc.stock = Number(((originDoc.stock || 0) - quantity).toFixed(3));
-    originDoc.stockDisponible = (originDoc.stock || 0) - (originDoc.stockReservado || 0);
-
-    // Update transfer record status
+    // 2. Actualizar estado del traspaso a COMPLETADO
     const receiveDateStr = new Date().toISOString().replace("T", " ").substring(0, 19);
     const completedTransfer: StockTransfer = {
       ...transfer,
@@ -233,30 +269,33 @@ export async function confirmStockTransferReceipt(transfer: StockTransfer, recei
     db.stockTransfers = (db.stockTransfers || []).map((t: StockTransfer) => t.id === transfer.id ? completedTransfer : t);
     await saveDatabase(db);
 
-    // Update Supabase Cloud if configured
+    // 3. Sincronizar producto en Supabase Cloud en la sucursal de destino
+    await saveProductToSupabase(destDoc, toBranch).catch(() => {});
+
+    // 4. Sincronizar lista global de traspasos en Supabase Cloud
     if (isSupabaseConfigured) {
       try {
-        await supabase.from("stock_transfers").upsert({
-          id: completedTransfer.id,
-          status: "COMPLETADO",
-          raw_data: completedTransfer
+        await supabase.from("app_state").upsert({
+          id: "mazal_stock_transfers",
+          data: db.stockTransfers,
+          updated_at: new Date().toISOString()
         });
       } catch (e) {
-        console.warn("Aviso al actualizar traspaso en Supabase:", e);
+        console.warn("Aviso al actualizar traspaso en Supabase app_state:", e);
       }
     }
 
-    // Log action
+    // 5. Registrar en bitácora
     await logAction(
       receiverUserName,
       userRole as any,
       "RECEPCION_TRASPASO_CONFIRMADA",
-      `Confirmó recepción de ${quantity} ${transfer.unit} de "${productName}". Stock descontado de ${fromBranch} e incrementado en ${toBranch}. Folio: ${transfer.transferCode}`
+      `Confirmó recepción de ${quantity} ${transfer.unit} de "${productName}". Stock ingresado a sucursal ${toBranch}. Folio: ${transfer.transferCode}`
     );
 
     return {
       success: true,
-      message: `🎉 ¡Traspaso ${transfer.transferCode} confirmado y sincronizado con éxito! El inventario se actualizó.`
+      message: `🎉 ¡Traspaso ${transfer.transferCode} confirmado y sincronizado con éxito! El inventario de ${toBranch} sumó +${quantity} ${transfer.unit}.`
     };
   } catch (err) {
     console.error("Error confirming stock transfer receipt:", err);
@@ -268,29 +307,39 @@ export async function confirmStockTransferReceipt(transfer: StockTransfer, recei
 }
 
 /**
- * Rejects a pending stock transfer.
+ * Rejects a pending stock transfer, returning stock to origin branch.
  */
 export async function rejectStockTransfer(transfer: StockTransfer, rejectorUserName: string, userRole: string, reason?: string): Promise<{ success: boolean; message: string }> {
   try {
+    const db = getDatabase();
+    const products: Product[] = db.products || [];
+    const originDoc = products.find((p) => (p.code || p.barcode || p.id).trim() === transfer.productCode.trim());
+
+    // 1. Devolver stock a la sucursal de origen
+    if (originDoc) {
+      originDoc.stock = Number(((originDoc.stock || 0) + transfer.quantity).toFixed(3));
+      originDoc.stockDisponible = (originDoc.stock || 0) - (originDoc.stockReservado || 0);
+      await saveProductToSupabase(originDoc, transfer.fromBranch).catch(() => {});
+    }
+
     const rejectedTransfer: StockTransfer = {
       ...transfer,
       status: "RECHAZADO",
       notes: `${transfer.notes || ""} | Rechazado por ${rejectorUserName}. Razón: ${reason || "No especificada"}`
     };
 
-    const db = getDatabase();
     db.stockTransfers = (db.stockTransfers || []).map((t: StockTransfer) => t.id === transfer.id ? rejectedTransfer : t);
     await saveDatabase(db);
 
     if (isSupabaseConfigured) {
       try {
-        await supabase.from("stock_transfers").upsert({
-          id: rejectedTransfer.id,
-          status: "RECHAZADO",
-          raw_data: rejectedTransfer
+        await supabase.from("app_state").upsert({
+          id: "mazal_stock_transfers",
+          data: db.stockTransfers,
+          updated_at: new Date().toISOString()
         });
       } catch (e) {
-        console.warn("Aviso al rechazar traspaso en Supabase:", e);
+        console.warn("Aviso al rechazar traspaso en Supabase app_state:", e);
       }
     }
 
@@ -298,12 +347,12 @@ export async function rejectStockTransfer(transfer: StockTransfer, rejectorUserN
       rejectorUserName,
       userRole as any,
       "RECHAZO_TRASPASO",
-      `Rechazó el traspaso ${transfer.transferCode} de ${transfer.productName} enviado desde ${transfer.fromBranch}. El inventario se mantuvo intacto.`
+      `Rechazó el traspaso ${transfer.transferCode} de ${transfer.productName}. Se reincorporaron ${transfer.quantity} ${transfer.unit} al inventario de ${transfer.fromBranch}.`
     );
 
     return {
       success: true,
-      message: `El traspaso ${transfer.transferCode} ha sido rechazado. Los inventarios no sufrieron modificaciones.`
+      message: `El traspaso ${transfer.transferCode} ha sido rechazado. El stock fue reincorporado a ${transfer.fromBranch}.`
     };
   } catch (err) {
     console.error("Error rejecting transfer:", err);

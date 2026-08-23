@@ -19,17 +19,20 @@ try {
 const windowConfig = (typeof window !== "undefined" && (window as any).__MAZAL_CONFIG__) || {};
 const metaEnv = (import.meta as any).env || {};
 
+const HARDCODED_SUPABASE_URL = "https://omyrorntudpnpimevtya.supabase.co";
+const HARDCODED_SUPABASE_ANON_KEY = "sb_publishable_ShCmXvsdnLdzhGJgDYIfsw_a4CN3jJl";
+
 export let SUPABASE_URL: string =
   windowConfig.supabaseUrl ||
   storedConfig?.supabaseUrl ||
   metaEnv.VITE_SUPABASE_URL ||
-  "";
+  HARDCODED_SUPABASE_URL;
 
 export let SUPABASE_ANON_KEY: string =
   windowConfig.supabaseAnonKey ||
   storedConfig?.supabaseAnonKey ||
   metaEnv.VITE_SUPABASE_ANON_KEY ||
-  "";
+  HARDCODED_SUPABASE_ANON_KEY;
 
 export function checkIsConfigured(url: string, key: string): boolean {
   return Boolean(
@@ -59,7 +62,7 @@ function createSupabaseInstance(url: string, key: string): SupabaseClient {
           }
         }
       })
-    : createClient("https://placeholder-project.supabase.co", "placeholder-anon-key", {
+    : createClient(HARDCODED_SUPABASE_URL, HARDCODED_SUPABASE_ANON_KEY, {
         auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false }
       });
 }
@@ -68,11 +71,11 @@ function createSupabaseInstance(url: string, key: string): SupabaseClient {
 export let supabase: SupabaseClient = createSupabaseInstance(SUPABASE_URL, SUPABASE_ANON_KEY);
 
 export function getSupabaseClient(): SupabaseClient {
-  if (!isSupabaseConfigured) {
+  if (!isSupabaseConfigured || !checkIsConfigured(SUPABASE_URL, SUPABASE_ANON_KEY)) {
     const windowConf = (typeof window !== "undefined" && (window as any).__MAZAL_CONFIG__) || {};
     const metaEnv = (import.meta as any).env || {};
-    const url = windowConf.supabaseUrl || metaEnv.VITE_SUPABASE_URL || SUPABASE_URL;
-    const key = windowConf.supabaseAnonKey || metaEnv.VITE_SUPABASE_ANON_KEY || SUPABASE_ANON_KEY;
+    const url = windowConf.supabaseUrl || metaEnv.VITE_SUPABASE_URL || SUPABASE_URL || HARDCODED_SUPABASE_URL;
+    const key = windowConf.supabaseAnonKey || metaEnv.VITE_SUPABASE_ANON_KEY || SUPABASE_ANON_KEY || HARDCODED_SUPABASE_ANON_KEY;
     if (checkIsConfigured(url, key)) {
       SUPABASE_URL = url;
       SUPABASE_ANON_KEY = key;
@@ -101,6 +104,14 @@ export async function ensureSupabaseConfigured(): Promise<boolean> {
     return true;
   }
 
+  // Fallback to active constants
+  if (!checkIsConfigured(SUPABASE_URL, SUPABASE_ANON_KEY)) {
+    SUPABASE_URL = HARDCODED_SUPABASE_URL;
+    SUPABASE_ANON_KEY = HARDCODED_SUPABASE_ANON_KEY;
+  }
+  isSupabaseConfigured = true;
+  supabase = createSupabaseInstance(SUPABASE_URL, SUPABASE_ANON_KEY);
+
   // Check window config again
   const windowConf = (typeof window !== "undefined" && (window as any).__MAZAL_CONFIG__) || {};
   if (windowConf.supabaseUrl && windowConf.supabaseAnonKey && checkIsConfigured(windowConf.supabaseUrl, windowConf.supabaseAnonKey)) {
@@ -114,7 +125,8 @@ export async function ensureSupabaseConfigured(): Promise<boolean> {
 
   try {
     const res = await fetch("/api/config");
-    if (res.ok) {
+    const contentType = res.headers.get("content-type") || "";
+    if (res.ok && contentType.includes("application/json")) {
       const data = await res.json();
       if (data.supabaseUrl && data.supabaseAnonKey && checkIsConfigured(data.supabaseUrl, data.supabaseAnonKey)) {
         SUPABASE_URL = data.supabaseUrl;
@@ -135,7 +147,7 @@ export async function ensureSupabaseConfigured(): Promise<boolean> {
       }
     }
   } catch (err) {
-    console.warn("Aviso al consultar /api/config:", err);
+    // Non-blocking fallback to built-in default config
   }
 
   return isSupabaseConfigured;

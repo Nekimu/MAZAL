@@ -51,6 +51,36 @@ interface InventoryModuleProps {
   currentBranch?: "Norte" | "Sur" | string | null;
 }
 
+export const SYSTEM_CATEGORIES = [
+  "Abarrotes",
+  "Desechables",
+  "Plásticos",
+  "Bolsas y Empaques",
+  "Limpieza y Hogar",
+  "Lácteos y Refrigerados",
+  "Dulcería y Confitería",
+  "Botanas y Frituras",
+  "Bebidas y Jugos",
+  "Papelería",
+  "Higiene Personal",
+  "Mascotas",
+  "Panadería y Galletas",
+  "Especias y Condimentos",
+  "Enlatados y Conservas",
+  "Materias Primas",
+  "General"
+];
+
+export const SYSTEM_DEPARTMENTS = [
+  "Abarrotes",
+  "Desechables y Plásticos",
+  "Limpieza",
+  "Perecederos",
+  "Bebidas",
+  "Dulcería",
+  "General"
+];
+
 export default function InventoryModule({ currentUser, currentBranch }: InventoryModuleProps) {
   const [db, setDb] = useState(getDatabase());
   const isAdmin = currentUser?.role === UserRole.ADMIN;
@@ -303,11 +333,35 @@ export default function InventoryModule({ currentUser, currentBranch }: Inventor
     });
   };
 
-  const uniqueDepartamentos = ["Todas", ...Array.from(new Set(db.products.map((p: any) => p.departamento).filter(Boolean).sort()))];
-  const uniqueCategories = ["Todas", ...Array.from(new Set(db.products.map((p: any) => p.category || p.categoria).filter(Boolean).sort()))];
-  const uniqueSubcategories = ["Todas", ...Array.from(new Set(db.products.map((p: any) => p.subcategory || p.subcategoria).filter(Boolean).sort()))];
-  const uniqueBrands = ["Todas", ...Array.from(new Set(db.products.map((p: any) => p.brand || p.marca).filter(Boolean).sort()))];
-  const uniqueSuppliers = ["Todas", ...Array.from(new Set(db.products.map((p: any) => p.proveedorNombre || "Proveedor Directo").filter(Boolean).sort()))];
+  const uniqueDepartamentos = [
+    "Todas",
+    ...Array.from(new Set([
+      ...SYSTEM_DEPARTMENTS,
+      ...db.products.map((p: any) => p.departamento).filter(Boolean)
+    ])).sort()
+  ];
+  const uniqueCategories = [
+    "Todas",
+    ...Array.from(new Set([
+      ...SYSTEM_CATEGORIES,
+      ...db.products.map((p: any) => p.category || p.categoria).filter(Boolean)
+    ])).sort()
+  ];
+  const uniqueSubcategories = [
+    "Todas",
+    ...Array.from(new Set(db.products.map((p: any) => p.subcategory || p.subcategoria).filter(Boolean))).sort()
+  ];
+  const uniqueBrands = [
+    "Todas",
+    ...Array.from(new Set(db.products.map((p: any) => p.brand || p.marca).filter(Boolean))).sort()
+  ];
+  const uniqueSuppliers = [
+    "Todas",
+    ...Array.from(new Set([
+      ...((db.suppliers || []).map((s: any) => s.name).filter(Boolean)),
+      ...db.products.map((p: any) => p.proveedorNombre || "Proveedor Directo").filter(Boolean)
+    ])).sort()
+  ];
   const uniqueTipoVentas = ["Todas", "pieza", "peso", "volumen"];
   const uniqueUnidades = ["Todas", "Pza", "Kg", "L", "Paq", "g", "ml"];
 
@@ -1537,15 +1591,22 @@ export default function InventoryModule({ currentUser, currentBranch }: Inventor
 
                 <div>
                   <label className="text-xs font-semibold text-gray-600 dark:text-slate-400 block mb-1">Categoría</label>
-                  <select
-                    value={newProduct.category}
-                    onChange={(e) => setNewProduct({ ...newProduct, category: e.target.value })}
-                    className="w-full text-xs rounded-lg border border-gray-200 dark:border-slate-700 p-2.5 bg-white dark:bg-slate-800 dark:text-white"
-                  >
-                    {categories.filter(c => c !== "Todas").map(c => (
-                      <option key={c} value={c}>{c}</option>
-                    ))}
-                  </select>
+                  <div className="relative">
+                    <input
+                      type="text"
+                      list="categories-datalist"
+                      required
+                      placeholder="Seleccionar o escribir categoría..."
+                      value={newProduct.category}
+                      onChange={(e) => setNewProduct({ ...newProduct, category: e.target.value })}
+                      className="w-full text-xs rounded-lg border border-gray-200 dark:border-slate-700 p-2.5 bg-white dark:bg-slate-800 dark:text-white"
+                    />
+                    <datalist id="categories-datalist">
+                      {uniqueCategories.filter(c => c !== "Todas").map(c => (
+                        <option key={c} value={c} />
+                      ))}
+                    </datalist>
+                  </div>
                 </div>
 
                 <div>

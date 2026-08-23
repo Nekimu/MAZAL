@@ -751,6 +751,9 @@ export const loadDatabaseFromSupabase = async (branchParam?: string): Promise<ty
       if (Array.isArray(data.purchaseOrders)) {
         inMemoryDb.purchaseOrders = data.purchaseOrders;
       }
+      if (Array.isArray(data.stockTransfers)) {
+        inMemoryDb.stockTransfers = data.stockTransfers;
+      }
 
       saveToLocalStorage(inMemoryDb);
       dbCache = JSON.parse(JSON.stringify(inMemoryDb));
@@ -960,6 +963,7 @@ export const loadDatabaseFromSupabase = async (branchParam?: string): Promise<ty
             if (Array.isArray(refreshRes.data.movements)) inMemoryDb.movements = refreshRes.data.movements;
             if (Array.isArray(refreshRes.data.expenses)) inMemoryDb.expenses = refreshRes.data.expenses;
             if (Array.isArray(refreshRes.data.purchaseOrders)) inMemoryDb.purchaseOrders = refreshRes.data.purchaseOrders;
+            if (Array.isArray(refreshRes.data.stockTransfers)) inMemoryDb.stockTransfers = refreshRes.data.stockTransfers;
             saveToLocalStorage(inMemoryDb);
             dbCache = JSON.parse(JSON.stringify(inMemoryDb));
             notifySubscribers();

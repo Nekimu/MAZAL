@@ -158,12 +158,17 @@ export async function loadAllFromSupabase(branch: string = "Norte"): Promise<{
 
   try {
     const results: any = {};
+    const normBranch = (branch || "Norte").trim();
+    const isSur = normBranch.toLowerCase() === "sur";
 
-    // 1. Cargar productos (todos o de la sucursal activa)
-    const { data: prodData, error: prodErr } = await client
-      .from("products")
-      .select("*")
-      .order("name", { ascending: true });
+    // 1. Cargar productos aislados de la sucursal activa
+    let prodQuery = client.from("products").select("*");
+    if (isSur) {
+      prodQuery = prodQuery.eq("sucursal", "Sur");
+    } else {
+      prodQuery = prodQuery.or("sucursal.eq.Norte,sucursal.eq.Matriz,sucursal.is.null");
+    }
+    const { data: prodData, error: prodErr } = await prodQuery.order("name", { ascending: true });
 
     if (!prodErr && Array.isArray(prodData)) {
       results.products = prodData.map(mapDbProductToLocal);
@@ -209,12 +214,17 @@ export async function loadAllFromSupabase(branch: string = "Norte"): Promise<{
       }));
     }
 
-    // 4. Cargar ventas
-    const { data: salesData, error: salesErr } = await client
-      .from("sales")
-      .select("*")
+    // 4. Cargar ventas aisladas de la sucursal activa
+    let salesQuery = client.from("sales").select("*");
+    if (isSur) {
+      salesQuery = salesQuery.eq("sucursal", "Sur");
+    } else {
+      salesQuery = salesQuery.or("sucursal.eq.Norte,sucursal.is.null");
+    }
+    const { data: salesData, error: salesErr } = await salesQuery
       .order("created_at", { ascending: false })
       .limit(500);
+
     if (!salesErr && salesData) {
       results.sales = salesData.map((s: any) => ({
         id: s.id,
@@ -235,12 +245,17 @@ export async function loadAllFromSupabase(branch: string = "Norte"): Promise<{
       }));
     }
 
-    // 5. Cargar movimientos de stock
-    const { data: movData, error: movErr } = await client
-      .from("stock_movements")
-      .select("*")
+    // 5. Cargar movimientos de stock aislados de la sucursal activa
+    let movQuery = client.from("stock_movements").select("*");
+    if (isSur) {
+      movQuery = movQuery.eq("sucursal", "Sur");
+    } else {
+      movQuery = movQuery.or("sucursal.eq.Norte,sucursal.is.null");
+    }
+    const { data: movData, error: movErr } = await movQuery
       .order("created_at", { ascending: false })
       .limit(300);
+
     if (!movErr && movData) {
       results.movements = movData.map((m: any) => ({
         id: m.id,
@@ -257,12 +272,17 @@ export async function loadAllFromSupabase(branch: string = "Norte"): Promise<{
       }));
     }
 
-    // 6. Cargar sesiones de caja
-    const { data: sessData, error: sessErr } = await client
-      .from("cash_sessions")
-      .select("*")
+    // 6. Cargar sesiones de caja aisladas de la sucursal activa
+    let sessQuery = client.from("cash_sessions").select("*");
+    if (isSur) {
+      sessQuery = sessQuery.eq("sucursal", "Sur");
+    } else {
+      sessQuery = sessQuery.or("sucursal.eq.Norte,sucursal.is.null");
+    }
+    const { data: sessData, error: sessErr } = await sessQuery
       .order("created_at", { ascending: false })
       .limit(50);
+
     if (!sessErr && sessData) {
       results.cashSessions = sessData.map((cs: any) => ({
         id: cs.id,
@@ -279,12 +299,17 @@ export async function loadAllFromSupabase(branch: string = "Norte"): Promise<{
       }));
     }
 
-    // 7. Cargar gastos
-    const { data: expData, error: expErr } = await client
-      .from("cash_expenses")
-      .select("*")
+    // 7. Cargar gastos aislados de la sucursal activa
+    let expQuery = client.from("cash_expenses").select("*");
+    if (isSur) {
+      expQuery = expQuery.eq("sucursal", "Sur");
+    } else {
+      expQuery = expQuery.or("sucursal.eq.Norte,sucursal.is.null");
+    }
+    const { data: expData, error: expErr } = await expQuery
       .order("created_at", { ascending: false })
       .limit(100);
+
     if (!expErr && expData) {
       results.expenses = expData.map((e: any) => ({
         id: e.id,
@@ -351,11 +376,24 @@ export async function loadAllFromSupabase(branch: string = "Norte"): Promise<{
       }));
     }
 
-    // 11. Cargar estado de respaldo (app_state)
+    // 11. Cargar traspasos de inventario inter-sucursales
+    try {
+      const { data: trfState } = await client
+        .from("app_state")
+        .select("data")
+        .eq("id", "mazal_stock_transfers")
+        .maybeSingle();
+
+      if (trfState && Array.isArray(trfState.data)) {
+        results.stockTransfers = trfState.data;
+      }
+    } catch (e) {}
+
+    // 12. Cargar estado de respaldo (app_state)
     const { data: stateData } = await client
       .from("app_state")
       .select("data")
-      .eq("id", `mazal_state_${branch.toLowerCase()}`)
+      .eq("id", `mazal_state_${normBranch.toLowerCase()}`)
       .maybeSingle();
 
     if (stateData && stateData.data) {
