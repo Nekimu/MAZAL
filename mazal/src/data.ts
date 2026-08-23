@@ -1137,13 +1137,13 @@ export const syncWithLocalMySQL = async (branchParam?: string): Promise<{ succes
                 total: 0,
                 costTotal: 0,
                 profit: 0,
-                paymentMethod: 'Efectivo',
-                cashier: 'Histórico',
-                customer: v.nombre_c || 'Cliente Histórico',
-                branch: targetBranch,
-                date: v.fecha || dateStr + " 12:00:00",
-                status: 'Completada',
-                discount: 0
+                paymentMethod: PaymentMethod.CASH,
+                userId: 'USR_HIST',
+                userName: 'Histórico',
+                customerId: v.id_cliente ? String(v.id_cliente) : undefined,
+                customerName: v.nombre_c || 'Cliente Histórico',
+                sucursal: targetBranch,
+                date: v.fecha || dateStr + " 12:00:00"
               };
             }
             

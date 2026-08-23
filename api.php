@@ -193,6 +193,7 @@ function autoMigrateSchema($db, $targetDb) {
     // F. TABLA VENTAS
     $db->query("CREATE TABLE IF NOT EXISTS ventas (
         id_venta INT AUTO_INCREMENT PRIMARY KEY,
+        ticket_number VARCHAR(100) DEFAULT '',
         id_producto INT DEFAULT NULL,
         descripcion VARCHAR(255) DEFAULT '',
         fecha DATETIME DEFAULT CURRENT_TIMESTAMP,
@@ -201,9 +202,11 @@ function autoMigrateSchema($db, $targetDb) {
         total_utilidad DECIMAL(10,2) DEFAULT 0,
         id_cliente INT DEFAULT NULL,
         metodo_pago VARCHAR(50) DEFAULT 'Efectivo',
-        sucursal VARCHAR(50) DEFAULT 'Norte'
+        sucursal VARCHAR(50) DEFAULT 'Norte',
+        raw_data LONGTEXT DEFAULT NULL
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;");
     $ensureColumns('ventas', [
+        'ticket_number' => "VARCHAR(100) DEFAULT ''",
         'id_producto' => "INT DEFAULT NULL",
         'descripcion' => "VARCHAR(255) DEFAULT ''",
         'fecha' => "DATETIME DEFAULT CURRENT_TIMESTAMP",
@@ -212,7 +215,8 @@ function autoMigrateSchema($db, $targetDb) {
         'total_utilidad' => "DECIMAL(10,2) DEFAULT 0",
         'id_cliente' => "INT DEFAULT NULL",
         'metodo_pago' => "VARCHAR(50) DEFAULT 'Efectivo'",
-        'sucursal' => "VARCHAR(50) DEFAULT 'Norte'"
+        'sucursal' => "VARCHAR(50) DEFAULT 'Norte'",
+        'raw_data' => "LONGTEXT DEFAULT NULL"
     ]);
 
     // G. TABLA ROLES_PERMISOS
@@ -461,13 +465,98 @@ if ($action === 'save_state' && $_SERVER['REQUEST_METHOD'] === 'POST') {
                 }
             }
         }
+    }
 
-        // Eliminar clientes que hayan sido borrados en el frontend
-        if (count($validIds) > 0) {
-            $idList = implode(',', $validIds);
-            $mysqli->query("DELETE FROM clientes WHERE id_cliente NOT IN ({$idList})");
-        } else {
-            $mysqli->query("DELETE FROM clientes");
+    // 4.3 Sincronizar proveedores con la tabla nativa de MySQL
+    if ($postData && isset($postData['suppliers']) && is_array($postData['suppliers'])) {
+        foreach ($postData['suppliers'] as $s) {
+            $rawId = isset($s['id']) ? (string)$s['id'] : '';
+            $sId = (int)preg_replace('/[^0-9]/', '', $rawId);
+            $sName = isset($s['name']) ? trim($s['name']) : (isset($s['nombre']) ? trim($s['nombre']) : '');
+            $sTel = isset($s['phone']) ? trim($s['phone']) : (isset($s['tel']) ? trim($s['tel']) : '');
+            $sEmpresa = isset($s['company']) ? trim($s['company']) : (isset($s['empresa']) ? trim($s['empresa']) : $sName);
+            $sAdeudo = isset($s['outstandingBalance']) ? (float)$s['outstandingBalance'] : (isset($s['adeudo']) ? (float)$s['adeudo'] : 0);
+
+            if (!empty($sName)) {
+                if ($sId > 0) {
+                    $stmtS = $mysqli->prepare("INSERT INTO proveedor (id, nombre, tel, empresa, adeudo) VALUES (?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE nombre=VALUES(nombre), tel=VALUES(tel), empresa=VALUES(empresa), adeudo=VALUES(adeudo)");
+                    $stmtS->bind_param("isssd", $sId, $sName, $sTel, $sEmpresa, $sAdeudo);
+                    $stmtS->execute();
+                } else {
+                    $stmtS = $mysqli->prepare("INSERT INTO proveedor (nombre, tel, empresa, adeudo) VALUES (?, ?, ?, ?)");
+                    $stmtS->bind_param("sssd", $sName, $sTel, $sEmpresa, $sAdeudo);
+                    $stmtS->execute();
+                }
+            }
+        }
+    }
+
+    // 4.4 Sincronizar productos y precios con la tabla nativa de MySQL
+    if ($postData && isset($postData['products']) && is_array($postData['products'])) {
+        foreach ($postData['products'] as $p) {
+            $rawId = isset($p['id']) ? (string)$p['id'] : '';
+            $pId = (int)preg_replace('/[^0-9]/', '', $rawId);
+            $pClave = isset($p['code']) ? trim($p['code']) : (isset($p['clave']) ? trim($p['clave']) : '');
+            $pName = isset($p['name']) ? trim($p['name']) : (isset($p['nom_p']) ? trim($p['nom_p']) : '');
+            $pDes = isset($p['subcategory']) ? trim($p['subcategory']) : (isset($p['des']) ? trim($p['des']) : 'entero');
+            $pCant = isset($p['stock']) ? (float)$p['stock'] : (isset($p['cant']) ? (float)$p['cant'] : 0);
+
+            $pMayoreo = isset($p['priceMax']) ? round((float)$p['priceMax'], 2) : (isset($p['mayoreo']) ? round((float)$p['mayoreo'], 2) : 0);
+            $pMedio = isset($p['priceMed']) ? round((float)$p['priceMed'], 2) : (isset($p['medio']) ? round((float)$p['medio'], 2) : 0);
+            $pMenudeo = isset($p['priceMin']) ? round((float)$p['priceMin'], 2) : (isset($p['menudeo']) ? round((float)$p['menudeo'], 2) : 0);
+            $pUnitario = isset($p['cost']) ? strval(round((float)$p['cost'], 2)) : (isset($p['unitario']) ? strval(round((float)$p['unitario'], 2)) : '0');
+
+            if (!empty($pName)) {
+                if ($pId > 0) {
+                    $stmtP = $mysqli->prepare("INSERT INTO productos (id, clave, nom_p, des, cant) VALUES (?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE clave=VALUES(clave), nom_p=VALUES(nom_p), des=VALUES(des), cant=VALUES(cant)");
+                    $stmtP->bind_param("isssd", $pId, $pClave, $pName, $pDes, $pCant);
+                    $stmtP->execute();
+
+                    $stmtPr = $mysqli->prepare("INSERT INTO precios (id_producto, mayoreo, medio, menudeo, Unitario) VALUES (?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE mayoreo=VALUES(mayoreo), medio=VALUES(medio), menudeo=VALUES(menudeo), Unitario=VALUES(Unitario)");
+                    $stmtPr->bind_param("iddds", $pId, $pMayoreo, $pMedio, $pMenudeo, $pUnitario);
+                    $stmtPr->execute();
+                } else {
+                    $stmtP = $mysqli->prepare("INSERT INTO productos (clave, nom_p, des, cant) VALUES (?, ?, ?, ?)");
+                    $stmtP->bind_param("sssd", $pClave, $pName, $pDes, $pCant);
+                    $stmtP->execute();
+                    $newProdId = $mysqli->insert_id;
+                    if ($newProdId > 0) {
+                        $stmtPr = $mysqli->prepare("INSERT INTO precios (id_producto, mayoreo, medio, menudeo, Unitario) VALUES (?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE mayoreo=VALUES(mayoreo), medio=VALUES(medio), menudeo=VALUES(menudeo), Unitario=VALUES(Unitario)");
+                        $stmtPr->bind_param("iddds", $newProdId, $pMayoreo, $pMedio, $pMenudeo, $pUnitario);
+                        $stmtPr->execute();
+                    }
+                }
+            }
+        }
+    }
+
+    // 4.5 Sincronizar ventas con la tabla nativa de MySQL
+    if ($postData && isset($postData['sales']) && is_array($postData['sales'])) {
+        foreach ($postData['sales'] as $v) {
+            $rawId = isset($v['id']) ? (string)$v['id'] : '';
+            $vId = (int)preg_replace('/[^0-9]/', '', $rawId);
+            $vTicket = isset($v['ticketNumber']) ? trim($v['ticketNumber']) : (isset($v['ticket_number']) ? trim($v['ticket_number']) : ($rawId ? "TICK-{$rawId}" : ''));
+            $vDesc = isset($v['description']) ? trim($v['description']) : (isset($v['descripcion']) ? trim($v['descripcion']) : "Venta Ticket {$vTicket}");
+            $vFecha = isset($v['date']) ? trim($v['date']) : (isset($v['fecha']) ? trim($v['fecha']) : date("Y-m-d H:i:s"));
+            $vTotal = isset($v['total']) ? (float)$v['total'] : 0;
+            $vProfit = isset($v['profit']) ? (float)$v['profit'] : (isset($v['total_utilidad']) ? (float)$v['total_utilidad'] : 0);
+            $vMetodo = isset($v['paymentMethod']) ? trim($v['paymentMethod']) : (isset($v['metodo_pago']) ? trim($v['metodo_pago']) : 'Efectivo');
+            $vSucursal = isset($v['sucursal']) ? trim($v['sucursal']) : $branch;
+            $vRaw = json_encode($v);
+
+            $rawCustId = isset($v['customerId']) ? (string)$v['customerId'] : (isset($v['id_cliente']) ? (string)$v['id_cliente'] : '');
+            $vClienteId = !empty($rawCustId) ? (int)preg_replace('/[^0-9]/', '', $rawCustId) : null;
+            if ($vClienteId === 0) $vClienteId = null;
+
+            if ($vId > 0) {
+                $stmtV = $mysqli->prepare("INSERT INTO ventas (id_venta, ticket_number, descripcion, fecha, total, total_utilidad, id_cliente, metodo_pago, sucursal, raw_data) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE ticket_number=VALUES(ticket_number), descripcion=VALUES(descripcion), fecha=VALUES(fecha), total=VALUES(total), total_utilidad=VALUES(total_utilidad), id_cliente=VALUES(id_cliente), metodo_pago=VALUES(metodo_pago), sucursal=VALUES(sucursal), raw_data=VALUES(raw_data)");
+                $stmtV->bind_param("isssddisss", $vId, $vTicket, $vDesc, $vFecha, $vTotal, $vProfit, $vClienteId, $vMetodo, $vSucursal, $vRaw);
+                $stmtV->execute();
+            } else {
+                $stmtV = $mysqli->prepare("INSERT INTO ventas (ticket_number, descripcion, fecha, total, total_utilidad, id_cliente, metodo_pago, sucursal, raw_data) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)");
+                $stmtV->bind_param("sssddisss", $vTicket, $vDesc, $vFecha, $vTotal, $vProfit, $vClienteId, $vMetodo, $vSucursal, $vRaw);
+                $stmtV->execute();
+            }
         }
     }
 

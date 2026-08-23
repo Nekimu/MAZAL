@@ -489,9 +489,10 @@ export async function syncAllToSupabase(db: any, branch: string = "Norte"): Prom
       totalRecords += db.suppliers.length;
     }
 
-    // 4. Subir ventas recientes
+    // 4. Subir todas las ventas en lotes
     if (db.sales && Array.isArray(db.sales) && db.sales.length > 0) {
-      const salesRows = db.sales.slice(-100).map((s: Sale) => ({
+      const batchSize = 100;
+      const salesRows = db.sales.map((s: Sale) => ({
         id: String(s.id),
         ticket_number: s.ticketNumber || `TICK-${s.id}`,
         total: s.total || 0,
@@ -509,7 +510,10 @@ export async function syncAllToSupabase(db: any, branch: string = "Norte"): Prom
         items: s.items || [],
         raw_data: s
       }));
-      await client.from("sales").upsert(salesRows, { onConflict: "id" });
+      for (let i = 0; i < salesRows.length; i += batchSize) {
+        const chunk = salesRows.slice(i, i + batchSize);
+        await client.from("sales").upsert(chunk, { onConflict: "id" });
+      }
       syncedTables.push(`Ventas (${db.sales.length})`);
       totalRecords += db.sales.length;
     }
@@ -535,9 +539,10 @@ export async function syncAllToSupabase(db: any, branch: string = "Norte"): Prom
       totalRecords += db.cashSessions.length;
     }
 
-    // 6. Subir movimientos de inventario (Kardex)
+    // 6. Subir todos los movimientos de inventario (Kardex) en lotes
     if (db.movements && Array.isArray(db.movements) && db.movements.length > 0) {
-      const movRows = db.movements.slice(-100).map((m: StockMovement) => ({
+      const batchSize = 100;
+      const movRows = db.movements.map((m: StockMovement) => ({
         id: String(m.id),
         product_id: String(m.productId),
         product_name: m.productName || "",
@@ -546,12 +551,15 @@ export async function syncAllToSupabase(db: any, branch: string = "Norte"): Prom
         previous_stock: Number(m.previousStock || 0),
         new_stock: Number(m.newStock || 0),
         date: m.date || new Date().toISOString(),
-        user_name: m.userName || "Admin",
+        user_name: (m as any).userName || m.user || "Admin",
         notes: m.notes || "",
         sucursal: branch,
         raw_data: m
       }));
-      await client.from("stock_movements").upsert(movRows, { onConflict: "id" });
+      for (let i = 0; i < movRows.length; i += batchSize) {
+        const chunk = movRows.slice(i, i + batchSize);
+        await client.from("stock_movements").upsert(chunk, { onConflict: "id" });
+      }
       syncedTables.push(`Kardex (${db.movements.length})`);
       totalRecords += db.movements.length;
     }
@@ -564,7 +572,7 @@ export async function syncAllToSupabase(db: any, branch: string = "Norte"): Prom
         amount: Number(e.amount || 0),
         category: e.category || "General",
         date: e.date || new Date().toISOString(),
-        user_name: e.userName || "Admin",
+        user_name: (e as any).userName || (e as any).user || "Admin",
         sucursal: branch,
         raw_data: e
       }));

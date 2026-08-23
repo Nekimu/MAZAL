@@ -885,7 +885,7 @@ export default function FinanceModule({ currentUser }: { currentUser: { name: st
 
           <div className="h-44 w-full pt-1">
             <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={performanceTrendList.length > 0 ? performanceTrendList : [{ shortDate: "Hoy", ventas: totalSalesAmount, costos: totalSalesCost, gastos: totalExpensesAmount, utilidad: totalNetProfit }]} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+              <LineChart data={performanceTrendList.length > 0 ? performanceTrendList : [{ date: "Hoy", shortDate: "Hoy", ventas: totalSalesAmount, costos: totalSalesCost, gastos: totalExpensesAmount, utilidad: totalNetProfit }]} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" opacity={0.15} />
                 <XAxis dataKey="shortDate" tick={{ fontSize: 9, fill: "#888888" }} />
                 <YAxis tick={{ fontSize: 9, fill: "#888888" }} tickFormatter={(v) => `$${v >= 1000 ? (v/1000).toFixed(0) + 'k' : v}`} />

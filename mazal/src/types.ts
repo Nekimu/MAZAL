@@ -10,6 +10,8 @@ export enum ProductUnit {
   KILO = "Kg",
   LITER = "L",
   PACK = "Paq",
+  PACKAGE = "Paq",
+  BOX = "Caja",
   GRAM = "g",
   ML = "ml",
   UNIT = "Ud"
@@ -256,6 +258,7 @@ export interface Sale {
   date: string; // YYYY-MM-DD HH:mm:ss
   amountPaid?: number;
   change?: number;
+  sucursal?: string;
 }
 
 export interface CashSession {

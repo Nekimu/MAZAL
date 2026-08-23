@@ -1,5 +1,6 @@
 import { PendingOperation, PendingOperationType, OfflineSyncState } from "../types";
-import { supabase, isSupabaseConfigured, ensureSupabaseConfigured, getSupabaseClient } from "../supabase";
+import { ensureSupabaseConfigured, getSupabaseClient } from "../supabase";
+import { mapLocalProductToDb } from "./supabaseSync";
 
 const QUEUE_STORAGE_KEY = "mazal_pending_sync_queue_v1";
 const LAST_SYNC_KEY = "mazal_last_sync_timestamp";
@@ -248,10 +249,98 @@ export const triggerAutoSync = async (): Promise<{ success: boolean; syncedCount
         if (op.action === "DELETE") {
           await client.from(table).delete().eq("id", String(op.docId));
         } else {
-          await client.from(table).upsert({
-            id: String(op.docId),
-            ...(op.payload || {})
-          }, { onConflict: "id" });
+          let formattedPayload: any = { id: String(op.docId), ...(op.payload || {}) };
+
+          if (op.type === "PRODUCT" || table === "products") {
+            formattedPayload = mapLocalProductToDb(op.payload, op.branch || "Norte");
+          } else if (op.type === "SALE" || table === "sales") {
+            const s = op.payload || {};
+            formattedPayload = {
+              id: String(op.docId),
+              ticket_number: s.ticketNumber || `TICK-${op.docId}`,
+              total: Number(s.total || 0),
+              cost_total: Number(s.costTotal || 0),
+              profit: Number(s.profit || 0),
+              payment_method: s.paymentMethod || "Efectivo",
+              customer_id: s.customerId || null,
+              customer_name: s.customerName || "Público General",
+              user_id: s.userId || "USR_01",
+              user_name: s.userName || "Cajero",
+              date: s.date || new Date().toISOString(),
+              amount_paid: Number(s.amountPaid || 0),
+              change: Number(s.change || 0),
+              sucursal: op.branch || s.sucursal || "Norte",
+              items: s.items || [],
+              raw_data: s
+            };
+          } else if (op.type === "CUSTOMER" || table === "customers") {
+            const c = op.payload || {};
+            formattedPayload = {
+              id: String(op.docId),
+              name: c.name || "Cliente",
+              phone: c.phone || "",
+              email: c.email || "",
+              address: c.address || "",
+              rfc: c.rfc || "",
+              role: c.role || "Cliente Normal",
+              credit_limit: Number(c.creditLimit || 0),
+              credit_used: Number(c.creditUsed || 0),
+              credit_days: Number(c.creditDays || 30),
+              notes: c.notes || "",
+              status: c.status || "Activo",
+              raw_data: c,
+              updated_at: new Date().toISOString()
+            };
+          } else if (op.type === "PURCHASE" || table === "purchase_orders") {
+            const o = op.payload || {};
+            formattedPayload = {
+              id: String(op.docId),
+              supplier_id: o.supplierId || null,
+              supplier_name: o.supplierName || "",
+              total: Number(o.total || 0),
+              status: o.status || "Pendiente",
+              date: o.date || new Date().toISOString().split("T")[0],
+              received_date: o.receivedDate || null,
+              payment_status: o.paymentStatus || "Pendiente",
+              sucursal: op.branch || o.sucursal || "Norte",
+              items: o.items || [],
+              raw_data: o
+            };
+          } else if (op.type === "INVENTORY_MOVEMENT" || table === "stock_movements") {
+            const m = op.payload || {};
+            formattedPayload = {
+              id: String(op.docId),
+              product_id: String(m.productId || op.docId),
+              product_name: m.productName || "",
+              type: m.type || "AJUSTE",
+              quantity: Number(m.quantity || 0),
+              previous_stock: Number(m.previousStock || 0),
+              new_stock: Number(m.newStock || 0),
+              date: m.date || new Date().toISOString(),
+              user_name: m.user || m.userName || "Admin",
+              notes: m.notes || "",
+              sucursal: op.branch || m.sucursal || "Norte",
+              raw_data: m
+            };
+          } else if (op.type === "CASH_SESSION" || table === "cash_sessions") {
+            const cs = op.payload || {};
+            formattedPayload = {
+              id: String(op.docId),
+              start_time: cs.startTime || new Date().toISOString(),
+              end_time: cs.endTime || null,
+              opened_by: cs.openedBy || "Admin",
+              initial_cash: Number(cs.initialCash || 0),
+              final_cash: cs.finalCash !== undefined && cs.finalCash !== null ? Number(cs.finalCash) : null,
+              status: cs.status || "Abierta",
+              sales_total: Number(cs.salesTotal || 0),
+              expenses_total: Number(cs.expensesTotal || 0),
+              expected_final_cash: Number(cs.expectedFinalCash || 0),
+              sucursal: op.branch || cs.sucursal || "Norte",
+              raw_data: cs
+            };
+          }
+
+          await client.from(table).upsert(formattedPayload, { onConflict: "id" });
         }
 
         dequeueOperation(op.id);

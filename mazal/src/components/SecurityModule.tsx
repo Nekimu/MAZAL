@@ -46,7 +46,8 @@ import {
   getActiveMasterAdminPassword, 
   updateMasterAdminPassword, 
   saveUserToSupabase, 
-  deleteUserFromSupabase 
+  deleteUserFromSupabase,
+  verifyPasswordHash
 } from "../utils/securityValidators";
 
 interface SecurityModuleProps {

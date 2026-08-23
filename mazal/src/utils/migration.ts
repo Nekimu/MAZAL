@@ -163,6 +163,7 @@ export async function migrateProductsToDatabase(rawProducts: any[]): Promise<Mig
           stockMin: stockMinimo,
           stockMax: stockMaximo,
           location: raw.location || raw.ubicacion || "Almacén",
+          isCompound: false,
           imageUrl: raw.imagen || raw.imageUrl || "https://images.unsplash.com/photo-1542291026-7eec264c27ff?auto=format&fit=crop&q=80&w=400",
           supplierId: raw.proveedorId || raw.supplierId || "PROV_DIRECTO",
           codigo: String(raw.codigo || raw.code || barcode),
@@ -223,7 +224,7 @@ export async function migrateProductsToDatabase(rawProducts: any[]): Promise<Mig
 
         // Save to Supabase Cloud if configured
         if (isSupabaseConfigured) {
-          supabase.from("products").upsert({
+          Promise.resolve(supabase.from("products").upsert({
             id: product.id,
             code: product.code,
             barcode: product.barcode,
@@ -242,7 +243,7 @@ export async function migrateProductsToDatabase(rawProducts: any[]): Promise<Mig
             stock_max: product.stockMax,
             sucursal: product.sucursal,
             raw_data: product
-          }, { onConflict: "id" }).catch(e => console.warn("Supabase upsert warning:", e));
+          }, { onConflict: "id" })).catch(e => console.warn("Supabase upsert warning:", e));
         }
       } catch (err) {
         const errMsg = err instanceof Error ? err.message : String(err);

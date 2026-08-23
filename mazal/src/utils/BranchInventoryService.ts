@@ -6,7 +6,7 @@
  */
 
 import { Product, StockTransfer } from "../types";
-import { getDatabase, saveDatabase, logAction, saveProductToSupabase } from "../data";
+import { getDatabase, saveDatabase, logAction, saveProductToSupabase, normalizeProduct } from "../data";
 import { supabase, isSupabaseConfigured } from "../supabase";
 
 export interface BranchStockItem {
@@ -230,7 +230,7 @@ export async function confirmStockTransferReceipt(transfer: StockTransfer, recei
     } else {
       // Si no existía en el catálogo de destino, crear registro para toBranch
       const originDoc = products.find((p) => (p.code || p.barcode || p.id).trim() === productCode.trim());
-      destDoc = {
+      destDoc = normalizeProduct({
         id: `PROD_${toBranch.toUpperCase()}_${Date.now()}`,
         code: productCode.trim(),
         barcode: originDoc?.barcode || productCode.trim(),
@@ -256,7 +256,7 @@ export async function confirmStockTransferReceipt(transfer: StockTransfer, recei
         tipoVenta: originDoc?.tipoVenta || "pieza",
         permiteVentaFraccionada: Boolean(originDoc?.permiteVentaFraccionada),
         gramajeBase: originDoc?.gramajeBase || 0
-      };
+      });
       db.products.unshift(destDoc);
     }
 

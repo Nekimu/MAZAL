@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-    <meta name="theme-color" content="#059669" />
+    <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <link rel="manifest" href="./manifest.json" />
@@ -37,8 +37,8 @@
         to { transform: rotate(360deg); }
       }
     </style>
-    <script type="module" crossorigin src="./assets/index-DGxRB_pE.js"></script>
-    <link rel="stylesheet" crossorigin href="./assets/index-BDI3qAAc.css">
+    <script type="module" crossorigin src="./assets/index-DU9gqJc6.js"></script>
+    <link rel="stylesheet" crossorigin href="./assets/index-BI5xmbAz.css">
   </head>
   <body>
     <div id="root">
@@ -47,16 +47,29 @@
         <h2 style="font-size: 18px; font-weight: 700; margin: 0 0 6px 0; color: #f8fafc;">Mazal Distribuidora</h2>
         <p style="font-size: 13px; color: #94a3b8; margin: 0;">Iniciando sistema...</p>
       </div>
-    </div>
+    </div>
     <script>
       if ('serviceWorker' in navigator) {
         window.addEventListener('load', () => {
+          // Clear any stale caches from older build versions
+          if (window.caches) {
+            caches.keys().then((names) => {
+              for (const name of names) {
+                if (name !== 'mazal-pos-v9-clean-sync') {
+                  console.log('Purging legacy cache:', name);
+                  caches.delete(name);
+                }
+              }
+            }).catch(() => {});
+          }
+
           navigator.serviceWorker.register('./sw.js')
             .then(reg => {
-              console.log('Service Worker registrado correctamente:', reg.scope);
-              reg.update();
+              reg.update().catch(() => {});
             })
-            .catch(err => console.log('Info Service Worker:', err));
+            .catch(() => {
+              // Non-blocking in dev / environments without sw.js
+            });
         });
       }
     </script>
