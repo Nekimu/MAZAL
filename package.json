@@ -5,7 +5,7 @@
   "main": "server.js",
   "scripts": {
     "postinstall": "node -e \"if (require('fs').existsSync('./mazal/package.json')) { require('child_process').execSync('npm --prefix mazal install', { stdio: 'inherit' }); }\"",
-    "build": "npm --prefix mazal run build",
+    "build": "npm --prefix mazal run build && node -e \"if (require('fs').existsSync('./mazal/dist')) require('fs').cpSync('./mazal/dist', './dist', {recursive: true, force: true})\"",
     "start": "node server.js",
     "dev": "npm --prefix mazal run dev",
     "seed:supabase": "node scripts/seed_supabase.mjs",

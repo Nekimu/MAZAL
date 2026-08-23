@@ -1131,7 +1131,7 @@ export default function App() {
                 <div className="p-3 bg-slate-50 dark:bg-slate-800/60 rounded-xl border border-slate-200/80 dark:border-slate-700/80 space-y-2">
                   <div className="flex items-center gap-2 text-slate-600 dark:text-slate-300">
                     <span className="h-2 w-2 rounded-full bg-amber-500 animate-ping" />
-                    <span>Comunicando con https://omyrorntudpnpimevtya.supabase.co</span>
+                    <span>Comunicando con Supabase Cloud...</span>
                   </div>
                   <p className="text-[11px] text-slate-400">
                     Procesando productos, clientes, ventas, sesiones y kardex...
