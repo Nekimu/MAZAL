@@ -576,18 +576,26 @@ export const saveDatabase = (db: any): Promise<void> => {
   if (typeof navigator !== "undefined" && navigator.onLine) {
     triggerAutoSync();
     
-    // Sync with Supabase Cloud in background
-    if (isSupabaseConfigured) {
-      syncAllToSupabase(updatedDb, activeBranch || "Norte").catch((err) => {
-        console.warn("Supabase background sync notice:", err);
-      });
-    }
+    // Sync with Supabase Cloud in background with guaranteed config check
+    ensureSupabaseConfigured().then((configured) => {
+      if (configured) {
+        syncAllToSupabase(updatedDb, activeBranch || "Norte").then((res) => {
+          if (res.success) {
+            console.log("☁️ [Supabase Sync] Base de datos sincronizada con éxito en la nube.");
+          } else {
+            console.warn("⚠️ [Supabase Sync] Aviso al sincronizar:", res.error);
+          }
+        }).catch((err) => {
+          console.warn("⚠️ [Supabase Sync Error]:", err);
+        });
+      }
+    }).catch(() => {});
 
     return Promise.resolve();
   } else {
     pendingOfflineSync = true;
     notifyNetworkSubscribers();
-    console.log("🔴 Modo Sin Conexión: Cambios e inventario guardados en Base Local MySQL y encolados en Pending Operations Queue.");
+    console.log("🔴 Modo Sin Conexión: Cambios e inventario guardados en Base Local y encolados en Pending Operations Queue.");
     return Promise.resolve();
   }
 };
