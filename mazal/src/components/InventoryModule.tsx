@@ -40,7 +40,8 @@ import {
   subscribeToDb,
   saveProductToSupabase,
   deleteProductFromSupabase,
-  saveMovementToSupabase
+  saveMovementToSupabase,
+  callLocalApi
 } from "../data";
 import { authenticateStaff } from "../services/authService";
 import { createPendingStockTransfer, confirmStockTransferReceipt, rejectStockTransfer } from "../utils/BranchInventoryService";
@@ -763,29 +764,27 @@ export default function InventoryModule({ currentUser, currentBranch }: Inventor
       return;
     }
 
-    // Eliminar permanentemente de Supabase Cloud
-    deleteProductFromSupabase(productToDelete.id).catch((err) => {
+    const prodIdToDelete = productToDelete.id;
+    const prodCodeToDelete = productToDelete.code;
+    const prodNameToDelete = productToDelete.name;
+
+    // 1. Eliminar permanentemente de Supabase Cloud de forma síncrona
+    await deleteProductFromSupabase(prodIdToDelete).catch((err) => {
       console.warn("Aviso al eliminar producto de Supabase:", err);
     });
 
+    // 2. Eliminar de la base de datos local
     const database = getDatabase();
-    database.products = database.products.filter((p: Product) => p.id !== productToDelete.id);
+    database.products = (database.products || []).filter(
+      (p: Product) => p.id !== prodIdToDelete && p.code !== prodCodeToDelete
+    );
     
-    // Register kárdex movement (EXIT adjustment)
-    const mov: StockMovement = {
-      id: "MOV_" + Math.random().toString(36).substring(2, 9).toUpperCase(),
-      productId: productToDelete.id,
-      productName: productToDelete.name,
-      type: MovementType.EXIT_ADJUSTMENT,
-      quantity: productToDelete.stock,
-      previousStock: productToDelete.stock,
-      newStock: 0,
-      date: new Date().toISOString().replace("T", " ").substring(0, 19),
-      user: currentUser.name,
-      notes: "Producto eliminado definitivamente del catálogo por el administrador"
-    };
-    database.movements.unshift(mov);
-    saveMovementToSupabase(mov, currentBranch || "Norte").catch(() => {});
+    // 3. Sincronizar eliminación en MySQL local si está disponible
+    callLocalApi(`action=delete_product`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: prodIdToDelete, code: prodCodeToDelete, name: prodNameToDelete })
+    }).catch(() => {});
     
     saveDatabase(database);
     setDb(database);
@@ -796,7 +795,7 @@ export default function InventoryModule({ currentUser, currentBranch }: Inventor
       currentUser.name,
       currentUser.role,
       "Eliminación de Producto",
-      `Eliminó del catálogo el producto: ${productToDelete.name} [Código: ${productToDelete.code}]`
+      `Eliminó del catálogo el producto: ${prodNameToDelete} [Código: ${prodCodeToDelete}]`
     );
   };
 

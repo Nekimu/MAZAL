@@ -106,7 +106,7 @@ export default function PurchasesModule({ currentUser }: PurchasesModuleProps) {
     );
   });
 
-  const handleAddSupplier = (e: React.FormEvent) => {
+  const handleAddSupplier = async (e: React.FormEvent) => {
     e.preventDefault();
     const database = getDatabase();
 
@@ -117,7 +117,7 @@ export default function PurchasesModule({ currentUser }: PurchasesModuleProps) {
     };
 
     database.suppliers.push(created);
-    saveSupplierToSupabase(created).catch((err) => {
+    await saveSupplierToSupabase(created).catch((err) => {
       console.warn("Aviso al guardar proveedor en Supabase:", err);
     });
     saveDatabase(database);
@@ -230,7 +230,7 @@ export default function PurchasesModule({ currentUser }: PurchasesModuleProps) {
     setPoBuilderItems(poBuilderItems.filter(x => x.productId !== productId));
   };
 
-  const handleAddOrder = (e: React.FormEvent) => {
+  const handleAddOrder = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!poBuilderSupplierId || poBuilderItems.length === 0) {
       alert("Por favor selecciona un proveedor y agrega al menos un producto a la orden.");
@@ -278,7 +278,7 @@ export default function PurchasesModule({ currentUser }: PurchasesModuleProps) {
     };
 
     database.purchaseOrders.unshift(createdOrder);
-    savePurchaseOrderToSupabase(createdOrder, activeBranch || "Norte").catch((err) => {
+    await savePurchaseOrderToSupabase(createdOrder, activeBranch || "Norte").catch((err) => {
       console.warn("Aviso al guardar orden de compra en Supabase:", err);
     });
     saveDatabase(database);
@@ -310,7 +310,7 @@ export default function PurchasesModule({ currentUser }: PurchasesModuleProps) {
     );
   };
 
-  const handleReceiveOrder = (order: PurchaseOrder) => {
+  const handleReceiveOrder = async (order: PurchaseOrder) => {
     if (order.status === "Recibida") {
       alert("Esta orden ya ha sido recibida y procesada previamente.");
       return;
@@ -379,10 +379,10 @@ export default function PurchasesModule({ currentUser }: PurchasesModuleProps) {
     const suppIndex = database.suppliers.findIndex((s: Supplier) => s.id === order.supplierId);
     if (suppIndex !== -1) {
       database.suppliers[suppIndex].outstandingBalance += order.total;
-      saveSupplierToSupabase(database.suppliers[suppIndex]).catch(() => {});
+      await saveSupplierToSupabase(database.suppliers[suppIndex]).catch(() => {});
     }
 
-    savePurchaseOrderToSupabase(database.purchaseOrders[orderIndex], currentBranch).catch(() => {});
+    await savePurchaseOrderToSupabase(database.purchaseOrders[orderIndex], currentBranch).catch(() => {});
     saveDatabase(database);
     setDb(database);
 

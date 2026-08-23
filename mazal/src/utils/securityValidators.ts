@@ -215,15 +215,15 @@ export async function saveUserToSupabase(user: {
 }
 
 /**
- * Elimina un usuario de Supabase Cloud.
+ * Elimina un usuario de Supabase Cloud de forma segura y permanente.
  */
-export async function deleteUserFromSupabase(username: string): Promise<boolean> {
-  const cleanUser = (username || "").trim().toLowerCase();
-  if (cleanUser === "admin") return false; // Proteger usuario administrador maestro
+export async function deleteUserFromSupabase(usernameOrId: string, optionalId?: string): Promise<boolean> {
+  const cleanUser = (usernameOrId || "").trim();
+  if (cleanUser.toLowerCase() === "admin") return false; // Proteger usuario administrador maestro
 
-  // 1. Intento por API Server
+  // 1. Intento por API Server Express si está disponible
   try {
-    const res = await fetch(`/api/users/${encodeURIComponent(cleanUser)}`, {
+    const res = await fetch(`/api/users/${encodeURIComponent(cleanUser.toLowerCase())}`, {
       method: "DELETE"
     });
     if (res.ok) {
@@ -232,13 +232,24 @@ export async function deleteUserFromSupabase(username: string): Promise<boolean>
   } catch (e) {}
 
   // 2. Fallback Supabase directo
-  if (isSupabaseConfigured) {
-    try {
-      const { error } = await supabase.from("users").delete().ilike("username", cleanUser);
+  try {
+    const isConfigured = await ensureSupabaseConfigured();
+    if (isConfigured) {
+      const client = getSupabaseClient();
+      // Eliminar por username o por id
+      const targetId = optionalId || cleanUser;
+      const { error } = await client
+        .from("users")
+        .delete()
+        .or(`username.ilike.${cleanUser.toLowerCase()},id.eq.${targetId}`);
+
+      if (error) {
+        console.warn("Aviso al eliminar usuario en Supabase:", error);
+      }
       return !error;
-    } catch (err) {
-      console.warn("Error eliminando usuario en Supabase:", err);
     }
+  } catch (err) {
+    console.warn("Error eliminando usuario en Supabase:", err);
   }
 
   return false;

@@ -165,7 +165,7 @@ export async function loadAllFromSupabase(branch: string = "Norte"): Promise<{
       .select("*")
       .order("name", { ascending: true });
 
-    if (!prodErr && prodData && prodData.length > 0) {
+    if (!prodErr && Array.isArray(prodData)) {
       results.products = prodData.map(mapDbProductToLocal);
     }
 
@@ -330,7 +330,28 @@ export async function loadAllFromSupabase(branch: string = "Norte"): Promise<{
       }));
     }
 
-    // 10. Cargar estado de respaldo (app_state)
+    // 10. Cargar órdenes de compra / suministro desde tabla purchase_orders
+    const { data: poData, error: poErr } = await client
+      .from("purchase_orders")
+      .select("*")
+      .order("created_at", { ascending: false })
+      .limit(300);
+    if (!poErr && Array.isArray(poData)) {
+      results.purchaseOrders = poData.map((po: any) => ({
+        id: po.id,
+        supplierId: po.supplier_id,
+        supplierName: po.supplier_name,
+        total: Number(po.total || 0),
+        status: po.status || "Pendiente",
+        date: po.date || new Date().toISOString().split("T")[0],
+        receivedDate: po.received_date,
+        paymentStatus: po.payment_status || "Pendiente",
+        items: po.items || [],
+        ...(po.raw_data || {})
+      }));
+    }
+
+    // 11. Cargar estado de respaldo (app_state)
     const { data: stateData } = await client
       .from("app_state")
       .select("data")
@@ -529,7 +550,27 @@ export async function syncAllToSupabase(db: any, branch: string = "Norte"): Prom
       totalRecords += db.users.length;
     }
 
-    // 9. Subir snapshot completo a app_state
+    // 9. Subir órdenes de compra / suministro
+    if (db.purchaseOrders && Array.isArray(db.purchaseOrders) && db.purchaseOrders.length > 0) {
+      const poRows = db.purchaseOrders.map((po: PurchaseOrder) => ({
+        id: String(po.id),
+        supplier_id: po.supplierId || null,
+        supplier_name: po.supplierName || "",
+        total: Number(po.total || 0),
+        status: po.status || "Pendiente",
+        date: po.date || new Date().toISOString().split("T")[0],
+        received_date: po.receivedDate || null,
+        payment_status: po.paymentStatus || "Pendiente",
+        sucursal: branch,
+        items: po.items || [],
+        raw_data: po
+      }));
+      await client.from("purchase_orders").upsert(poRows, { onConflict: "id" });
+      syncedTables.push(`Órdenes de Compra (${db.purchaseOrders.length})`);
+      totalRecords += db.purchaseOrders.length;
+    }
+
+    // 10. Subir snapshot completo a app_state
     await client.from("app_state").upsert({
       id: `mazal_state_${branch.toLowerCase()}`,
       data: db,
@@ -568,7 +609,7 @@ export async function saveProductToSupabase(product: Product, branch: string = "
 }
 
 /**
- * Elimina un producto permanentemente de Supabase Cloud.
+ * Elimina un producto permanentemente de Supabase Cloud y sus registros vinculados.
  */
 export async function deleteProductFromSupabase(productId: string): Promise<boolean> {
   const isConfigured = await ensureSupabaseConfigured();
@@ -576,9 +617,27 @@ export async function deleteProductFromSupabase(productId: string): Promise<bool
 
   try {
     const client = getSupabaseClient();
-    const { error } = await client.from("products").delete().eq("id", String(productId));
-    if (error) console.warn("Error eliminando producto de Supabase:", error);
-    return !error;
+    const pid = String(productId).trim();
+
+    // 1. Eliminar de la tabla products
+    const { error: prodErr } = await client
+      .from("products")
+      .delete()
+      .or(`id.eq.${pid},code.eq.${pid}`);
+
+    if (prodErr) {
+      console.warn("Error eliminando producto de Supabase:", prodErr);
+    }
+
+    // 2. Eliminar de inventario por sucursal si existe
+    try {
+      await client
+        .from("branch_inventory")
+        .delete()
+        .or(`product_id.eq.${pid},id.eq.${pid}`);
+    } catch (e) {}
+
+    return !prodErr;
   } catch (e) {
     console.warn("Error eliminando producto de Supabase:", e);
     return false;

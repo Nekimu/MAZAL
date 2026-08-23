@@ -67,7 +67,9 @@ import {
   activeBranch, 
   setActiveBranch,
   subscribeNetworkStatus,
-  syncDatabaseWithSupabase
+  syncDatabaseWithSupabase,
+  ensureSupabaseConfigured,
+  triggerAutoSync
 } from "./data";
 
 export default function App() {

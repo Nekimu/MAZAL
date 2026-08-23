@@ -76,7 +76,9 @@ export {
   saveCashSessionToSupabase,
   saveExpenseToSupabase,
   deleteExpenseFromSupabase,
-  deleteEntityFromSupabase
+  deleteEntityFromSupabase,
+  ensureSupabaseConfigured,
+  triggerAutoSync
 };
 
 export enum OperationType {
@@ -719,32 +721,35 @@ export const loadDatabaseFromSupabase = async (branchParam?: string): Promise<ty
     const res = await loadAllFromSupabase(branch);
     if (res.success && res.data) {
       const data = res.data;
-      if (data.products && Array.isArray(data.products) && data.products.length > 0) {
+      if (Array.isArray(data.products)) {
         inMemoryDb.products = data.products.map(normalizeProduct);
       }
-      if (data.customers && Array.isArray(data.customers) && data.customers.length > 0) {
+      if (Array.isArray(data.customers)) {
         inMemoryDb.customers = data.customers;
       }
-      if (data.suppliers && Array.isArray(data.suppliers) && data.suppliers.length > 0) {
+      if (Array.isArray(data.suppliers)) {
         inMemoryDb.suppliers = data.suppliers;
       }
-      if (data.sales && Array.isArray(data.sales) && data.sales.length > 0) {
+      if (Array.isArray(data.sales)) {
         inMemoryDb.sales = data.sales;
       }
-      if (data.movements && Array.isArray(data.movements) && data.movements.length > 0) {
+      if (Array.isArray(data.movements)) {
         inMemoryDb.movements = data.movements;
       }
-      if (data.cashSessions && Array.isArray(data.cashSessions) && data.cashSessions.length > 0) {
+      if (Array.isArray(data.cashSessions)) {
         inMemoryDb.cashSessions = data.cashSessions;
       }
-      if (data.expenses && Array.isArray(data.expenses) && data.expenses.length > 0) {
+      if (Array.isArray(data.expenses)) {
         inMemoryDb.expenses = data.expenses;
       }
-      if (data.users && Array.isArray(data.users) && data.users.length > 0) {
+      if (Array.isArray(data.users)) {
         inMemoryDb.users = data.users;
       }
-      if (data.sucursales && Array.isArray(data.sucursales) && data.sucursales.length > 0) {
+      if (Array.isArray(data.sucursales)) {
         inMemoryDb.sucursales = data.sucursales;
+      }
+      if (Array.isArray(data.purchaseOrders)) {
+        inMemoryDb.purchaseOrders = data.purchaseOrders;
       }
 
       saveToLocalStorage(inMemoryDb);
@@ -757,23 +762,210 @@ export const loadDatabaseFromSupabase = async (branchParam?: string): Promise<ty
     if (supabaseRealtimeUnsub) {
       supabaseRealtimeUnsub();
     }
+
+    let debounceRefreshTimer: any = null;
+
     supabaseRealtimeUnsub = initSupabaseRealtime((table, payload) => {
       console.log(`[Supabase Realtime] Cambio en ${table}:`, payload.eventType);
-      // Reload affected entities in background
-      loadAllFromSupabase(branch).then((refreshRes) => {
-        if (refreshRes.success && refreshRes.data) {
-          if (refreshRes.data.products) inMemoryDb.products = refreshRes.data.products.map(normalizeProduct);
-          if (refreshRes.data.sales) inMemoryDb.sales = refreshRes.data.sales;
-          if (refreshRes.data.customers) inMemoryDb.customers = refreshRes.data.customers;
-          if (refreshRes.data.cashSessions) inMemoryDb.cashSessions = refreshRes.data.cashSessions;
-          if (refreshRes.data.users) inMemoryDb.users = refreshRes.data.users;
-          if (refreshRes.data.movements) inMemoryDb.movements = refreshRes.data.movements;
-          if (refreshRes.data.expenses) inMemoryDb.expenses = refreshRes.data.expenses;
-          saveToLocalStorage(inMemoryDb);
-          dbCache = JSON.parse(JSON.stringify(inMemoryDb));
-          notifySubscribers();
+
+      const eventType = payload.eventType;
+      let stateChanged = false;
+
+      // 1. PRODUCTOS: Eliminación, Adición, Edición, Precios y Stock instantáneos
+      if (table === "products") {
+        if (eventType === "DELETE") {
+          const delId = String(payload.old?.id || payload.old?.code || "");
+          if (delId) {
+            inMemoryDb.products = (inMemoryDb.products || []).filter(
+              (p: Product) => p.id !== delId && p.code !== delId
+            );
+            stateChanged = true;
+          }
+        } else if (payload.new) {
+          const incoming = mapDbProductToLocal(payload.new);
+          const idx = (inMemoryDb.products || []).findIndex(
+            (p: Product) => p.id === incoming.id || p.code === incoming.code
+          );
+          if (idx >= 0) {
+            inMemoryDb.products[idx] = normalizeProduct({ ...inMemoryDb.products[idx], ...incoming });
+          } else {
+            inMemoryDb.products.unshift(normalizeProduct(incoming));
+          }
+          stateChanged = true;
         }
-      });
+      }
+
+      // 2. CLIENTES
+      else if (table === "customers") {
+        if (eventType === "DELETE") {
+          const delId = String(payload.old?.id || "");
+          if (delId) {
+            inMemoryDb.customers = (inMemoryDb.customers || []).filter((c: Customer) => c.id !== delId);
+            stateChanged = true;
+          }
+        } else if (payload.new) {
+          const incoming: Customer = {
+            id: payload.new.id,
+            name: payload.new.name,
+            phone: payload.new.phone || "",
+            email: payload.new.email || "",
+            address: payload.new.address || "",
+            rfc: payload.new.rfc || "",
+            role: payload.new.role || "Cliente Normal",
+            creditLimit: Number(payload.new.credit_limit || 0),
+            creditUsed: Number(payload.new.credit_used || 0),
+            creditDays: Number(payload.new.credit_days || 30),
+            notes: payload.new.notes || "",
+            status: payload.new.status || "Activo",
+            ...(payload.new.raw_data || {})
+          };
+          const idx = (inMemoryDb.customers || []).findIndex((c: Customer) => c.id === incoming.id);
+          if (idx >= 0) inMemoryDb.customers[idx] = incoming;
+          else inMemoryDb.customers.unshift(incoming);
+          stateChanged = true;
+        }
+      }
+
+      // 3. PROVEEDORES
+      else if (table === "suppliers") {
+        if (eventType === "DELETE") {
+          const delId = String(payload.old?.id || "");
+          if (delId) {
+            inMemoryDb.suppliers = (inMemoryDb.suppliers || []).filter((s: Supplier) => s.id !== delId);
+            stateChanged = true;
+          }
+        } else if (payload.new) {
+          const incoming: Supplier = {
+            id: payload.new.id,
+            name: payload.new.name,
+            contact: payload.new.contact || "",
+            phone: payload.new.phone || "",
+            email: payload.new.email || "",
+            address: payload.new.address || "",
+            rfc: payload.new.rfc || "",
+            outstandingBalance: Number(payload.new.outstanding_balance || 0),
+            ...(payload.new.raw_data || {})
+          };
+          const idx = (inMemoryDb.suppliers || []).findIndex((s: Supplier) => s.id === incoming.id);
+          if (idx >= 0) inMemoryDb.suppliers[idx] = incoming;
+          else inMemoryDb.suppliers.unshift(incoming);
+          stateChanged = true;
+        }
+      }
+
+      // 4. ÓRDENES DE SUMINISTRO / COMPRA
+      else if (table === "purchase_orders") {
+        if (eventType === "DELETE") {
+          const delId = String(payload.old?.id || "");
+          if (delId) {
+            inMemoryDb.purchaseOrders = (inMemoryDb.purchaseOrders || []).filter((po: PurchaseOrder) => po.id !== delId);
+            stateChanged = true;
+          }
+        } else if (payload.new) {
+          const incoming: PurchaseOrder = {
+            id: payload.new.id,
+            supplierId: payload.new.supplier_id,
+            supplierName: payload.new.supplier_name,
+            total: Number(payload.new.total || 0),
+            status: payload.new.status || "Pendiente",
+            date: payload.new.date || new Date().toISOString().split("T")[0],
+            receivedDate: payload.new.received_date,
+            paymentStatus: payload.new.payment_status || "Pendiente",
+            items: payload.new.items || [],
+            ...(payload.new.raw_data || {})
+          };
+          const idx = (inMemoryDb.purchaseOrders || []).findIndex((po: PurchaseOrder) => po.id === incoming.id);
+          if (idx >= 0) inMemoryDb.purchaseOrders[idx] = incoming;
+          else inMemoryDb.purchaseOrders.unshift(incoming);
+          stateChanged = true;
+        }
+      }
+
+      // 5. VENTAS
+      else if (table === "sales") {
+        if (eventType === "DELETE") {
+          const delId = String(payload.old?.id || "");
+          if (delId) {
+            inMemoryDb.sales = (inMemoryDb.sales || []).filter((s: Sale) => s.id !== delId);
+            stateChanged = true;
+          }
+        } else if (payload.new) {
+          const incoming: Sale = {
+            id: payload.new.id,
+            ticketNumber: payload.new.ticket_number,
+            total: Number(payload.new.total || 0),
+            costTotal: Number(payload.new.cost_total || 0),
+            profit: Number(payload.new.profit || 0),
+            paymentMethod: payload.new.payment_method,
+            customerId: payload.new.customer_id,
+            customerName: payload.new.customer_name,
+            userId: payload.new.user_id,
+            userName: payload.new.user_name,
+            date: payload.new.date,
+            amountPaid: Number(payload.new.amount_paid || 0),
+            change: Number(payload.new.change || 0),
+            items: payload.new.items || [],
+            ...(payload.new.raw_data || {})
+          };
+          const idx = (inMemoryDb.sales || []).findIndex((s: Sale) => s.id === incoming.id);
+          if (idx >= 0) inMemoryDb.sales[idx] = incoming;
+          else inMemoryDb.sales.unshift(incoming);
+          stateChanged = true;
+        }
+      }
+
+      // 6. USUARIOS
+      else if (table === "users") {
+        if (eventType === "DELETE") {
+          const delId = String(payload.old?.id || payload.old?.username || "");
+          if (delId) {
+            inMemoryDb.users = (inMemoryDb.users || []).filter((u: User) => u.id !== delId && u.username !== delId);
+            stateChanged = true;
+          }
+        } else if (payload.new) {
+          const incoming: User = {
+            id: payload.new.id,
+            username: payload.new.username,
+            name: payload.new.name,
+            password: payload.new.password,
+            role: payload.new.role,
+            status: payload.new.status,
+            lastLogin: payload.new.last_login
+          };
+          const idx = (inMemoryDb.users || []).findIndex((u: User) => u.id === incoming.id || u.username === incoming.username);
+          if (idx >= 0) inMemoryDb.users[idx] = incoming;
+          else inMemoryDb.users.unshift(incoming);
+          stateChanged = true;
+        }
+      }
+
+      // Si hubo un cambio de datos inmediato, notificar a todas las pantallas de inmediato
+      if (stateChanged) {
+        saveToLocalStorage(inMemoryDb);
+        dbCache = JSON.parse(JSON.stringify(inMemoryDb));
+        notifySubscribers();
+      }
+
+      // Sincronización completa de respaldo con debounce
+      clearTimeout(debounceRefreshTimer);
+      debounceRefreshTimer = setTimeout(() => {
+        loadAllFromSupabase(branch).then((refreshRes) => {
+          if (refreshRes.success && refreshRes.data) {
+            if (Array.isArray(refreshRes.data.products)) inMemoryDb.products = refreshRes.data.products.map(normalizeProduct);
+            if (Array.isArray(refreshRes.data.sales)) inMemoryDb.sales = refreshRes.data.sales;
+            if (Array.isArray(refreshRes.data.customers)) inMemoryDb.customers = refreshRes.data.customers;
+            if (Array.isArray(refreshRes.data.suppliers)) inMemoryDb.suppliers = refreshRes.data.suppliers;
+            if (Array.isArray(refreshRes.data.cashSessions)) inMemoryDb.cashSessions = refreshRes.data.cashSessions;
+            if (Array.isArray(refreshRes.data.users)) inMemoryDb.users = refreshRes.data.users;
+            if (Array.isArray(refreshRes.data.movements)) inMemoryDb.movements = refreshRes.data.movements;
+            if (Array.isArray(refreshRes.data.expenses)) inMemoryDb.expenses = refreshRes.data.expenses;
+            if (Array.isArray(refreshRes.data.purchaseOrders)) inMemoryDb.purchaseOrders = refreshRes.data.purchaseOrders;
+            saveToLocalStorage(inMemoryDb);
+            dbCache = JSON.parse(JSON.stringify(inMemoryDb));
+            notifySubscribers();
+          }
+        }).catch(() => {});
+      }, 400);
     });
   } catch (err) {
     console.warn("Aviso al cargar desde Supabase:", err);
@@ -993,6 +1185,9 @@ export const syncWithLocalMySQL = async (branchParam?: string): Promise<{ succes
 };
 
 export const saveUserToMySQL = async (user: { name: string; username: string; password?: string; role: string }): Promise<boolean> => {
+  if (typeof window !== "undefined" && window.location.hostname !== "localhost" && window.location.hostname !== "127.0.0.1") {
+    return false;
+  }
   try {
     const res = await callLocalApi(`action=save_user&branch=${encodeURIComponent(activeBranch || "Norte")}`, {
       method: "POST",
@@ -1002,12 +1197,14 @@ export const saveUserToMySQL = async (user: { name: string; username: string; pa
     const data = await res.json();
     return Boolean(data.success);
   } catch (e) {
-    console.warn("Could not persist user to MySQL:", e);
     return false;
   }
 };
 
 export const deleteUserFromMySQL = async (username: string): Promise<boolean> => {
+  if (typeof window !== "undefined" && window.location.hostname !== "localhost" && window.location.hostname !== "127.0.0.1") {
+    return false;
+  }
   try {
     const res = await callLocalApi(`action=delete_user&branch=${encodeURIComponent(activeBranch || "Norte")}`, {
       method: "POST",
@@ -1017,7 +1214,6 @@ export const deleteUserFromMySQL = async (username: string): Promise<boolean> =>
     const data = await res.json();
     return Boolean(data.success);
   } catch (e) {
-    console.warn("Could not delete user from MySQL:", e);
     return false;
   }
 };

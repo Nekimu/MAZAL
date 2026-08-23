@@ -480,24 +480,31 @@ export default function SecurityModule({ currentUser, onChangeRole }: SecurityMo
     }
   };
 
-  const handleDeleteUser = (userId: string, username: string, name: string) => {
-    // Prevent deleting oneself
+  const handleDeleteUser = async (userId: string, username: string, name: string) => {
+    const cleanUsername = (username || "").toLowerCase();
+    if (cleanUsername === "admin") {
+      alert("🔒 La cuenta principal de Administrador no puede ser eliminada.");
+      return;
+    }
+
     const currentDb = getDatabase();
-    const userToDelete = currentDb.users.find((u: User) => u.id === userId);
+    const userToDelete = currentDb.users.find((u: User) => u.id === userId || (u.username || "").toLowerCase() === cleanUsername);
+    const loggedUsername = (currentUser?.name || "").toLowerCase();
     
-    if (userToDelete && userToDelete.name === currentUser.name) {
+    if (userToDelete && userToDelete.username?.toLowerCase() === loggedUsername && cleanUsername === loggedUsername) {
       alert("No puedes eliminar la cuenta con la que tienes iniciada la sesión activa.");
       return;
     }
 
-    if (window.confirm(`¿Estás seguro de que deseas eliminar al colaborador ${name} (@${username})?`)) {
-      // Delete from Supabase Cloud
-      deleteUserFromSupabase(username).catch(err => console.warn("Error eliminando usuario en Supabase:", err));
+    if (window.confirm(`¿Estás seguro de que deseas eliminar permanentemente al colaborador ${name} (@${username})?\n\nEsta acción lo eliminará tanto del sistema local como de Supabase Cloud.`)) {
+      // 1. Delete from Supabase Cloud
+      await deleteUserFromSupabase(username, userId).catch(err => console.warn("Error eliminando usuario en Supabase:", err));
 
-      // Delete from MySQL database
+      // 2. Delete from MySQL database
       deleteUserFromMySQL(username).catch(err => console.warn("Error eliminando usuario de MySQL:", err));
 
-      const updatedUsers = currentDb.users.filter((u: User) => u.id !== userId);
+      // 3. Update database locally
+      const updatedUsers = currentDb.users.filter((u: User) => u.id !== userId && (u.username || "").toLowerCase() !== cleanUsername);
       currentDb.users = updatedUsers;
       saveDatabase(currentDb);
       setDb(currentDb);
@@ -1636,7 +1643,8 @@ export default function SecurityModule({ currentUser, onChangeRole }: SecurityMo
                         (u.role || "").toLowerCase().includes(s)
                       );
                     }).map((user: User) => {
-                      const isSelf = user.name === currentUser.name;
+                      const isMasterAdmin = (user.username || "").toLowerCase() === "admin";
+                      const isSelf = isMasterAdmin || (user.username || "").toLowerCase() === (currentUser?.name || "").toLowerCase();
                       const showPassword = !!showPasswordMap[user.id];
 
                       return (
@@ -1651,7 +1659,9 @@ export default function SecurityModule({ currentUser, onChangeRole }: SecurityMo
                                   {user.name}
                                 </p>
                                 {isSelf && (
-                                  <span className="text-[7.5px] bg-emerald-100 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300 px-1 py-0.2 rounded font-mono font-bold uppercase">Mí Cuenta</span>
+                                  <span className="text-[7.5px] bg-emerald-100 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300 px-1 py-0.2 rounded font-mono font-bold uppercase">
+                                    {isMasterAdmin ? "Admin Maestro" : "Mí Cuenta"}
+                                  </span>
                                 )}
                               </div>
                             </div>

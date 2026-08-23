@@ -244,13 +244,29 @@ export default function POSModule({
       alert("Por favor abre la caja registradora en el Dashboard antes de realizar ventas.");
       return;
     }
-    if (product.stock <= 0) {
-      setScanMessage({ text: `¡Sin existencias de ${product.name}!`, type: "error" });
-      setTimeout(() => setScanMessage({ text: "", type: "" }), 3000);
+
+    const availableStock = Number(product.stock) || 0;
+    if (availableStock <= 0) {
+      setScanMessage({ text: `⚠️ ¡Sin existencias de ${product.name}! (Stock: 0)`, type: "error" });
+      setTimeout(() => setScanMessage({ text: "", type: "" }), 3500);
       return;
     }
 
     setCart((prevCart) => {
+      // Calculate current total quantity of this product across all lines in cart
+      const currentTotalInCart = prevCart
+        .filter((item) => item.product.id === product.id)
+        .reduce((sum, item) => sum + item.quantity, 0);
+
+      if (currentTotalInCart + 1 > availableStock) {
+        setScanMessage({ 
+          text: `⚠️ Límite de existencias alcanzado para ${product.name}. Stock disponible: ${availableStock}`, 
+          type: "error" 
+        });
+        setTimeout(() => setScanMessage({ text: "", type: "" }), 3500);
+        return prevCart;
+      }
+
       let initialPriceType = forcedPriceType;
       if (!initialPriceType) {
         const priceInfo = getDynamicPrice(product, 1, selectedCustomer);
@@ -321,7 +337,8 @@ export default function POSModule({
           (m) => m.product.id === item.product.id && m.priceType === item.priceType
         );
         if (existing) {
-          existing.quantity = Math.min(item.product.stock, existing.quantity + item.quantity);
+          const availableStock = Number(item.product.stock) || 0;
+          existing.quantity = Math.min(availableStock, existing.quantity + item.quantity);
         } else {
           merged.push({ ...item });
         }
@@ -396,9 +413,14 @@ export default function POSModule({
         return prevCart.filter((i) => !(i.product.id === productId && i.priceType === priceType));
       }
 
+      const availableStock = Number(item.product.stock) || 0;
+      const otherLinesQty = prevCart
+        .filter((i) => i.product.id === productId && i.priceType !== priceType)
+        .reduce((sum, i) => sum + i.quantity, 0);
+
       // Stock ceiling check
-      if (newQty > item.product.stock) {
-        alert(`Solo hay ${item.product.stock} unidades en existencia de ${item.product.name}.`);
+      if (newQty + otherLinesQty > availableStock) {
+        alert(`⚠️ Existencias insuficientes: Solo hay ${availableStock} unidad(es) de "${item.product.name}" en existencia.`);
         return prevCart;
       }
 
@@ -435,8 +457,13 @@ export default function POSModule({
         }
       }
 
-      if (qtyInBaseUnit > item.product.stock) {
-        alert(`Solo hay ${item.product.stock} en existencia de ${item.product.name}.`);
+      const availableStock = Number(item.product.stock) || 0;
+      const otherLinesQty = prevCart
+        .filter((i) => i.product.id === productId && i.priceType !== priceType)
+        .reduce((sum, i) => sum + i.quantity, 0);
+
+      if (qtyInBaseUnit + otherLinesQty > availableStock) {
+        alert(`⚠️ Existencias insuficientes: Solo hay ${availableStock} en existencia de "${item.product.name}".`);
         return prevCart;
       }
 
@@ -538,19 +565,38 @@ export default function POSModule({
       }
     }
 
+    // Validate live stock before finalizing sale
+    for (const item of cart) {
+      const liveProd = database.products.find((p: Product) => p.id === item.product.id);
+      const available = Number(liveProd?.stock) || 0;
+      const totalSoldForProd = cart
+        .filter((c) => c.product.id === item.product.id)
+        .reduce((sum, c) => sum + c.quantity, 0);
+
+      if (totalSoldForProd > available) {
+        setCheckoutError(
+          `⚠️ No hay suficiente inventario de "${item.product.name}". En existencia: ${available}, Solicitado en venta: ${totalSoldForProd}. Ajusta el carrito antes de cobrar.`
+        );
+        return;
+      }
+    }
+
     // 1. Process and update stock
     const updatedProducts = database.products.map((prod: Product) => {
-      const cartItem = cart.find((item) => item.product.id === prod.id);
-      if (cartItem) {
-        const previousStock = prod.stock;
-        const newStock = Math.max(0, prod.stock - cartItem.quantity);
+      const totalSoldForProd = cart
+        .filter((item) => item.product.id === prod.id)
+        .reduce((sum, item) => sum + item.quantity, 0);
+
+      if (totalSoldForProd > 0) {
+        const previousStock = Number(prod.stock) || 0;
+        const newStock = Math.max(0, previousStock - totalSoldForProd);
         
         // Register movement
         registerMovement(
           prod.id,
           prod.name,
           MovementType.EXIT_SALE,
-          cartItem.quantity,
+          totalSoldForProd,
           previousStock,
           newStock,
           currentUser.name,
