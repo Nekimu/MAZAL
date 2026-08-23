@@ -21,7 +21,15 @@ import {
   ShieldAlert
 } from "lucide-react";
 import { Customer, CustomerRole, formatPrice, normalizeUserRole, UserRole } from "../types";
-import { getDatabase, saveDatabase, logAction, subscribeToDb, callLocalApi } from "../data";
+import { 
+  getDatabase, 
+  saveDatabase, 
+  logAction, 
+  subscribeToDb, 
+  callLocalApi,
+  saveCustomerToSupabase,
+  deleteCustomerFromSupabase
+} from "../data";
 
 interface CustomersModuleProps {
   currentUser: { name: string; role: string };
@@ -118,6 +126,7 @@ export default function CustomersModule({ currentUser }: CustomersModuleProps) {
     };
 
     database.customers.push(created);
+    saveCustomerToSupabase(created).catch((err) => console.warn("Aviso al guardar cliente en Supabase:", err));
     saveDatabase(database);
     setDb(database);
     setShowAddModal(false);
@@ -158,6 +167,11 @@ export default function CustomersModule({ currentUser }: CustomersModuleProps) {
 
     const confirmed = window.confirm(`¿Estás seguro de que deseas eliminar permanentemente al cliente "${cust.name}" (RFC: ${cust.rfc || "Sin RFC"})?\n\nEsta acción no se puede deshacer.`);
     if (!confirmed) return;
+
+    // Eliminar inmediatamente de Supabase Cloud
+    deleteCustomerFromSupabase(cust.id).catch((err) => {
+      console.warn("Aviso al eliminar cliente de Supabase:", err);
+    });
 
     const database = getDatabase();
     database.customers = (database.customers || []).filter((c: Customer) => c.id !== cust.id);
@@ -230,7 +244,7 @@ export default function CustomersModule({ currentUser }: CustomersModuleProps) {
       database.creditHistory.unshift(adjustmentEntry);
     }
 
-    database.customers[custIndex] = {
+    const updatedCustomerObj = {
       ...previousCust,
       name: editingCustomer.name || "Cliente",
       phone: editingCustomer.phone || "",
@@ -244,6 +258,8 @@ export default function CustomersModule({ currentUser }: CustomersModuleProps) {
       status: editingCustomer.status || "Activo"
     };
 
+    database.customers[custIndex] = updatedCustomerObj;
+    saveCustomerToSupabase(updatedCustomerObj).catch((err) => console.warn("Aviso al actualizar cliente en Supabase:", err));
     saveDatabase(database);
     setDb(database);
     setShowEditModal(false);
@@ -337,6 +353,7 @@ export default function CustomersModule({ currentUser }: CustomersModuleProps) {
       }
     }
 
+    saveCustomerToSupabase(database.customers[custIndex]).catch((err) => console.warn("Aviso al actualizar saldo en Supabase:", err));
     saveDatabase(database);
     setDb(database);
     
@@ -379,6 +396,7 @@ export default function CustomersModule({ currentUser }: CustomersModuleProps) {
       }
     }
 
+    saveCustomerToSupabase(database.customers[custIndex]).catch((err) => console.warn("Aviso al abonar en Supabase:", err));
     saveDatabase(database);
     setDb(database);
     setShowPayModal(false);

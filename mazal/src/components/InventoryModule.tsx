@@ -32,7 +32,16 @@ import {
   ChevronRight
 } from "lucide-react";
 import { Product, ProductUnit, MovementType, StockMovement, User, UserRole, formatPrice, StockTransfer } from "../types";
-import { getDatabase, saveDatabase, logAction, registerMovement, subscribeToDb } from "../data";
+import { 
+  getDatabase, 
+  saveDatabase, 
+  logAction, 
+  registerMovement, 
+  subscribeToDb,
+  saveProductToSupabase,
+  deleteProductFromSupabase,
+  saveMovementToSupabase
+} from "../data";
 import { authenticateStaff } from "../services/authService";
 import { createPendingStockTransfer, confirmStockTransferReceipt, rejectStockTransfer } from "../utils/BranchInventoryService";
 
@@ -540,6 +549,10 @@ export default function InventoryModule({ currentUser, currentBranch }: Inventor
         sku: editingProduct.sku || `SKU-${editingProduct.code}`
       };
       
+      saveProductToSupabase(database.products[index], currentBranch || "Norte").catch((err) => {
+        console.warn("Aviso al actualizar producto en Supabase:", err);
+      });
+
       saveDatabase(database);
       setDb(database);
       setShowEditModal(false);
@@ -598,7 +611,12 @@ export default function InventoryModule({ currentUser, currentBranch }: Inventor
         notes: "Carga inicial de inventario nuevo"
       };
       database.movements.unshift(movement);
+      saveMovementToSupabase(movement, currentBranch || "Norte").catch(() => {});
     }
+
+    saveProductToSupabase(productToAdd, currentBranch || "Norte").catch((err) => {
+      console.warn("Aviso al guardar producto en Supabase:", err);
+    });
 
     saveDatabase(database);
     setDb(database);
@@ -696,6 +714,12 @@ export default function InventoryModule({ currentUser, currentBranch }: Inventor
     };
 
     database.movements.unshift(mov);
+    
+    saveProductToSupabase(database.products[prodIndex], currentBranch || "Norte").catch((err) => {
+      console.warn("Aviso al actualizar stock de producto en Supabase:", err);
+    });
+    saveMovementToSupabase(mov, currentBranch || "Norte").catch(() => {});
+
     saveDatabase(database);
     setDb(database);
     setShowAdjustModal(false);
@@ -739,6 +763,11 @@ export default function InventoryModule({ currentUser, currentBranch }: Inventor
       return;
     }
 
+    // Eliminar permanentemente de Supabase Cloud
+    deleteProductFromSupabase(productToDelete.id).catch((err) => {
+      console.warn("Aviso al eliminar producto de Supabase:", err);
+    });
+
     const database = getDatabase();
     database.products = database.products.filter((p: Product) => p.id !== productToDelete.id);
     
@@ -756,6 +785,7 @@ export default function InventoryModule({ currentUser, currentBranch }: Inventor
       notes: "Producto eliminado definitivamente del catálogo por el administrador"
     };
     database.movements.unshift(mov);
+    saveMovementToSupabase(mov, currentBranch || "Norte").catch(() => {});
     
     saveDatabase(database);
     setDb(database);

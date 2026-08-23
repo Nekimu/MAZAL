@@ -18,8 +18,21 @@ import {
   X,
   Trash2
 } from "lucide-react";
-import { Supplier, PurchaseOrder, Product, formatPrice } from "../types";
-import { getDatabase, saveDatabase, logAction, registerMovement, subscribeToDb } from "../data";
+import { Supplier, PurchaseOrder, Product, formatPrice, UserRole } from "../types";
+import { 
+  getDatabase, 
+  saveDatabase, 
+  logAction, 
+  registerMovement, 
+  subscribeToDb,
+  saveSupplierToSupabase,
+  deleteSupplierFromSupabase,
+  savePurchaseOrderToSupabase,
+  deletePurchaseOrderFromSupabase,
+  saveProductToSupabase,
+  saveMovementToSupabase,
+  activeBranch
+} from "../data";
 import { MovementType } from "../types";
 
 interface PurchasesModuleProps {
@@ -104,6 +117,9 @@ export default function PurchasesModule({ currentUser }: PurchasesModuleProps) {
     };
 
     database.suppliers.push(created);
+    saveSupplierToSupabase(created).catch((err) => {
+      console.warn("Aviso al guardar proveedor en Supabase:", err);
+    });
     saveDatabase(database);
     setDb(database);
     setShowAddSupplierModal(false);
@@ -123,6 +139,47 @@ export default function PurchasesModule({ currentUser }: PurchasesModuleProps) {
       "Proveedor Creado",
       `Registró el proveedor: ${created.name}`
     );
+  };
+
+  const handleDeleteSupplier = (supp: Supplier) => {
+    const isAdmin = currentUser?.role === UserRole.ADMIN || String(currentUser?.role || "").toUpperCase().includes("ADMIN");
+    if (!isAdmin) {
+      alert("🔒 Permiso Denegado: Solo administradores pueden eliminar proveedores.");
+      return;
+    }
+    const debt = Number(supp.outstandingBalance) || 0;
+    if (debt > 0) {
+      alert(`⚠️ No es posible eliminar al proveedor "${supp.name}" porque tiene cuentas por pagar pendientes de $${formatPrice(debt)} MXN.`);
+      return;
+    }
+    if (!window.confirm(`¿Deseas eliminar permanentemente al proveedor "${supp.name}"?`)) return;
+
+    deleteSupplierFromSupabase(supp.id).catch((err) => {
+      console.warn("Aviso al eliminar proveedor de Supabase:", err);
+    });
+    const database = getDatabase();
+    database.suppliers = (database.suppliers || []).filter((s: Supplier) => s.id !== supp.id);
+    saveDatabase(database);
+    setDb(database);
+    logAction(currentUser.name, currentUser.role, "Proveedor Eliminado", `Eliminó el proveedor: ${supp.name}`);
+  };
+
+  const handleDeleteOrder = (order: PurchaseOrder) => {
+    const isAdmin = currentUser?.role === UserRole.ADMIN || String(currentUser?.role || "").toUpperCase().includes("ADMIN");
+    if (!isAdmin) {
+      alert("🔒 Permiso Denegado: Solo administradores pueden eliminar órdenes de compra.");
+      return;
+    }
+    if (!window.confirm(`¿Deseas eliminar la orden de compra "${order.id}"?`)) return;
+
+    deletePurchaseOrderFromSupabase(order.id).catch((err) => {
+      console.warn("Aviso al eliminar orden de compra de Supabase:", err);
+    });
+    const database = getDatabase();
+    database.purchaseOrders = (database.purchaseOrders || []).filter((o: PurchaseOrder) => o.id !== order.id);
+    saveDatabase(database);
+    setDb(database);
+    logAction(currentUser.name, currentUser.role, "Orden de Compra Eliminada", `Eliminó la orden: ${order.id}`);
   };
 
   const handleAddBuilderItem = () => {
@@ -221,6 +278,9 @@ export default function PurchasesModule({ currentUser }: PurchasesModuleProps) {
     };
 
     database.purchaseOrders.unshift(createdOrder);
+    savePurchaseOrderToSupabase(createdOrder, activeBranch || "Norte").catch((err) => {
+      console.warn("Aviso al guardar orden de compra en Supabase:", err);
+    });
     saveDatabase(database);
     setDb(database);
     
@@ -246,49 +306,39 @@ export default function PurchasesModule({ currentUser }: PurchasesModuleProps) {
       currentUser.name,
       currentUser.role,
       "Orden de Compra Creada",
-      `Creó OC ${createdOrder.id} para ${supp.name} con ${finalItems.length} artículos por un total de $${grandTotal.toFixed(2)} MXN`
+      `Generó la orden: ${createdOrder.id} para ${supp.name} por $${createdOrder.total.toFixed(2)} MXN`
     );
   };
 
-  const handleReceiveOrder = (orderId: string) => {
+  const handleReceiveOrder = (order: PurchaseOrder) => {
+    if (order.status === "Recibida") {
+      alert("Esta orden ya ha sido recibida y procesada previamente.");
+      return;
+    }
+
     const database = getDatabase();
-    const orderIndex = database.purchaseOrders.findIndex((o: PurchaseOrder) => o.id === orderId);
+    const orderIndex = database.purchaseOrders.findIndex((o: PurchaseOrder) => o.id === order.id);
     if (orderIndex === -1) return;
 
-    const order = database.purchaseOrders[orderIndex];
-    if (order.status === "Recibida") return;
+    const currentBranch = activeBranch || "Norte";
 
-    // Receive each product & increment inventory levels
-    order.items.forEach((item: any) => {
+    // Update stocks and logs for all products
+    order.items.forEach((item) => {
       const prodIndex = database.products.findIndex((p: Product) => p.id === item.productId);
       if (prodIndex !== -1) {
         const prod = database.products[prodIndex];
         const prevStock = prod.stock;
         const newStock = prevStock + item.quantity;
         
-        // Calculate Cost Average
-        // Formula: ((prevStock * prevCostAverage) + (addedStock * newCost)) / (prevStock + addedStock)
-        // If stock was 0 or less, costAverage is simply the new cost.
-        const prevCostAvg = prod.costoPromedio || prod.cost || 0;
-        const finalCostAvg = prevStock > 0 
-          ? ((prevStock * prevCostAvg) + (item.quantity * item.cost)) / (prevStock + item.quantity)
-          : item.cost;
-
-        // Update product inventory levels
+        // Update product data
         database.products[prodIndex].stock = newStock;
-        
-        // Cost updating (both legacy and new ERP fields)
-        database.products[prodIndex].cost = item.cost; // Update current cost
-        database.products[prodIndex].ultimoCosto = item.cost; // Last cost
-        database.products[prodIndex].costoPromedio = parseFloat(finalCostAvg.toFixed(2)); // Average cost
-        
-        // Update price if custom suggested price is provided
-        if (item.suggestedPrice && item.suggestedPrice > 0) {
+        database.products[prodIndex].cost = item.cost;
+        database.products[prodIndex].costo = item.cost;
+        database.products[prodIndex].ultimoCosto = item.cost;
+        if (item.suggestedPrice > 0) {
           database.products[prodIndex].priceMin = item.suggestedPrice;
           database.products[prodIndex].precioMenudeo = item.suggestedPrice;
         }
-
-        // Expiry Date and Location from item
         if (item.expiryDate) {
           database.products[prodIndex].expiryDate = item.expiryDate;
           database.products[prodIndex].fechaCaducidad = item.expiryDate;
@@ -300,17 +350,6 @@ export default function PurchasesModule({ currentUser }: PurchasesModuleProps) {
           database.products[prodIndex].location = item.location;
           database.products[prodIndex].ubicacion = item.location;
         }
-
-        // Supplier update
-        database.products[prodIndex].supplierId = order.supplierId;
-        database.products[prodIndex].proveedorId = order.supplierId;
-        database.products[prodIndex].proveedorNombre = order.supplierName;
-
-        // Last purchase date
-        database.products[prodIndex].ultimaCompra = new Date().toISOString().split("T")[0];
-
-        // Increment total purchase statistics
-        database.products[prodIndex].totalCompras = (prod.totalCompras || 0) + item.quantity;
 
         // Record stock movement log
         const mov: any = {
@@ -326,6 +365,9 @@ export default function PurchasesModule({ currentUser }: PurchasesModuleProps) {
           notes: `Ingreso por Recepción de Orden de Compra ${order.id}`
         };
         database.movements.unshift(mov);
+
+        saveProductToSupabase(database.products[prodIndex], currentBranch).catch(() => {});
+        saveMovementToSupabase(mov, currentBranch).catch(() => {});
       }
     });
 
@@ -337,8 +379,10 @@ export default function PurchasesModule({ currentUser }: PurchasesModuleProps) {
     const suppIndex = database.suppliers.findIndex((s: Supplier) => s.id === order.supplierId);
     if (suppIndex !== -1) {
       database.suppliers[suppIndex].outstandingBalance += order.total;
+      saveSupplierToSupabase(database.suppliers[suppIndex]).catch(() => {});
     }
 
+    savePurchaseOrderToSupabase(database.purchaseOrders[orderIndex], currentBranch).catch(() => {});
     saveDatabase(database);
     setDb(database);
 
@@ -442,6 +486,7 @@ export default function PurchasesModule({ currentUser }: PurchasesModuleProps) {
                     <th className="p-2.5">RFC</th>
                     <th className="p-2.5">Contacto</th>
                     <th className="p-2.5">Cuentas por Pagar</th>
+                    <th className="p-2.5 text-center">Acciones</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100 dark:divide-slate-800">
@@ -455,6 +500,15 @@ export default function PurchasesModule({ currentUser }: PurchasesModuleProps) {
                       <td className="p-2.5">{supp.contact}</td>
                       <td className="p-2.5 font-mono font-bold text-red-600">
                         ${(Number(supp.outstandingBalance) || 0).toFixed(2)} MXN
+                      </td>
+                      <td className="p-2.5 text-center">
+                        <button
+                          onClick={() => handleDeleteSupplier(supp)}
+                          className="p-1 text-gray-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/30 rounded transition-colors"
+                          title="Eliminar proveedor"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
                       </td>
                     </tr>
                   ))}
@@ -489,6 +543,7 @@ export default function PurchasesModule({ currentUser }: PurchasesModuleProps) {
                     <th className="p-3">Monto</th>
                     <th className="p-3">Estatus</th>
                     <th className="p-3 text-center">Recepción</th>
+                    <th className="p-3 text-center">Acciones</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100 dark:divide-slate-800">
@@ -520,7 +575,7 @@ export default function PurchasesModule({ currentUser }: PurchasesModuleProps) {
                         <td className="p-3 text-center">
                           {isPending ? (
                             <button
-                              onClick={() => handleReceiveOrder(order.id)}
+                              onClick={() => handleReceiveOrder(order)}
                               className="px-2.5 py-1 bg-amber-500 hover:bg-amber-600 text-white font-bold text-[10px] rounded shadow-xs"
                               id={`receive-btn-${order.id}`}
                             >
@@ -529,6 +584,15 @@ export default function PurchasesModule({ currentUser }: PurchasesModuleProps) {
                           ) : (
                             <span className="text-gray-400 font-mono text-[10px]">Recibida: {order.receivedDate}</span>
                           )}
+                        </td>
+                        <td className="p-3 text-center">
+                          <button
+                            onClick={() => handleDeleteOrder(order)}
+                            className="p-1 text-gray-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/30 rounded transition-colors"
+                            title="Eliminar orden"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </button>
                         </td>
                       </tr>
                     );

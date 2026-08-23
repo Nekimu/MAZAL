@@ -559,9 +559,128 @@ export async function saveProductToSupabase(product: Product, branch: string = "
     const client = getSupabaseClient();
     const row = mapLocalProductToDb(product, branch);
     const { error } = await client.from("products").upsert(row, { onConflict: "id" });
+    if (error) console.warn("Error guardando producto en Supabase:", error);
     return !error;
   } catch (e) {
     console.warn("Error guardando producto individual en Supabase:", e);
+    return false;
+  }
+}
+
+/**
+ * Elimina un producto permanentemente de Supabase Cloud.
+ */
+export async function deleteProductFromSupabase(productId: string): Promise<boolean> {
+  const isConfigured = await ensureSupabaseConfigured();
+  if (!isConfigured) return false;
+
+  try {
+    const client = getSupabaseClient();
+    const { error } = await client.from("products").delete().eq("id", String(productId));
+    if (error) console.warn("Error eliminando producto de Supabase:", error);
+    return !error;
+  } catch (e) {
+    console.warn("Error eliminando producto de Supabase:", e);
+    return false;
+  }
+}
+
+/**
+ * Guarda o actualiza un cliente directamente en Supabase Cloud.
+ */
+export async function saveCustomerToSupabase(customer: Customer): Promise<boolean> {
+  const isConfigured = await ensureSupabaseConfigured();
+  if (!isConfigured) return false;
+
+  try {
+    const client = getSupabaseClient();
+    const row = {
+      id: String(customer.id),
+      name: customer.name,
+      phone: customer.phone || "",
+      email: customer.email || "",
+      address: customer.address || "",
+      rfc: customer.rfc || "",
+      role: customer.role || "Cliente Normal",
+      credit_limit: Number(customer.creditLimit || 0),
+      credit_used: Number(customer.creditUsed || 0),
+      credit_days: Number(customer.creditDays || 30),
+      notes: customer.notes || "",
+      status: customer.status || "Activo",
+      raw_data: customer,
+      updated_at: new Date().toISOString()
+    };
+    const { error } = await client.from("customers").upsert(row, { onConflict: "id" });
+    if (error) console.warn("Error guardando cliente en Supabase:", error);
+    return !error;
+  } catch (e) {
+    console.warn("Error guardando cliente en Supabase:", e);
+    return false;
+  }
+}
+
+/**
+ * Elimina un cliente permanentemente de Supabase Cloud.
+ */
+export async function deleteCustomerFromSupabase(customerId: string): Promise<boolean> {
+  const isConfigured = await ensureSupabaseConfigured();
+  if (!isConfigured) return false;
+
+  try {
+    const client = getSupabaseClient();
+    const { error } = await client.from("customers").delete().eq("id", String(customerId));
+    if (error) console.warn("Error eliminando cliente de Supabase:", error);
+    return !error;
+  } catch (e) {
+    console.warn("Error eliminando cliente de Supabase:", e);
+    return false;
+  }
+}
+
+/**
+ * Guarda o actualiza un proveedor directamente en Supabase Cloud.
+ */
+export async function saveSupplierToSupabase(supplier: Supplier): Promise<boolean> {
+  const isConfigured = await ensureSupabaseConfigured();
+  if (!isConfigured) return false;
+
+  try {
+    const client = getSupabaseClient();
+    const row = {
+      id: String(supplier.id),
+      name: supplier.name,
+      contact: supplier.contact || "",
+      phone: supplier.phone || "",
+      email: supplier.email || "",
+      address: supplier.address || "",
+      rfc: supplier.rfc || "",
+      outstanding_balance: Number(supplier.outstandingBalance || 0),
+      raw_data: supplier,
+      updated_at: new Date().toISOString()
+    };
+    const { error } = await client.from("suppliers").upsert(row, { onConflict: "id" });
+    if (error) console.warn("Error guardando proveedor en Supabase:", error);
+    return !error;
+  } catch (e) {
+    console.warn("Error guardando proveedor en Supabase:", e);
+    return false;
+  }
+}
+
+/**
+ * Elimina un proveedor permanentemente de Supabase Cloud.
+ */
+export async function deleteSupplierFromSupabase(supplierId: string): Promise<boolean> {
+  const isConfigured = await ensureSupabaseConfigured();
+  if (!isConfigured) return false;
+
+  try {
+    const client = getSupabaseClient();
+    const { error } = await client.from("suppliers").delete().eq("id", String(supplierId));
+    if (error) console.warn("Error eliminando proveedor de Supabase:", error);
+    return !error;
+  } catch (e) {
+    console.warn("Error eliminando proveedor de Supabase:", e);
     return false;
   }
 }
@@ -578,25 +697,44 @@ export async function saveSaleToSupabase(sale: Sale, branch: string = "Norte"): 
     const row = {
       id: String(sale.id),
       ticket_number: sale.ticketNumber || `TICK-${sale.id}`,
-      total: sale.total || 0,
-      cost_total: sale.costTotal || 0,
-      profit: sale.profit || 0,
+      total: Number(sale.total || 0),
+      cost_total: Number(sale.costTotal || 0),
+      profit: Number(sale.profit || 0),
       payment_method: sale.paymentMethod || "Efectivo",
       customer_id: sale.customerId || null,
       customer_name: sale.customerName || "Público General",
       user_id: sale.userId || "USR_01",
       user_name: sale.userName || "Cajero",
       date: sale.date || new Date().toISOString(),
-      amount_paid: sale.amountPaid || 0,
-      change: sale.change || 0,
+      amount_paid: Number(sale.amountPaid || 0),
+      change: Number(sale.change || 0),
       sucursal: branch,
       items: sale.items || [],
       raw_data: sale
     };
     const { error } = await client.from("sales").upsert(row, { onConflict: "id" });
+    if (error) console.warn("Error guardando venta en Supabase:", error);
     return !error;
   } catch (e) {
     console.warn("Error guardando venta en Supabase:", e);
+    return false;
+  }
+}
+
+/**
+ * Elimina una venta permanentemente de Supabase Cloud.
+ */
+export async function deleteSaleFromSupabase(saleId: string): Promise<boolean> {
+  const isConfigured = await ensureSupabaseConfigured();
+  if (!isConfigured) return false;
+
+  try {
+    const client = getSupabaseClient();
+    const { error } = await client.from("sales").delete().eq("id", String(saleId));
+    if (error) console.warn("Error eliminando venta de Supabase:", error);
+    return !error;
+  } catch (e) {
+    console.warn("Error eliminando venta de Supabase:", e);
     return false;
   }
 }
@@ -615,9 +753,9 @@ export async function saveMovementToSupabase(movement: StockMovement, branch: st
       product_id: String(movement.productId),
       product_name: movement.productName || "",
       type: movement.type,
-      quantity: movement.quantity || 0,
-      previous_stock: movement.previousStock || 0,
-      new_stock: movement.newStock || 0,
+      quantity: Number(movement.quantity || 0),
+      previous_stock: Number(movement.previousStock || 0),
+      new_stock: Number(movement.newStock || 0),
       date: movement.date || new Date().toISOString(),
       user_name: movement.user || "Admin",
       notes: movement.notes || "",
@@ -625,9 +763,173 @@ export async function saveMovementToSupabase(movement: StockMovement, branch: st
       raw_data: movement
     };
     const { error } = await client.from("stock_movements").upsert(row, { onConflict: "id" });
+    if (error) console.warn("Error guardando movimiento en Supabase:", error);
     return !error;
   } catch (e) {
     console.warn("Error guardando movimiento en Supabase:", e);
+    return false;
+  }
+}
+
+/**
+ * Guarda o actualiza una orden de compra en Supabase.
+ */
+export async function savePurchaseOrderToSupabase(order: PurchaseOrder, branch: string = "Norte"): Promise<boolean> {
+  const isConfigured = await ensureSupabaseConfigured();
+  if (!isConfigured) return false;
+
+  try {
+    const client = getSupabaseClient();
+    const row = {
+      id: String(order.id),
+      supplier_id: order.supplierId || null,
+      supplier_name: order.supplierName || "",
+      total: Number(order.total || 0),
+      status: order.status || "Pendiente",
+      date: order.date || new Date().toISOString().split("T")[0],
+      received_date: order.receivedDate || null,
+      payment_status: order.paymentStatus || "Pendiente",
+      sucursal: branch,
+      items: order.items || [],
+      raw_data: order
+    };
+    const { error } = await client.from("purchase_orders").upsert(row, { onConflict: "id" });
+    if (error) console.warn("Error guardando orden de compra en Supabase:", error);
+    return !error;
+  } catch (e) {
+    console.warn("Error guardando orden de compra en Supabase:", e);
+    return false;
+  }
+}
+
+/**
+ * Elimina una orden de compra permanentemente de Supabase.
+ */
+export async function deletePurchaseOrderFromSupabase(orderId: string): Promise<boolean> {
+  const isConfigured = await ensureSupabaseConfigured();
+  if (!isConfigured) return false;
+
+  try {
+    const client = getSupabaseClient();
+    const { error } = await client.from("purchase_orders").delete().eq("id", String(orderId));
+    if (error) console.warn("Error eliminando orden de compra de Supabase:", error);
+    return !error;
+  } catch (e) {
+    console.warn("Error eliminando orden de compra de Supabase:", e);
+    return false;
+  }
+}
+
+/**
+ * Guarda o actualiza una sesión de caja en Supabase.
+ */
+export async function saveCashSessionToSupabase(session: CashSession, branch: string = "Norte"): Promise<boolean> {
+  const isConfigured = await ensureSupabaseConfigured();
+  if (!isConfigured) return false;
+
+  try {
+    const client = getSupabaseClient();
+    const row = {
+      id: String(session.id),
+      start_time: session.startTime,
+      end_time: session.endTime || null,
+      opened_by: session.openedBy || "Admin",
+      initial_cash: Number(session.initialCash || 0),
+      final_cash: session.finalCash !== undefined ? Number(session.finalCash) : null,
+      status: session.status || "Abierta",
+      sales_total: Number(session.salesTotal || 0),
+      expenses_total: Number(session.expensesTotal || 0),
+      expected_final_cash: Number(session.expectedFinalCash || 0),
+      sucursal: branch,
+      raw_data: session
+    };
+    const { error } = await client.from("cash_sessions").upsert(row, { onConflict: "id" });
+    if (error) console.warn("Error guardando sesión de caja en Supabase:", error);
+    return !error;
+  } catch (e) {
+    console.warn("Error guardando sesión de caja en Supabase:", e);
+    return false;
+  }
+}
+
+/**
+ * Guarda un gasto en Supabase.
+ */
+export async function saveExpenseToSupabase(expense: CashExpense, branch: string = "Norte"): Promise<boolean> {
+  const isConfigured = await ensureSupabaseConfigured();
+  if (!isConfigured) return false;
+
+  try {
+    const client = getSupabaseClient();
+    const row = {
+      id: String(expense.id),
+      description: expense.description || "",
+      amount: Number(expense.amount || 0),
+      category: expense.category || "General",
+      date: expense.date || new Date().toISOString(),
+      user_name: expense.user || "Admin",
+      sucursal: branch,
+      raw_data: expense
+    };
+    const { error } = await client.from("cash_expenses").upsert(row, { onConflict: "id" });
+    if (error) console.warn("Error guardando gasto en Supabase:", error);
+    return !error;
+  } catch (e) {
+    console.warn("Error guardando gasto en Supabase:", e);
+    return false;
+  }
+}
+
+/**
+ * Elimina un gasto permanentemente de Supabase Cloud.
+ */
+export async function deleteExpenseFromSupabase(expenseId: string): Promise<boolean> {
+  const isConfigured = await ensureSupabaseConfigured();
+  if (!isConfigured) return false;
+
+  try {
+    const client = getSupabaseClient();
+    const { error } = await client.from("cash_expenses").delete().eq("id", String(expenseId));
+    if (error) console.warn("Error eliminando gasto de Supabase:", error);
+    return !error;
+  } catch (e) {
+    console.warn("Error eliminando gasto de Supabase:", e);
+    return false;
+  }
+}
+
+/**
+ * Elimina un movimiento de stock de Supabase Cloud.
+ */
+export async function deleteMovementFromSupabase(movementId: string): Promise<boolean> {
+  const isConfigured = await ensureSupabaseConfigured();
+  if (!isConfigured) return false;
+
+  try {
+    const client = getSupabaseClient();
+    const { error } = await client.from("stock_movements").delete().eq("id", String(movementId));
+    if (error) console.warn("Error eliminando movimiento de Supabase:", error);
+    return !error;
+  } catch (e) {
+    console.warn("Error eliminando movimiento de Supabase:", e);
+    return false;
+  }
+}
+
+/**
+ * Elimina un registro genérico de cualquier tabla en Supabase.
+ */
+export async function deleteEntityFromSupabase(table: string, id: string): Promise<boolean> {
+  const isConfigured = await ensureSupabaseConfigured();
+  if (!isConfigured) return false;
+
+  try {
+    const client = getSupabaseClient();
+    const { error } = await client.from(table).delete().eq("id", String(id));
+    if (error) console.warn(`Error eliminando de ${table} en Supabase:`, error);
+    return !error;
+  } catch (e) {
+    console.warn(`Error eliminando de ${table} en Supabase:`, e);
     return false;
   }
 }

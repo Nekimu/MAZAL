@@ -155,6 +155,43 @@ export const clearPendingQueue = () => {
   notifySubscribers();
 };
 
+export function mapCollectionToSupabaseTable(colName: string): string {
+  const cleanCol = colName.replace(/_(norte|sur|centro|bodega)$/i, "");
+  const mapping: Record<string, string> = {
+    products: "products",
+    customers: "customers",
+    suppliers: "suppliers",
+    sales: "sales",
+    movements: "stock_movements",
+    stock_movements: "stock_movements",
+    movimientos_inventario: "stock_movements",
+    cashSessions: "cash_sessions",
+    cash_sessions: "cash_sessions",
+    expenses: "cash_expenses",
+    cashExpenses: "cash_expenses",
+    cash_expenses: "cash_expenses",
+    purchaseOrders: "purchase_orders",
+    purchase_orders: "purchase_orders",
+    users: "users",
+    branches: "branches",
+    sucursales: "branches",
+    branch_inventory: "branch_inventory",
+    inventario_sucursal: "branch_inventory",
+    bankAccounts: "bank_accounts",
+    bank_accounts: "bank_accounts",
+    bankMovements: "bank_movements",
+    bank_movements: "bank_movements",
+    budgets: "budgets",
+    costCenters: "cost_centers",
+    cost_centers: "cost_centers",
+    vehicles: "vehicles",
+    auditLogs: "audit_logs",
+    audit_logs: "audit_logs",
+    app_state: "app_state"
+  };
+  return mapping[cleanCol] || cleanCol;
+}
+
 // Auto Sync Algorithm with strict priority order:
 export const triggerAutoSync = async (): Promise<{ success: boolean; syncedCount: number; errors: number }> => {
   if (isSyncing) return { success: false, syncedCount: 0, errors: syncErrorsCount };
@@ -206,13 +243,13 @@ export const triggerAutoSync = async (): Promise<{ success: boolean; syncedCount
       notifySubscribers();
 
       try {
-        const table = op.collectionName === "movements" ? "stock_movements" : op.collectionName;
+        const table = mapCollectionToSupabaseTable(op.collectionName);
 
         if (op.action === "DELETE") {
-          await client.from(table).delete().eq("id", op.docId);
+          await client.from(table).delete().eq("id", String(op.docId));
         } else {
           await client.from(table).upsert({
-            id: op.docId,
+            id: String(op.docId),
             ...(op.payload || {})
           }, { onConflict: "id" });
         }
@@ -252,7 +289,7 @@ export const resolveConflict = async (
   if (!op) return;
 
   try {
-    const table = op.collectionName === "movements" ? "stock_movements" : op.collectionName;
+    const table = mapCollectionToSupabaseTable(op.collectionName);
     const isConfigured = await ensureSupabaseConfigured();
 
     if (isConfigured) {

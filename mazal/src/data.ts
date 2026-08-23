@@ -42,11 +42,42 @@ import {
   syncAllToSupabase, 
   initSupabaseRealtime, 
   saveSaleToSupabase, 
+  deleteSaleFromSupabase,
   saveMovementToSupabase,
+  saveProductToSupabase,
+  deleteProductFromSupabase,
+  saveCustomerToSupabase,
+  deleteCustomerFromSupabase,
+  saveSupplierToSupabase,
+  deleteSupplierFromSupabase,
+  savePurchaseOrderToSupabase,
+  deletePurchaseOrderFromSupabase,
+  saveCashSessionToSupabase,
+  saveExpenseToSupabase,
+  deleteExpenseFromSupabase,
+  deleteEntityFromSupabase,
   mapDbProductToLocal,
   mapLocalProductToDb
 } from "./services/supabaseSync";
-import { supabase, isSupabaseConfigured, testSupabaseConnection, ensureSupabaseConfigured } from "./supabase";
+import { supabase, isSupabaseConfigured, testSupabaseConnection, ensureSupabaseConfigured, getSupabaseClient } from "./supabase";
+
+export {
+  saveSaleToSupabase,
+  deleteSaleFromSupabase,
+  saveMovementToSupabase,
+  saveProductToSupabase,
+  deleteProductFromSupabase,
+  saveCustomerToSupabase,
+  deleteCustomerFromSupabase,
+  saveSupplierToSupabase,
+  deleteSupplierFromSupabase,
+  savePurchaseOrderToSupabase,
+  deletePurchaseOrderFromSupabase,
+  saveCashSessionToSupabase,
+  saveExpenseToSupabase,
+  deleteExpenseFromSupabase,
+  deleteEntityFromSupabase
+};
 
 export enum OperationType {
   CREATE = 'create',
@@ -511,60 +542,92 @@ export const saveDatabase = (db: any): Promise<void> => {
     updatedDb.products = updatedDb.products.map(normalizeProduct);
   }
 
-  // Detect changed or added items comparing with dbCache to enqueue in offline manager
-  if (typeof navigator !== "undefined" && !navigator.onLine) {
-    for (const key of COLLECTIONS) {
-      const oldList = dbCache[key] || [];
-      const newList = updatedDb[key] || [];
+  const isOnline = typeof navigator !== "undefined" ? navigator.onLine : true;
 
-      const oldMap = new Map(oldList.map((item: any) => [item.id, item]));
-      const newMap = new Map(newList.map((item: any) => [item.id, item]));
+  const opTypeMap: Record<string, any> = {
+    sales: "SALE",
+    movements: "INVENTORY_MOVEMENT",
+    movimientos_inventario: "INVENTORY_MOVEMENT",
+    customers: "CUSTOMER",
+    products: "PRODUCT",
+    purchaseOrders: "PURCHASE",
+    cashSessions: "CASH_SESSION",
+    expenses: "CASH_SESSION",
+    transferencias: "TRANSFER",
+    distribuciones: "TRANSFER",
+    inventario_sucursal: "BRANCH_INVENTORY",
+    suppliers: "CUSTOMER",
+    users: "CUSTOMER"
+  };
 
-      const opTypeMap: Record<string, any> = {
-        sales: "SALE",
-        movements: "INVENTORY_MOVEMENT",
-        movimientos_inventario: "INVENTORY_MOVEMENT",
-        customers: "CUSTOMER",
-        products: "PRODUCT",
-        purchaseOrders: "PURCHASE",
-        cashSessions: "CASH_SESSION",
-        expenses: "CASH_SESSION",
-        transferencias: "TRANSFER",
-        distribuciones: "TRANSFER",
-        inventario_sucursal: "BRANCH_INVENTORY",
-      };
+  const tableMap: Record<string, string> = {
+    products: "products",
+    customers: "customers",
+    suppliers: "suppliers",
+    sales: "sales",
+    movements: "stock_movements",
+    movimientos_inventario: "stock_movements",
+    cashSessions: "cash_sessions",
+    expenses: "cash_expenses",
+    purchaseOrders: "purchase_orders",
+    users: "users",
+    bankAccounts: "bank_accounts",
+    bankMovements: "bank_movements",
+    budgets: "budgets",
+    costCenters: "cost_centers",
+    vehicles: "vehicles"
+  };
 
-      const opType = opTypeMap[key] || "PRODUCT";
+  // Compare with dbCache to detect deletions and additions
+  for (const key of COLLECTIONS) {
+    const oldList = dbCache[key] || [];
+    const newList = updatedDb[key] || [];
 
-      // Enqueue additions / updates
+    if (!Array.isArray(oldList) || !Array.isArray(newList)) continue;
+
+    const oldMap = new Map(oldList.map((item: any) => [String(item?.id), item]));
+    const newMap = new Map(newList.map((item: any) => [String(item?.id), item]));
+    const opType = opTypeMap[key] || "PRODUCT";
+    const supabaseTable = tableMap[key] || key;
+
+    // Detect and process DELETIONS
+    for (const [id] of oldMap.entries()) {
+      if (id && !newMap.has(id)) {
+        if (isOnline) {
+          // Immediately delete from Supabase Cloud
+          deleteEntityFromSupabase(supabaseTable, id).catch((err) => {
+            console.warn(`[Supabase Delete] Aviso al eliminar ${id} de ${supabaseTable}:`, err);
+          });
+        } else {
+          // Enqueue offline deletion
+          enqueueOperation({
+            type: opType,
+            isoDate: new Date().toISOString(),
+            branch: activeBranch || "Norte",
+            user: "Usuario Local",
+            action: "DELETE",
+            collectionName: getCollectionName(key),
+            docId: id,
+            payload: { id }
+          });
+        }
+      }
+    }
+
+    // Detect and process offline additions / modifications
+    if (!isOnline) {
       for (const [id, newItem] of newMap.entries()) {
         const oldItem = oldMap.get(id);
         if (!oldItem || JSON.stringify(oldItem) !== JSON.stringify(newItem)) {
           enqueueOperation({
             type: opType,
             isoDate: new Date().toISOString(),
-            branch: activeBranch || "Centro",
+            branch: activeBranch || "Norte",
             user: "Usuario Local",
             action: !oldItem ? "CREATE" : "UPDATE",
             collectionName: getCollectionName(key),
-            docId: String(id),
-            payload: newItem,
-          });
-        }
-      }
-
-      // Enqueue deletions
-      for (const [id] of oldMap.entries()) {
-        if (!newMap.has(id)) {
-          enqueueOperation({
-            type: opType,
-            isoDate: new Date().toISOString(),
-            branch: activeBranch || "Centro",
-            user: "Usuario Local",
-            action: "DELETE",
-            collectionName: getCollectionName(key),
-            docId: String(id),
-            payload: { id },
+            docId: id,
+            payload: newItem
           });
         }
       }
@@ -572,13 +635,14 @@ export const saveDatabase = (db: any): Promise<void> => {
   }
 
   inMemoryDb = updatedDb;
+  dbCache = JSON.parse(JSON.stringify(updatedDb));
   saveToLocalStorage(inMemoryDb);
   notifySubscribers();
 
   // Persistir en base de datos local MySQL (mazal_bd para Norte, mazal_bd1 para Sur)
   persistToLocalMySQL(updatedDb, activeBranch || "Norte").catch(() => {});
 
-  if (typeof navigator !== "undefined" && navigator.onLine) {
+  if (isOnline) {
     triggerAutoSync();
     
     // Sync with Supabase Cloud in background with guaranteed config check

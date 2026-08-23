@@ -43,7 +43,12 @@ import {
   saveDatabase, 
   logAction, 
   registerMovement,
-  subscribeToDb
+  subscribeToDb,
+  saveSaleToSupabase,
+  saveProductToSupabase,
+  saveCustomerToSupabase,
+  saveCashSessionToSupabase,
+  activeBranch
 } from "../data";
 import { MovementType } from "../types";
 import { 
@@ -617,11 +622,35 @@ export default function POSModule({
     database.products = updatedProducts;
     database.customers = updatedCustomers;
 
+    const currentBranch = activeBranch || "Norte";
+
+    // Direct Supabase Cloud saving
+    saveSaleToSupabase(newSale, currentBranch).catch((err) => {
+      console.warn("Aviso al guardar venta en Supabase:", err);
+    });
+
+    // Update stock for purchased products in Supabase
+    cart.forEach((item) => {
+      const prod = updatedProducts.find((p: Product) => p.id === item.product.id);
+      if (prod) {
+        saveProductToSupabase(prod, currentBranch).catch(() => {});
+      }
+    });
+
+    // If credit, update customer in Supabase
+    if (paymentMethod === PaymentMethod.CREDIT && selectedCustomer) {
+      const custObj = updatedCustomers.find((c: Customer) => c.id === selectedCustomer.id);
+      if (custObj) {
+        saveCustomerToSupabase(custObj).catch(() => {});
+      }
+    }
+
     // Adjust active cash session totals
     if (database.cashSessions.length > 0) {
       const activeSess = database.cashSessions.find((s: any) => s.status === "Abierta");
       if (activeSess) {
         activeSess.salesTotal = (activeSess.salesTotal || 0) + total;
+        saveCashSessionToSupabase(activeSess, currentBranch).catch(() => {});
       }
     }
 
