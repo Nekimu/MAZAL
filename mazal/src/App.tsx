@@ -40,6 +40,8 @@ import {
   Download,
   Smartphone,
   HardDrive,
+  Layers,
+  Database,
   X
 } from "lucide-react";
 import POSModule from "./components/POSModule";
@@ -55,6 +57,14 @@ import BranchGate from "./components/BranchGate";
 import { MazalLogo } from "./components/MazalLogo";
 import { OfflineStatusIndicator } from "./components/OfflineStatusIndicator";
 import { OfflineDashboardWidget } from "./components/OfflineDashboardWidget";
+import { OfflineSyncPanelModal } from "./components/OfflineSyncPanelModal";
+import { 
+  getOfflineState, 
+  subscribeOfflineSyncState, 
+  setForcedOffline, 
+  isForcedOfflineMode, 
+  triggerAutoSync 
+} from "./services/offlineSync";
 import { UserRole, Product, Sale, CashSession, PaymentMethod, MovementType, Customer, normalizeUserRole, getRolePermissionsForUser, RolePermissions } from "./types";
 
 import { 
@@ -68,8 +78,7 @@ import {
   setActiveBranch,
   subscribeNetworkStatus,
   syncDatabaseWithSupabase,
-  ensureSupabaseConfigured,
-  triggerAutoSync
+  ensureSupabaseConfigured
 } from "./data";
 
 export default function App() {
@@ -231,6 +240,9 @@ export default function App() {
   const [cashSessionActive, setCashSessionActive] = useState(true);
   const [netStatus, setNetStatus] = useState({ isOnline: true, isSyncing: false, pendingSync: false });
   const [showPwaModal, setShowPwaModal] = useState(false);
+  const [offlineState, setOfflineState] = useState(getOfflineState());
+  const [isOfflineModalOpen, setIsOfflineModalOpen] = useState(false);
+  const [showReconnectedToast, setShowReconnectedToast] = useState(false);
 
   useEffect(() => {
     // Initial sync with Supabase Cloud on boot
@@ -241,7 +253,21 @@ export default function App() {
     const unsubNet = subscribeNetworkStatus((status) => {
       setNetStatus(status);
     });
-    return () => unsubNet();
+
+    let prevOnline = getOfflineState().isOnline;
+    const unsubOffline = subscribeOfflineSyncState((state) => {
+      setOfflineState(state);
+      if (!prevOnline && state.isOnline) {
+        setShowReconnectedToast(true);
+        setTimeout(() => setShowReconnectedToast(false), 7000);
+      }
+      prevOnline = state.isOnline;
+    });
+
+    return () => {
+      unsubNet();
+      unsubOffline();
+    };
   }, []);
 
   const reloadDb = () => {
@@ -539,6 +565,46 @@ export default function App() {
           </div>
         );
       })()}
+
+      {/* SYSTEM OFFLINE NOTIFICATION BANNER (Prominent Contingency Notice) */}
+      {(!offlineState.isOnline || isForcedOfflineMode()) && (
+        <div className="bg-gradient-to-r from-rose-700 via-rose-600 to-amber-600 text-white px-4 py-2.5 flex flex-wrap items-center justify-between gap-3 text-xs font-bold shadow-lg z-50 animate-fadeIn border-b border-rose-800">
+          <div className="flex items-center gap-2.5 flex-1 min-w-[280px]">
+            <div className="relative flex h-3 w-3 shrink-0">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-white opacity-75"></span>
+              <span className="relative inline-flex rounded-full h-3 w-3 bg-white"></span>
+            </div>
+            <WifiOff className="h-4 w-4 shrink-0 animate-bounce text-amber-200" />
+            <span className="leading-snug">
+              <strong>⚡ MODO OFFLINE ACTIVO (CONTINGENCIA LOCAL):</strong> Operando sin conexión con Supabase. Todas las ventas, inventarios y operaciones CRUD se están ejecutando y guardando localmente en la Base de Datos MySQL (XAMPP localhost) y la cola de sincronización.
+            </span>
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            {offlineState.pendingCount > 0 && (
+              <span className="bg-black/30 text-amber-200 font-mono px-2 py-0.5 rounded-full text-[11px] font-extrabold flex items-center gap-1 border border-amber-300/30">
+                <Layers className="h-3 w-3" />
+                {offlineState.pendingCount} pendientes
+              </span>
+            )}
+            <button
+              onClick={() => setIsOfflineModalOpen(true)}
+              className="px-3 py-1 bg-white hover:bg-slate-100 text-rose-800 rounded-lg font-black text-xs transition-all shadow-xs cursor-pointer"
+            >
+              Ver Cola & Estado
+            </button>
+            <button
+              onClick={() => {
+                setForcedOffline(false);
+                triggerAutoSync();
+              }}
+              className="px-3 py-1 bg-black/40 hover:bg-black/60 text-white rounded-lg font-bold text-xs transition-all cursor-pointer"
+              title="Intentar reconectar con Supabase Cloud"
+            >
+              Probar Reconexión
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* BRAND & 2-TIER TOP HEADER */}
       <nav className="sticky top-0 z-40 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md border-b border-[#e2e6dd] dark:border-slate-800 shadow-[0_2px_12px_rgba(0,0,0,0.04)] px-3 sm:px-5 lg:px-6 py-2.5 transition-all">
@@ -1203,6 +1269,29 @@ export default function App() {
           </div>
         </div>
       )}
+
+      {/* RECONNECTED SUCCESS NOTIFICATION TOAST */}
+      {showReconnectedToast && (
+        <div className="fixed bottom-6 right-6 z-[99999] bg-emerald-600 text-white px-4 py-3 rounded-2xl shadow-2xl flex items-center gap-3 border border-emerald-400 animate-slideUp">
+          <CheckCircle2 className="h-5 w-5 shrink-0 text-emerald-200" />
+          <div>
+            <div className="font-black text-xs tracking-tight">🟢 Conexión Restablecida</div>
+            <div className="text-[11px] text-emerald-100">Sincronizando operaciones pendientes automáticamente con Supabase Cloud...</div>
+          </div>
+          <button 
+            onClick={() => setShowReconnectedToast(false)}
+            className="p-1 hover:bg-emerald-700 rounded-lg text-emerald-200 hover:text-white transition-colors cursor-pointer"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+      )}
+
+      {/* OFFLINE FIRST SYNC MODAL */}
+      <OfflineSyncPanelModal 
+        isOpen={isOfflineModalOpen}
+        onClose={() => setIsOfflineModalOpen(false)}
+      />
 
     </div>
   );

@@ -376,40 +376,16 @@ export default function ReceiptsModule({ currentUser }: ReceiptsModuleProps) {
                     <span>SU CAMBIO:</span>
                     <span>${(selectedSale.change || 0).toFixed(2)} MXN</span>
                   </div>
-                </div>
-
-                {/* Greeting footer */}
+                        {/* Greeting footer */}
                 <div className="text-center space-y-1 pt-2 border-t border-dashed border-slate-350 dark:border-slate-850 text-[10px] leading-relaxed">
                   <p className="font-bold text-[11px]">
                     ¡GRACIAS POR SU COMPRA!
                   </p>
                   <p className="text-gray-500 text-[9px]">Conserve este ticket para devoluciones o aclaraciones</p>
-                  
-                  {/* Decorative barcode simulation */}
-                  <div className="flex flex-col items-center justify-center pt-2">
-                    <div className="flex items-stretch h-7 gap-0.5 max-w-[200px]">
-                      <div className="w-1 bg-slate-900 dark:bg-slate-300"></div>
-                      <div className="w-0.5 bg-slate-900 dark:bg-slate-300"></div>
-                      <div className="w-1 bg-slate-900 dark:bg-slate-300"></div>
-                      <div className="w-2 bg-transparent"></div>
-                      <div className="w-0.5 bg-slate-900 dark:bg-slate-300"></div>
-                      <div className="w-1 bg-slate-900 dark:bg-slate-300"></div>
-                      <div className="w-0.5 bg-slate-900 dark:bg-slate-300"></div>
-                      <div className="w-1.5 bg-slate-900 dark:bg-slate-300"></div>
-                      <div className="w-1 bg-transparent"></div>
-                      <div className="w-1.5 bg-slate-900 dark:bg-slate-300"></div>
-                      <div className="w-0.5 bg-slate-900 dark:bg-slate-300"></div>
-                      <div className="w-1 bg-slate-900 dark:bg-slate-300"></div>
-                      <div className="w-1 bg-transparent"></div>
-                      <div className="w-1 bg-slate-900 dark:bg-slate-300"></div>
-                      <div className="w-2 bg-slate-900 dark:bg-slate-300"></div>
-                      <div className="w-0.5 bg-slate-900 dark:bg-slate-300"></div>
-                    </div>
-                    <span className="text-[8px] font-mono tracking-[0.3em] mt-1 text-gray-500">
-                      {selectedSale.id}-{selectedSale.ticketNumber}
-                    </span>
-                  </div>
-                </div>
+                  <p className="text-[8.5px] font-mono tracking-wider mt-1 text-gray-400 uppercase">
+                    FOLIO: {selectedSale.ticketNumber || selectedSale.id}
+                  </p>
+                </div>             </div>
 
               </div>
             </div>

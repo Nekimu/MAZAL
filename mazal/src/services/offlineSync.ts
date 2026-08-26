@@ -222,10 +222,13 @@ export const triggerAutoSync = async (): Promise<{ success: boolean; syncedCount
     const priorityOrder: Record<PendingOperationType, number> = {
       INVENTORY_MOVEMENT: 1,
       CUSTOMER: 2,
+      SUPPLIER: 2,
+      USER: 2,
       PRODUCT: 3,
       PURCHASE: 4,
       SALE: 5,
       CASH_SESSION: 6,
+      EXPENSE: 6,
       TRANSFER: 7,
       BRANCH_INVENTORY: 8,
     };
@@ -290,6 +293,32 @@ export const triggerAutoSync = async (): Promise<{ success: boolean; syncedCount
               status: c.status || "Activo",
               raw_data: c,
               updated_at: new Date().toISOString()
+            };
+          } else if (op.type === "SUPPLIER" || table === "suppliers") {
+            const supp = op.payload || {};
+            formattedPayload = {
+              id: String(op.docId),
+              name: supp.name || "Proveedor",
+              contact: supp.contact || "",
+              phone: supp.phone || "",
+              email: supp.email || "",
+              address: supp.address || "",
+              rfc: supp.rfc || "",
+              outstanding_balance: Number(supp.outstandingBalance || supp.adeudo || 0),
+              raw_data: supp,
+              updated_at: new Date().toISOString()
+            };
+          } else if (op.type === "EXPENSE" || table === "cash_expenses") {
+            const exp = op.payload || {};
+            formattedPayload = {
+              id: String(op.docId),
+              description: exp.description || "Gasto",
+              amount: Number(exp.amount || 0),
+              category: exp.category || "General",
+              date: exp.date || new Date().toISOString(),
+              user_name: exp.user || exp.userName || "Admin",
+              sucursal: op.branch || exp.sucursal || "Norte",
+              raw_data: exp
             };
           } else if (op.type === "PURCHASE" || table === "purchase_orders") {
             const o = op.payload || {};
@@ -397,13 +426,39 @@ export const resolveConflict = async (
   }
 };
 
-// Automatic Network Event Listeners
+// Simulated / Forced Offline Mode
+const FORCED_OFFLINE_KEY = "mazal_forced_offline";
+let isForcedOffline = typeof window !== "undefined" ? localStorage.getItem(FORCED_OFFLINE_KEY) === "true" : false;
+
+if (isForcedOffline) {
+  isOnline = false;
+}
+
+export const setForcedOffline = (forced: boolean) => {
+  isForcedOffline = forced;
+  if (typeof window !== "undefined") {
+    localStorage.setItem(FORCED_OFFLINE_KEY, forced ? "true" : "false");
+  }
+  isOnline = forced ? false : (typeof navigator !== "undefined" ? navigator.onLine : true);
+  notifySubscribers();
+  if (isOnline) {
+    triggerAutoSync();
+  }
+};
+
+export const isForcedOfflineMode = (): boolean => {
+  return isForcedOffline;
+};
+
+// Automatic Network Event Listeners & Active Connectivity
 if (typeof window !== "undefined") {
   window.addEventListener("online", () => {
-    isOnline = true;
-    notifySubscribers();
-    console.log("🌐 Conexión detectada: Ejecutando Offline Sync Manager...");
-    triggerAutoSync();
+    if (!isForcedOffline) {
+      isOnline = true;
+      notifySubscribers();
+      console.log("🌐 Conexión detectada: Ejecutando Offline Sync Manager...");
+      triggerAutoSync();
+    }
   });
 
   window.addEventListener("offline", () => {

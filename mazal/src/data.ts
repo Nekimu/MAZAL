@@ -36,7 +36,7 @@ import {
   REAL_MAZAL_CUSTOMERS,
   REAL_MAZAL_USERS
 } from "./data/realCatalog";
-import { enqueueOperation, triggerAutoSync } from "./services/offlineSync";
+import { enqueueOperation, triggerAutoSync, setForcedOffline, isForcedOfflineMode, getOfflineState } from "./services/offlineSync";
 import { 
   loadAllFromSupabase, 
   syncAllToSupabase, 
@@ -78,7 +78,10 @@ export {
   deleteExpenseFromSupabase,
   deleteEntityFromSupabase,
   ensureSupabaseConfigured,
-  triggerAutoSync
+  triggerAutoSync,
+  setForcedOffline,
+  isForcedOfflineMode,
+  getOfflineState
 };
 
 export enum OperationType {
@@ -503,15 +506,20 @@ export const callLocalApi = async (queryString: string, options?: RequestInit): 
   }
 
   const candidateUrls = [
+    `http://localhost/MAZAL/api.php?${queryString}`,
     `http://localhost/mazal/api.php?${queryString}`,
-    `/api.php?${queryString}`
+    `http://localhost/api.php?${queryString}`,
+    `/MAZAL/api.php?${queryString}`,
+    `/mazal/api.php?${queryString}`,
+    `/api.php?${queryString}`,
+    `api.php?${queryString}`
   ];
 
   for (const url of candidateUrls) {
     try {
       const res = await fetch(url, {
         ...options,
-        signal: options?.signal || AbortSignal.timeout(1000)
+        signal: options?.signal || AbortSignal.timeout(2000)
       });
       if (res.ok) return res;
     } catch (e) {
@@ -519,6 +527,231 @@ export const callLocalApi = async (queryString: string, options?: RequestInit): 
     }
   }
   throw new Error(`No se pudo contactar el backend PHP en localhost para: ${queryString}`);
+};
+
+export const saveProductToMySQL = async (product: any, branchParam?: string): Promise<boolean> => {
+  try {
+    const branch = branchParam || activeBranch || "Norte";
+    const res = await callLocalApi(`action=save_product&branch=${encodeURIComponent(branch)}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(product)
+    });
+    const data = await res.json();
+    return Boolean(data.success);
+  } catch (e) {
+    return false;
+  }
+};
+
+export const deleteProductFromMySQL = async (productId: string | number, branchParam?: string): Promise<boolean> => {
+  try {
+    const branch = branchParam || activeBranch || "Norte";
+    const res = await callLocalApi(`action=delete_product&branch=${encodeURIComponent(branch)}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: productId })
+    });
+    const data = await res.json();
+    return Boolean(data.success);
+  } catch (e) {
+    return false;
+  }
+};
+
+export const updateStockInMySQL = async (productId: string | number, stock: number, branchParam?: string): Promise<boolean> => {
+  try {
+    const branch = branchParam || activeBranch || "Norte";
+    const res = await callLocalApi(`action=update_stock&branch=${encodeURIComponent(branch)}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: productId, stock })
+    });
+    const data = await res.json();
+    return Boolean(data.success);
+  } catch (e) {
+    return false;
+  }
+};
+
+export const saveCustomerToMySQL = async (customer: any, branchParam?: string): Promise<boolean> => {
+  try {
+    const branch = branchParam || activeBranch || "Norte";
+    const res = await callLocalApi(`action=save_customer&branch=${encodeURIComponent(branch)}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(customer)
+    });
+    const data = await res.json();
+    return Boolean(data.success);
+  } catch (e) {
+    return false;
+  }
+};
+
+export const deleteCustomerFromMySQL = async (customerId: string | number, name?: string, branchParam?: string): Promise<boolean> => {
+  try {
+    const branch = branchParam || activeBranch || "Norte";
+    const res = await callLocalApi(`action=delete_customer&branch=${encodeURIComponent(branch)}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: customerId, name })
+    });
+    const data = await res.json();
+    return Boolean(data.success);
+  } catch (e) {
+    return false;
+  }
+};
+
+export const saveSupplierToMySQL = async (supplier: any, branchParam?: string): Promise<boolean> => {
+  try {
+    const branch = branchParam || activeBranch || "Norte";
+    const res = await callLocalApi(`action=save_supplier&branch=${encodeURIComponent(branch)}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(supplier)
+    });
+    const data = await res.json();
+    return Boolean(data.success);
+  } catch (e) {
+    return false;
+  }
+};
+
+export const deleteSupplierFromMySQL = async (supplierId: string | number, branchParam?: string): Promise<boolean> => {
+  try {
+    const branch = branchParam || activeBranch || "Norte";
+    const res = await callLocalApi(`action=delete_supplier&branch=${encodeURIComponent(branch)}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: supplierId })
+    });
+    const data = await res.json();
+    return Boolean(data.success);
+  } catch (e) {
+    return false;
+  }
+};
+
+export const saveSaleToMySQL = async (sale: any, branchParam?: string): Promise<boolean> => {
+  try {
+    const branch = branchParam || activeBranch || "Norte";
+    const res = await callLocalApi(`action=save_sale&branch=${encodeURIComponent(branch)}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(sale)
+    });
+    const data = await res.json();
+    return Boolean(data.success);
+  } catch (e) {
+    return false;
+  }
+};
+
+export const deleteSaleFromMySQL = async (saleId: string | number, branchParam?: string): Promise<boolean> => {
+  try {
+    const branch = branchParam || activeBranch || "Norte";
+    const res = await callLocalApi(`action=delete_sale&branch=${encodeURIComponent(branch)}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: saleId })
+    });
+    const data = await res.json();
+    return Boolean(data.success);
+  } catch (e) {
+    return false;
+  }
+};
+
+export const saveMovementToMySQL = async (movement: any, branchParam?: string): Promise<boolean> => {
+  try {
+    const branch = branchParam || activeBranch || "Norte";
+    const res = await callLocalApi(`action=save_movement&branch=${encodeURIComponent(branch)}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(movement)
+    });
+    const data = await res.json();
+    return Boolean(data.success);
+  } catch (e) {
+    return false;
+  }
+};
+
+export const saveCashSessionToMySQL = async (session: any, branchParam?: string): Promise<boolean> => {
+  try {
+    const branch = branchParam || activeBranch || "Norte";
+    const res = await callLocalApi(`action=save_cash_session&branch=${encodeURIComponent(branch)}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(session)
+    });
+    const data = await res.json();
+    return Boolean(data.success);
+  } catch (e) {
+    return false;
+  }
+};
+
+export const saveExpenseToMySQL = async (expense: any, branchParam?: string): Promise<boolean> => {
+  try {
+    const branch = branchParam || activeBranch || "Norte";
+    const res = await callLocalApi(`action=save_expense&branch=${encodeURIComponent(branch)}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(expense)
+    });
+    const data = await res.json();
+    return Boolean(data.success);
+  } catch (e) {
+    return false;
+  }
+};
+
+export const deleteExpenseFromMySQL = async (expenseId: string, branchParam?: string): Promise<boolean> => {
+  try {
+    const branch = branchParam || activeBranch || "Norte";
+    const res = await callLocalApi(`action=delete_expense&branch=${encodeURIComponent(branch)}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: expenseId })
+    });
+    const data = await res.json();
+    return Boolean(data.success);
+  } catch (e) {
+    return false;
+  }
+};
+
+export const savePurchaseOrderToMySQL = async (order: any, branchParam?: string): Promise<boolean> => {
+  try {
+    const branch = branchParam || activeBranch || "Norte";
+    const res = await callLocalApi(`action=save_purchase_order&branch=${encodeURIComponent(branch)}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(order)
+    });
+    const data = await res.json();
+    return Boolean(data.success);
+  } catch (e) {
+    return false;
+  }
+};
+
+export const deletePurchaseOrderFromMySQL = async (orderId: string, branchParam?: string): Promise<boolean> => {
+  try {
+    const branch = branchParam || activeBranch || "Norte";
+    const res = await callLocalApi(`action=delete_purchase_order&branch=${encodeURIComponent(branch)}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: orderId })
+    });
+    const data = await res.json();
+    return Boolean(data.success);
+  } catch (e) {
+    return false;
+  }
 };
 
 export const persistToLocalMySQL = async (dbToSave: any, branchParam?: string) => {

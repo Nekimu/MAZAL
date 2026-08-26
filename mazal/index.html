@@ -6,6 +6,9 @@
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
+    <meta http-equiv="Pragma" content="no-cache" />
+    <meta http-equiv="Expires" content="0" />
     <link rel="manifest" href="./manifest.json" />
     <title>Mazal Distribuidora de productos desechables, plásticos y comestibles</title>
     <style>
@@ -54,7 +57,7 @@
           if (window.caches) {
             caches.keys().then((names) => {
               for (const name of names) {
-                if (name !== 'mazal-pos-v9-clean-sync') {
+                if (name !== 'mazal-pos-v10-offline-sync-2026') {
                   console.log('Purging legacy cache:', name);
                   caches.delete(name);
                 }

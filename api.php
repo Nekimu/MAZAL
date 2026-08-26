@@ -1,17 +1,24 @@
 <?php
 /**
  * ==============================================================================
- * MAZAL POS & ERP - [LEGACY / DESARROLLO LOCAL OPCIONAL]
+ * MAZAL POS & ERP - BACKEND API MYSQL / APACHE (XAMPP LOCALHOST)
  * ==============================================================================
- * AVISO DE ARQUITECTURA:
- * El stack de producción oficial es Railway + Supabase PostgreSQL (Server-Side Node.js).
- * Este archivo PHP es exclusivamente para compatibilidad con entornos locales de desarrollo
- * basados en XAMPP/MySQL o herramientas de migración inicial.
- * NO SE UTILIZA NI SE DESPLIEGA EN EL SERVIDOR DE PRODUCCIÓN EN RAILWAY.
+ * Maneja el almacenamiento local, contingencia offline y sincronización en MySQL.
+ * Soporta todas las operaciones CRUD para:
+ * - Productos y Precios (Multitarifa)
+ * - Clientes y Créditos
+ * - Proveedores y Cuentas por Pagar
+ * - Ventas e Historial de Tickets
+ * - Movimientos de Inventario (Kárdex)
+ * - Sesiones de Caja
+ * - Gastos de Caja
+ * - Órdenes de Compra / Suministro
+ * - Usuarios, Autenticación y Matriz de Permisos
+ * - Estado Global (mazal_app_state)
  * ==============================================================================
  */
 
-// Headers CORS para permitir llamadas desde cualquier origen local y Vite Dev Server
+// Headers CORS para permitir peticiones desde cualquier origen local y Vite Dev Server
 header("Access-Control-Allow-Origin: *");
 header("Access-Control-Allow-Methods: GET, POST, PUT, DELETE, OPTIONS");
 header("Access-Control-Allow-Headers: Content-Type, Authorization, X-Requested-With");
@@ -23,15 +30,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
     exit;
 }
 
-// Configuración de Servidor MySQL
+// Configuración de Servidor MySQL (XAMPP por defecto)
 $servername = "localhost";
 $username   = "root";
 $password   = "";
 
-// Detección de Sucursal y Ruteo de Base de Datos
+// Detección de Entrada JSON o Form Data
 $rawInput = file_get_contents('php://input');
 $postData = json_decode($rawInput, true) ?: [];
 
+// Detección de Sucursal y Ruteo de Base de Datos
 $branch = isset($_GET['branch']) ? trim($_GET['branch']) : (isset($_POST['branch']) ? trim($_POST['branch']) : (isset($postData['branch']) ? trim($postData['branch']) : 'Norte'));
 if (empty($branch)) {
     $branch = 'Norte';
@@ -39,15 +47,15 @@ if (empty($branch)) {
 
 // Mapa de Sucursal a Base de Datos MySQL
 $branchDbMap = [
-    'MAZAL 1' => 'mazal_bd',   // MAZAL 1 (Principal): BD Principal y más actualizada
+    'MAZAL 1' => 'mazal_bd',   // Sucursal Norte / Principal
     'mazal 1' => 'mazal_bd',
     'Norte'   => 'mazal_bd',
-    'MAZAL 2' => 'mazal_bd1',  // MAZAL 2 (Secundaria): BD Secundaria
-    'mazal 2' => 'mazal_bd1',
-    'Sur'     => 'mazal_bd1',
+    'Matriz'  => 'mazal_bd',
     'Centro'  => 'mazal_bd',
     'Bodega'  => 'mazal_bd',
-    'Matriz'  => 'mazal_bd',
+    'MAZAL 2' => 'mazal_bd1',  // Sucursal Sur / Secundaria
+    'mazal 2' => 'mazal_bd1',
+    'Sur'     => 'mazal_bd1',
 ];
 
 $requestedDb = isset($_GET['db']) ? trim($_GET['db']) : (isset($_POST['db']) ? trim($_POST['db']) : (isset($postData['db']) ? trim($postData['db']) : null));
@@ -62,7 +70,7 @@ if ($requestedDb && in_array($requestedDb, ['mazal_bd', 'mazal_bd1'])) {
 $rawMysqli = @new mysqli($servername, $username, $password);
 
 if ($rawMysqli && !$rawMysqli->connect_errno) {
-    // 1. Crear bases de datos automáticamente si no existen en un equipo nuevo
+    // Crear bases de datos automáticamente si no existen
     $rawMysqli->query("CREATE DATABASE IF NOT EXISTS mazal_bd CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;");
     $rawMysqli->query("CREATE DATABASE IF NOT EXISTS mazal_bd1 CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;");
 }
@@ -91,7 +99,6 @@ $mysqli->set_charset("utf8mb4");
 
 // 2. FUNCIÓN DE AUTO-PROVISIÓN Y AUTO-MIGRACIÓN DE ESQUEMA (SELF-HEALING SCHEMA)
 function autoMigrateSchema($db, $targetDb) {
-    // Helper para verificar y agregar columnas faltantes
     $ensureColumns = function($tableName, $columns) use ($db) {
         $res = $db->query("SHOW COLUMNS FROM {$tableName}");
         $existingCols = [];
@@ -130,6 +137,15 @@ function autoMigrateSchema($db, $targetDb) {
         nom_p VARCHAR(255) NOT NULL,
         des VARCHAR(255) DEFAULT 'entero',
         cant DECIMAL(10,2) DEFAULT 0,
+        categoria VARCHAR(100) DEFAULT 'General',
+        marca VARCHAR(100) DEFAULT 'MAZAL',
+        unidad VARCHAR(50) DEFAULT 'pz',
+        stock_min DECIMAL(10,2) DEFAULT 5,
+        stock_max DECIMAL(10,2) DEFAULT 100,
+        ubicacion VARCHAR(255) DEFAULT 'Bodega Principal',
+        imagen VARCHAR(500) DEFAULT '',
+        proveedor_id VARCHAR(100) DEFAULT 'PROV_01',
+        raw_data LONGTEXT DEFAULT NULL,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;");
     $ensureColumns('productos', [
@@ -137,6 +153,15 @@ function autoMigrateSchema($db, $targetDb) {
         'nom_p' => "VARCHAR(255) NOT NULL",
         'des' => "VARCHAR(255) DEFAULT 'entero'",
         'cant' => "DECIMAL(10,2) DEFAULT 0",
+        'categoria' => "VARCHAR(100) DEFAULT 'General'",
+        'marca' => "VARCHAR(100) DEFAULT 'MAZAL'",
+        'unidad' => "VARCHAR(50) DEFAULT 'pz'",
+        'stock_min' => "DECIMAL(10,2) DEFAULT 5",
+        'stock_max' => "DECIMAL(10,2) DEFAULT 100",
+        'ubicacion' => "VARCHAR(255) DEFAULT 'Bodega Principal'",
+        'imagen' => "VARCHAR(500) DEFAULT ''",
+        'proveedor_id' => "VARCHAR(100) DEFAULT 'PROV_01'",
+        'raw_data' => "LONGTEXT DEFAULT NULL",
         'created_at' => "TIMESTAMP DEFAULT CURRENT_TIMESTAMP"
     ]);
 
@@ -148,6 +173,7 @@ function autoMigrateSchema($db, $targetDb) {
         medio DECIMAL(10,2) DEFAULT 0,
         menudeo DECIMAL(10,2) DEFAULT 0,
         Unitario DECIMAL(10,2) DEFAULT 0,
+        precio_especial DECIMAL(10,2) DEFAULT 0,
         UNIQUE KEY uq_prod (id_producto)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;");
     $ensureColumns('precios', [
@@ -155,7 +181,8 @@ function autoMigrateSchema($db, $targetDb) {
         'mayoreo' => "DECIMAL(10,2) DEFAULT 0",
         'medio' => "DECIMAL(10,2) DEFAULT 0",
         'menudeo' => "DECIMAL(10,2) DEFAULT 0",
-        'Unitario' => "DECIMAL(10,2) DEFAULT 0"
+        'Unitario' => "DECIMAL(10,2) DEFAULT 0",
+        'precio_especial' => "DECIMAL(10,2) DEFAULT 0"
     ]);
 
     // D. TABLA CLIENTES
@@ -164,12 +191,28 @@ function autoMigrateSchema($db, $targetDb) {
         nombre_c VARCHAR(255) NOT NULL,
         tel VARCHAR(50) DEFAULT '',
         cant_ade DECIMAL(10,2) DEFAULT 0,
+        email VARCHAR(255) DEFAULT '',
+        direccion VARCHAR(255) DEFAULT '',
+        rfc VARCHAR(50) DEFAULT '',
+        limite_credito DECIMAL(10,2) DEFAULT 0,
+        dias_credito INT DEFAULT 30,
+        notas TEXT DEFAULT NULL,
+        status VARCHAR(50) DEFAULT 'Activo',
+        raw_data LONGTEXT DEFAULT NULL,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;");
     $ensureColumns('clientes', [
         'nombre_c' => "VARCHAR(255) NOT NULL",
         'tel' => "VARCHAR(50) DEFAULT ''",
         'cant_ade' => "DECIMAL(10,2) DEFAULT 0",
+        'email' => "VARCHAR(255) DEFAULT ''",
+        'direccion' => "VARCHAR(255) DEFAULT ''",
+        'rfc' => "VARCHAR(50) DEFAULT ''",
+        'limite_credito' => "DECIMAL(10,2) DEFAULT 0",
+        'dias_credito' => "INT DEFAULT 30",
+        'notas' => "TEXT DEFAULT NULL",
+        'status' => "VARCHAR(50) DEFAULT 'Activo'",
+        'raw_data' => "LONGTEXT DEFAULT NULL",
         'created_at' => "TIMESTAMP DEFAULT CURRENT_TIMESTAMP"
     ]);
 
@@ -180,6 +223,11 @@ function autoMigrateSchema($db, $targetDb) {
         tel VARCHAR(50) DEFAULT '',
         empresa VARCHAR(255) DEFAULT '',
         adeudo DECIMAL(10,2) DEFAULT 0,
+        email VARCHAR(255) DEFAULT '',
+        direccion VARCHAR(255) DEFAULT '',
+        rfc VARCHAR(50) DEFAULT '',
+        contacto VARCHAR(255) DEFAULT '',
+        raw_data LONGTEXT DEFAULT NULL,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;");
     $ensureColumns('proveedor', [
@@ -187,6 +235,11 @@ function autoMigrateSchema($db, $targetDb) {
         'tel' => "VARCHAR(50) DEFAULT ''",
         'empresa' => "VARCHAR(255) DEFAULT ''",
         'adeudo' => "DECIMAL(10,2) DEFAULT 0",
+        'email' => "VARCHAR(255) DEFAULT ''",
+        'direccion' => "VARCHAR(255) DEFAULT ''",
+        'rfc' => "VARCHAR(50) DEFAULT ''",
+        'contacto' => "VARCHAR(255) DEFAULT ''",
+        'raw_data' => "LONGTEXT DEFAULT NULL",
         'created_at' => "TIMESTAMP DEFAULT CURRENT_TIMESTAMP"
     ]);
 
@@ -219,7 +272,65 @@ function autoMigrateSchema($db, $targetDb) {
         'raw_data' => "LONGTEXT DEFAULT NULL"
     ]);
 
-    // G. TABLA ROLES_PERMISOS
+    // G. TABLA MOVIMIENTOS_INVENTARIO (KARDEX)
+    $db->query("CREATE TABLE IF NOT EXISTS movimientos_inventario (
+        id VARCHAR(100) PRIMARY KEY,
+        product_id VARCHAR(100) NOT NULL,
+        product_name VARCHAR(255) DEFAULT '',
+        type VARCHAR(50) DEFAULT 'AJUSTE',
+        quantity DECIMAL(10,2) DEFAULT 0,
+        previous_stock DECIMAL(10,2) DEFAULT 0,
+        new_stock DECIMAL(10,2) DEFAULT 0,
+        date DATETIME DEFAULT CURRENT_TIMESTAMP,
+        user_name VARCHAR(100) DEFAULT 'Admin',
+        notes TEXT DEFAULT NULL,
+        sucursal VARCHAR(50) DEFAULT 'Norte',
+        raw_data LONGTEXT DEFAULT NULL
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;");
+
+    // H. TABLA SESIONES_CAJA
+    $db->query("CREATE TABLE IF NOT EXISTS sesiones_caja (
+        id VARCHAR(100) PRIMARY KEY,
+        start_time DATETIME DEFAULT CURRENT_TIMESTAMP,
+        end_time DATETIME DEFAULT NULL,
+        opened_by VARCHAR(100) DEFAULT 'Admin',
+        initial_cash DECIMAL(10,2) DEFAULT 0,
+        final_cash DECIMAL(10,2) DEFAULT NULL,
+        status VARCHAR(50) DEFAULT 'Abierta',
+        sales_total DECIMAL(10,2) DEFAULT 0,
+        expenses_total DECIMAL(10,2) DEFAULT 0,
+        expected_final_cash DECIMAL(10,2) DEFAULT 0,
+        sucursal VARCHAR(50) DEFAULT 'Norte',
+        raw_data LONGTEXT DEFAULT NULL
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;");
+
+    // I. TABLA GASTOS_CAJA
+    $db->query("CREATE TABLE IF NOT EXISTS gastos_caja (
+        id VARCHAR(100) PRIMARY KEY,
+        description VARCHAR(255) NOT NULL,
+        amount DECIMAL(10,2) DEFAULT 0,
+        category VARCHAR(100) DEFAULT 'General',
+        date DATETIME DEFAULT CURRENT_TIMESTAMP,
+        user_name VARCHAR(100) DEFAULT 'Admin',
+        sucursal VARCHAR(50) DEFAULT 'Norte',
+        raw_data LONGTEXT DEFAULT NULL
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;");
+
+    // J. TABLA ORDENES_COMPRA
+    $db->query("CREATE TABLE IF NOT EXISTS ordenes_compra (
+        id VARCHAR(100) PRIMARY KEY,
+        supplier_id VARCHAR(100) DEFAULT NULL,
+        supplier_name VARCHAR(255) DEFAULT '',
+        total DECIMAL(10,2) DEFAULT 0,
+        status VARCHAR(50) DEFAULT 'Pendiente',
+        date VARCHAR(50) DEFAULT '',
+        received_date VARCHAR(50) DEFAULT NULL,
+        payment_status VARCHAR(50) DEFAULT 'Pendiente',
+        sucursal VARCHAR(50) DEFAULT 'Norte',
+        raw_data LONGTEXT DEFAULT NULL
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;");
+
+    // K. TABLA ROLES_PERMISOS
     $db->query("CREATE TABLE IF NOT EXISTS roles_permisos (
         id INT AUTO_INCREMENT PRIMARY KEY,
         rol VARCHAR(50) NOT NULL UNIQUE,
@@ -231,30 +342,16 @@ function autoMigrateSchema($db, $targetDb) {
         security TINYINT(1) DEFAULT 0,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;");
-    $ensureColumns('roles_permisos', [
-        'rol' => "VARCHAR(50) NOT NULL UNIQUE",
-        'pos' => "TINYINT(1) DEFAULT 1",
-        'inventory' => "TINYINT(1) DEFAULT 0",
-        'customers' => "TINYINT(1) DEFAULT 0",
-        'purchases' => "TINYINT(1) DEFAULT 0",
-        'reports' => "TINYINT(1) DEFAULT 0",
-        'security' => "TINYINT(1) DEFAULT 0"
-    ]);
 
-    // H. TABLA MAZAL_APP_STATE
+    // L. TABLA MAZAL_APP_STATE
     $db->query("CREATE TABLE IF NOT EXISTS mazal_app_state (
         id INT PRIMARY KEY,
         branch VARCHAR(50) NOT NULL,
         json_data LONGTEXT NOT NULL,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;");
-    $ensureColumns('mazal_app_state', [
-        'branch' => "VARCHAR(50) NOT NULL",
-        'json_data' => "LONGTEXT NOT NULL",
-        'updated_at' => "TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP"
-    ]);
 
-    // I. ASEGURAR ADMINISTRADOR GENERAL MAESTRO (solo si no existe)
+    // M. ASEGURAR ADMINISTRADOR GENERAL MAESTRO (solo si no existe)
     $db->query("INSERT INTO usuarios (usuario, nombrecompleto, password, rol) 
                 SELECT 'admin', 'Administrador General', 'admin030114', 'administrador' 
                 WHERE NOT EXISTS (SELECT 1 FROM usuarios WHERE usuario = 'admin');");
@@ -265,7 +362,7 @@ autoMigrateSchema($mysqli, $dbname);
 
 $action = isset($_GET['action']) ? $_GET['action'] : '';
 
-// 0. LOGIN & AUTENTICACIÓN SEGURA (Server-Side)
+// 0. LOGIN & AUTENTICACIÓN (Server-Side)
 if ($action === 'login' && $_SERVER['REQUEST_METHOD'] === 'POST') {
     $userIn = isset($postData['username']) ? trim($postData['username']) : (isset($postData['usuario']) ? trim($postData['usuario']) : '');
     $passIn = isset($postData['password']) ? trim($postData['password']) : '';
@@ -284,7 +381,6 @@ if ($action === 'login' && $_SERVER['REQUEST_METHOD'] === 'POST') {
         $storedPass = $row['password'];
         $isValid = false;
 
-        // Comprobación flexible y robusta (Texto plano, Bcrypt o SHA-256)
         if ($passIn === $storedPass) {
             $isValid = true;
         } else if (password_verify($passIn, $storedPass)) {
@@ -325,6 +421,12 @@ if ($action === 'ping') {
     $resUsers = $mysqli->query("SELECT count(*) as total FROM usuarios");
     $totalUsers = ($resUsers && $rowU = $resUsers->fetch_assoc()) ? (int)$rowU['total'] : 0;
 
+    $resCust = $mysqli->query("SELECT count(*) as total FROM clientes");
+    $totalCust = ($resCust && $rowC = $resCust->fetch_assoc()) ? (int)$rowC['total'] : 0;
+
+    $resProv = $mysqli->query("SELECT count(*) as total FROM proveedor");
+    $totalProv = ($resProv && $rowP = $resProv->fetch_assoc()) ? (int)$rowP['total'] : 0;
+
     echo json_encode([
         "success" => true,
         "branch" => $branch,
@@ -332,6 +434,8 @@ if ($action === 'ping') {
         "total_productos" => $totalProds,
         "total_ventas" => $totalVentas,
         "total_usuarios" => $totalUsers,
+        "total_clientes" => $totalCust,
+        "total_proveedores" => $totalProv,
         "server" => "Apache / XAMPP",
         "status" => "online",
         "timestamp" => date("Y-m-d H:i:s")
@@ -339,7 +443,7 @@ if ($action === 'ping') {
     exit;
 }
 
-// 2. OBTENER MATRIZ DE PERMISOS POR ROL
+// 2. OBTENER PERMISOS
 if ($action === 'get_permissions') {
     $res = $mysqli->query("SELECT * FROM roles_permisos");
     $permissions = [];
@@ -389,7 +493,7 @@ if ($action === 'get_permissions') {
     exit;
 }
 
-// 3. GUARDAR MATRIZ DE PERMISOS POR ROL
+// 3. GUARDAR PERMISOS
 if ($action === 'save_permissions' && $_SERVER['REQUEST_METHOD'] === 'POST') {
     if (!$postData || !isset($postData['permissions'])) {
         echo json_encode(["success" => false, "error" => "Datos de permisos no proporcionados."]);
@@ -423,13 +527,12 @@ if ($action === 'save_permissions' && $_SERVER['REQUEST_METHOD'] === 'POST') {
         "message" => "Matriz de permisos actualizada exitosamente en MySQL ({$dbname}).",
         "updatedRoles" => $updatedRoles,
         "branch" => $branch,
-        "database" => $dbname,
-        "timestamp" => date("Y-m-d H:i:s")
+        "database" => $dbname
     ]);
     exit;
 }
 
-// 4. GUARDAR ESTADO COMPLETO EN SQL Y SINCRONIZAR TABLAS NATIVAS
+// 4. GUARDAR ESTADO COMPLETO EN SQL
 if ($action === 'save_state' && $_SERVER['REQUEST_METHOD'] === 'POST') {
     $id = 1;
     if ($branch === 'Sur') $id = 2;
@@ -443,25 +546,27 @@ if ($action === 'save_state' && $_SERVER['REQUEST_METHOD'] === 'POST') {
 
     // 4.2 Sincronizar clientes con la tabla nativa de MySQL
     if ($postData && isset($postData['customers']) && is_array($postData['customers'])) {
-        $validIds = [];
         foreach ($postData['customers'] as $c) {
             $rawId = isset($c['id']) ? (string)$c['id'] : '';
             $cId = (int)preg_replace('/[^0-9]/', '', $rawId);
             $cName = isset($c['name']) ? trim($c['name']) : (isset($c['nombre_c']) ? trim($c['nombre_c']) : '');
             $cTel = isset($c['phone']) ? trim($c['phone']) : (isset($c['tel']) ? trim($c['tel']) : '');
             $cDebt = isset($c['creditUsed']) ? (float)$c['creditUsed'] : (isset($c['cant_ade']) ? (float)$c['cant_ade'] : 0);
+            $cEmail = isset($c['email']) ? trim($c['email']) : '';
+            $cDir = isset($c['address']) ? trim($c['address']) : (isset($c['direccion']) ? trim($c['direccion']) : '');
+            $cRfc = isset($c['rfc']) ? trim($c['rfc']) : '';
+            $cLim = isset($c['creditLimit']) ? (float)$c['creditLimit'] : 0;
+            $cRaw = json_encode($c);
 
             if (!empty($cName)) {
                 if ($cId > 0) {
-                    $validIds[] = $cId;
-                    $stmtC = $mysqli->prepare("INSERT INTO clientes (id_cliente, nombre_c, tel, cant_ade) VALUES (?, ?, ?, ?) ON DUPLICATE KEY UPDATE nombre_c=VALUES(nombre_c), tel=VALUES(tel), cant_ade=VALUES(cant_ade)");
-                    $stmtC->bind_param("issd", $cId, $cName, $cTel, $cDebt);
+                    $stmtC = $mysqli->prepare("INSERT INTO clientes (id_cliente, nombre_c, tel, cant_ade, email, direccion, rfc, limite_credito, raw_data) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE nombre_c=VALUES(nombre_c), tel=VALUES(tel), cant_ade=VALUES(cant_ade), email=VALUES(email), direccion=VALUES(direccion), rfc=VALUES(rfc), limite_credito=VALUES(limite_credito), raw_data=VALUES(raw_data)");
+                    $stmtC->bind_param("issdsssds", $cId, $cName, $cTel, $cDebt, $cEmail, $cDir, $cRfc, $cLim, $cRaw);
                     $stmtC->execute();
                 } else {
-                    $stmtC = $mysqli->prepare("INSERT INTO clientes (nombre_c, tel, cant_ade) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE tel=VALUES(tel), cant_ade=VALUES(cant_ade)");
-                    $stmtC->bind_param("ssd", $cName, $cTel, $cDebt);
+                    $stmtC = $mysqli->prepare("INSERT INTO clientes (nombre_c, tel, cant_ade, email, direccion, rfc, limite_credito, raw_data) VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
+                    $stmtC->bind_param("ssdsssds", $cName, $cTel, $cDebt, $cEmail, $cDir, $cRfc, $cLim, $cRaw);
                     $stmtC->execute();
-                    if ($stmtC->insert_id) $validIds[] = (int)$stmtC->insert_id;
                 }
             }
         }
@@ -476,15 +581,16 @@ if ($action === 'save_state' && $_SERVER['REQUEST_METHOD'] === 'POST') {
             $sTel = isset($s['phone']) ? trim($s['phone']) : (isset($s['tel']) ? trim($s['tel']) : '');
             $sEmpresa = isset($s['company']) ? trim($s['company']) : (isset($s['empresa']) ? trim($s['empresa']) : $sName);
             $sAdeudo = isset($s['outstandingBalance']) ? (float)$s['outstandingBalance'] : (isset($s['adeudo']) ? (float)$s['adeudo'] : 0);
+            $sRaw = json_encode($s);
 
             if (!empty($sName)) {
                 if ($sId > 0) {
-                    $stmtS = $mysqli->prepare("INSERT INTO proveedor (id, nombre, tel, empresa, adeudo) VALUES (?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE nombre=VALUES(nombre), tel=VALUES(tel), empresa=VALUES(empresa), adeudo=VALUES(adeudo)");
-                    $stmtS->bind_param("isssd", $sId, $sName, $sTel, $sEmpresa, $sAdeudo);
+                    $stmtS = $mysqli->prepare("INSERT INTO proveedor (id, nombre, tel, empresa, adeudo, raw_data) VALUES (?, ?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE nombre=VALUES(nombre), tel=VALUES(tel), empresa=VALUES(empresa), adeudo=VALUES(adeudo), raw_data=VALUES(raw_data)");
+                    $stmtS->bind_param("isssds", $sId, $sName, $sTel, $sEmpresa, $sAdeudo, $sRaw);
                     $stmtS->execute();
                 } else {
-                    $stmtS = $mysqli->prepare("INSERT INTO proveedor (nombre, tel, empresa, adeudo) VALUES (?, ?, ?, ?)");
-                    $stmtS->bind_param("sssd", $sName, $sTel, $sEmpresa, $sAdeudo);
+                    $stmtS = $mysqli->prepare("INSERT INTO proveedor (nombre, tel, empresa, adeudo, raw_data) VALUES (?, ?, ?, ?, ?)");
+                    $stmtS->bind_param("sssds", $sName, $sTel, $sEmpresa, $sAdeudo, $sRaw);
                     $stmtS->execute();
                 }
             }
@@ -505,24 +611,26 @@ if ($action === 'save_state' && $_SERVER['REQUEST_METHOD'] === 'POST') {
             $pMedio = isset($p['priceMed']) ? round((float)$p['priceMed'], 2) : (isset($p['medio']) ? round((float)$p['medio'], 2) : 0);
             $pMenudeo = isset($p['priceMin']) ? round((float)$p['priceMin'], 2) : (isset($p['menudeo']) ? round((float)$p['menudeo'], 2) : 0);
             $pUnitario = isset($p['cost']) ? strval(round((float)$p['cost'], 2)) : (isset($p['unitario']) ? strval(round((float)$p['unitario'], 2)) : '0');
+            $pEspecial = isset($p['priceSpecial']) ? round((float)$p['priceSpecial'], 2) : 0;
+            $pRaw = json_encode($p);
 
             if (!empty($pName)) {
                 if ($pId > 0) {
-                    $stmtP = $mysqli->prepare("INSERT INTO productos (id, clave, nom_p, des, cant) VALUES (?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE clave=VALUES(clave), nom_p=VALUES(nom_p), des=VALUES(des), cant=VALUES(cant)");
-                    $stmtP->bind_param("isssd", $pId, $pClave, $pName, $pDes, $pCant);
+                    $stmtP = $mysqli->prepare("INSERT INTO productos (id, clave, nom_p, des, cant, raw_data) VALUES (?, ?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE clave=VALUES(clave), nom_p=VALUES(nom_p), des=VALUES(des), cant=VALUES(cant), raw_data=VALUES(raw_data)");
+                    $stmtP->bind_param("isssds", $pId, $pClave, $pName, $pDes, $pCant, $pRaw);
                     $stmtP->execute();
 
-                    $stmtPr = $mysqli->prepare("INSERT INTO precios (id_producto, mayoreo, medio, menudeo, Unitario) VALUES (?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE mayoreo=VALUES(mayoreo), medio=VALUES(medio), menudeo=VALUES(menudeo), Unitario=VALUES(Unitario)");
-                    $stmtPr->bind_param("iddds", $pId, $pMayoreo, $pMedio, $pMenudeo, $pUnitario);
+                    $stmtPr = $mysqli->prepare("INSERT INTO precios (id_producto, mayoreo, medio, menudeo, Unitario, precio_especial) VALUES (?, ?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE mayoreo=VALUES(mayoreo), medio=VALUES(medio), menudeo=VALUES(menudeo), Unitario=VALUES(Unitario), precio_especial=VALUES(precio_especial)");
+                    $stmtPr->bind_param("idddsd", $pId, $pMayoreo, $pMedio, $pMenudeo, $pUnitario, $pEspecial);
                     $stmtPr->execute();
                 } else {
-                    $stmtP = $mysqli->prepare("INSERT INTO productos (clave, nom_p, des, cant) VALUES (?, ?, ?, ?)");
-                    $stmtP->bind_param("sssd", $pClave, $pName, $pDes, $pCant);
+                    $stmtP = $mysqli->prepare("INSERT INTO productos (clave, nom_p, des, cant, raw_data) VALUES (?, ?, ?, ?, ?)");
+                    $stmtP->bind_param("sssds", $pClave, $pName, $pDes, $pCant, $pRaw);
                     $stmtP->execute();
                     $newProdId = $mysqli->insert_id;
                     if ($newProdId > 0) {
-                        $stmtPr = $mysqli->prepare("INSERT INTO precios (id_producto, mayoreo, medio, menudeo, Unitario) VALUES (?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE mayoreo=VALUES(mayoreo), medio=VALUES(medio), menudeo=VALUES(menudeo), Unitario=VALUES(Unitario)");
-                        $stmtPr->bind_param("iddds", $newProdId, $pMayoreo, $pMedio, $pMenudeo, $pUnitario);
+                        $stmtPr = $mysqli->prepare("INSERT INTO precios (id_producto, mayoreo, medio, menudeo, Unitario, precio_especial) VALUES (?, ?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE mayoreo=VALUES(mayoreo), medio=VALUES(medio), menudeo=VALUES(menudeo), Unitario=VALUES(Unitario), precio_especial=VALUES(precio_especial)");
+                        $stmtPr->bind_param("idddsd", $newProdId, $pMayoreo, $pMedio, $pMenudeo, $pUnitario, $pEspecial);
                         $stmtPr->execute();
                     }
                 }
@@ -570,35 +678,7 @@ if ($action === 'save_state' && $_SERVER['REQUEST_METHOD'] === 'POST') {
     exit;
 }
 
-// 4.1 ELIMINAR CLIENTE DIRECTO
-if ($action === 'delete_customer' && $_SERVER['REQUEST_METHOD'] === 'POST') {
-    $rawId = isset($postData['id']) ? (string)$postData['id'] : (isset($postData['id_cliente']) ? (string)$postData['id_cliente'] : '');
-    $cId = (int)preg_replace('/[^0-9]/', '', $rawId);
-    $cName = isset($postData['name']) ? trim($postData['name']) : '';
-
-    $deleted = false;
-    if ($cId > 0) {
-        $stmt = $mysqli->prepare("DELETE FROM clientes WHERE id_cliente = ?");
-        $stmt->bind_param("i", $cId);
-        $stmt->execute();
-        $deleted = true;
-    } else if (!empty($cName)) {
-        $stmt = $mysqli->prepare("DELETE FROM clientes WHERE nombre_c = ?");
-        $stmt->bind_param("s", $cName);
-        $stmt->execute();
-        $deleted = true;
-    }
-
-    echo json_encode([
-        "success" => $deleted,
-        "message" => $deleted ? "Cliente eliminado de MySQL." : "ID o nombre de cliente no proporcionado.",
-        "branch" => $branch,
-        "database" => $dbname
-    ]);
-    exit;
-}
-
-// 5. CARGAR ESTADO DE BASE DE DATOS DESDE SQL
+// 5. CARGAR ESTADO DESDE SQL
 if ($action === 'get_state') {
     $id = 1;
     if ($branch === 'Sur') $id = 2;
@@ -629,7 +709,7 @@ if ($action === 'get_state') {
     exit;
 }
 
-// 6. CARGAR DATOS DESDE TABLAS NATIVAS DE MYSQL (productos con precios redondeados a 2 decimales, usuarios, clientes, proveedores, etc.)
+// 6. CARGAR TABLAS NATIVAS DE MYSQL
 if ($action === 'get_native_tables') {
     $usuarios = [];
     $resU = $mysqli->query("SELECT id, usuario, nombrecompleto, password, rol FROM usuarios ORDER BY id ASC");
@@ -640,7 +720,7 @@ if ($action === 'get_native_tables') {
     }
 
     $clientes = [];
-    $resC = $mysqli->query("SELECT id_cliente, nombre_c, tel, ROUND(cant_ade, 2) as cant_ade FROM clientes");
+    $resC = $mysqli->query("SELECT id_cliente, nombre_c, tel, ROUND(cant_ade, 2) as cant_ade, email, direccion, rfc, limite_credito, dias_credito, notas, status, raw_data FROM clientes");
     if ($resC) {
         while ($row = $resC->fetch_assoc()) {
             $clientes[] = $row;
@@ -648,7 +728,7 @@ if ($action === 'get_native_tables') {
     }
 
     $proveedores = [];
-    $resProv = $mysqli->query("SELECT id, nombre, tel, empresa, ROUND(adeudo, 2) as adeudo FROM proveedor");
+    $resProv = $mysqli->query("SELECT id, nombre, tel, empresa, ROUND(adeudo, 2) as adeudo, email, direccion, rfc, contacto, raw_data FROM proveedor");
     if ($resProv) {
         while ($row = $resProv->fetch_assoc()) {
             $proveedores[] = $row;
@@ -657,11 +737,12 @@ if ($action === 'get_native_tables') {
 
     $productos = [];
     $resP = $mysqli->query("
-        SELECT p.id, p.clave, p.nom_p, p.des, p.cant,
+        SELECT p.id, p.clave, p.nom_p, p.des, p.cant, p.categoria, p.marca, p.unidad, p.stock_min, p.stock_max, p.ubicacion, p.imagen, p.proveedor_id, p.raw_data,
                ROUND(COALESCE(pr.mayoreo, 0), 2) as mayoreo,
                ROUND(COALESCE(pr.medio, 0), 2) as medio,
                ROUND(COALESCE(pr.menudeo, 0), 2) as menudeo,
-               ROUND(COALESCE(CAST(pr.Unitario AS DECIMAL(10,2)), 0), 2) as unitario
+               ROUND(COALESCE(CAST(pr.Unitario AS DECIMAL(10,2)), 0), 2) as unitario,
+               ROUND(COALESCE(pr.precio_especial, 0), 2) as precio_especial
         FROM productos p
         LEFT JOIN precios pr ON p.id = pr.id_producto
         ORDER BY p.id ASC
@@ -674,15 +755,56 @@ if ($action === 'get_native_tables') {
                 "nom_p" => $row['nom_p'],
                 "des" => $row['des'],
                 "cant" => (float)$row['cant'],
+                "categoria" => $row['categoria'] ?: 'General',
+                "marca" => $row['marca'] ?: 'MAZAL',
+                "unidad" => $row['unidad'] ?: 'pz',
+                "stock_min" => (float)$row['stock_min'],
+                "stock_max" => (float)$row['stock_max'],
+                "ubicacion" => $row['ubicacion'] ?: 'Bodega Principal',
+                "imagen" => $row['imagen'] ?: '',
+                "proveedor_id" => $row['proveedor_id'] ?: 'PROV_01',
                 "mayoreo" => round((float)$row['mayoreo'], 2),
                 "medio" => round((float)$row['medio'], 2),
                 "menudeo" => round((float)$row['menudeo'], 2),
                 "unitario" => round((float)$row['unitario'], 2),
+                "precio_especial" => round((float)$row['precio_especial'], 2),
+                "raw_data" => $row['raw_data'] ? json_decode($row['raw_data'], true) : null
             ];
         }
     }
 
-    // Stats
+    $movements = [];
+    $resM = $mysqli->query("SELECT * FROM movimientos_inventario ORDER BY date DESC LIMIT 300");
+    if ($resM) {
+        while ($row = $resM->fetch_assoc()) {
+            $movements[] = $row;
+        }
+    }
+
+    $cashSessions = [];
+    $resCS = $mysqli->query("SELECT * FROM sesiones_caja ORDER BY start_time DESC LIMIT 50");
+    if ($resCS) {
+        while ($row = $resCS->fetch_assoc()) {
+            $cashSessions[] = $row;
+        }
+    }
+
+    $expenses = [];
+    $resE = $mysqli->query("SELECT * FROM gastos_caja ORDER BY date DESC LIMIT 100");
+    if ($resE) {
+        while ($row = $resE->fetch_assoc()) {
+            $expenses[] = $row;
+        }
+    }
+
+    $purchaseOrders = [];
+    $resPO = $mysqli->query("SELECT * FROM ordenes_compra ORDER BY date DESC LIMIT 100");
+    if ($resPO) {
+        while ($row = $resPO->fetch_assoc()) {
+            $purchaseOrders[] = $row;
+        }
+    }
+
     $totalVentas = 0;
     $resV = $mysqli->query("SELECT count(*) as total FROM ventas");
     if ($resV && $rowV = $resV->fetch_assoc()) {
@@ -697,6 +819,10 @@ if ($action === 'get_native_tables') {
         "clientes" => $clientes,
         "proveedores" => $proveedores,
         "productos" => $productos,
+        "movimientos" => $movements,
+        "sesiones_caja" => $cashSessions,
+        "gastos" => $expenses,
+        "ordenes_compra" => $purchaseOrders,
         "stats" => [
             "total_productos" => count($productos),
             "total_ventas" => $totalVentas,
@@ -709,14 +835,14 @@ if ($action === 'get_native_tables') {
     exit;
 }
 
-// 7. CARGAR HISTORIAL DE VENTAS DESDE MYSQL
+// 7. CARGAR HISTORIAL DE VENTAS
 if ($action === 'get_historical_sales') {
     $ventas = [];
     $resV = $mysqli->query("
-        SELECT v.id_venta, v.id_producto, p.nom_p, p.clave, v.descripcion, v.fecha, v.cantidad, 
+        SELECT v.id_venta, v.ticket_number, v.id_producto, p.nom_p, p.clave, v.descripcion, v.fecha, v.cantidad, 
                ROUND(v.total, 2) as total, 
                ROUND(v.total_utilidad, 2) as total_utilidad, 
-               v.id_cliente, c.nombre_c
+               v.id_cliente, c.nombre_c, v.metodo_pago, v.sucursal, v.raw_data
         FROM ventas v
         LEFT JOIN productos p ON v.id_producto = p.id
         LEFT JOIN clientes c ON v.id_cliente = c.id_cliente
@@ -739,7 +865,451 @@ if ($action === 'get_historical_sales') {
     exit;
 }
 
-// 8. GUARDAR / ACTUALIZAR USUARIO EN MYSQL (Persistencia de Credenciales)
+// 8. GUARDAR / EDITAR PRODUCTO (CRUD: Create / Update)
+if ($action === 'save_product' && $_SERVER['REQUEST_METHOD'] === 'POST') {
+    $rawId = isset($postData['id']) ? (string)$postData['id'] : '';
+    $prodId = (int)preg_replace('/[^0-9]/', '', $rawId);
+    $clave  = isset($postData['code']) ? trim($postData['code']) : (isset($postData['clave']) ? trim($postData['clave']) : '');
+    $nom_p  = isset($postData['name']) ? trim($postData['name']) : (isset($postData['nom_p']) ? trim($postData['nom_p']) : '');
+    $des    = isset($postData['subcategory']) ? trim($postData['subcategory']) : (isset($postData['des']) ? trim($postData['des']) : 'entero');
+    $cant   = isset($postData['stock']) ? (float)$postData['stock'] : (isset($postData['cant']) ? (float)$postData['cant'] : 0);
+    $cat    = isset($postData['category']) ? trim($postData['category']) : (isset($postData['categoria']) ? trim($postData['categoria']) : 'General');
+    $marca  = isset($postData['brand']) ? trim($postData['brand']) : (isset($postData['marca']) ? trim($postData['marca']) : 'MAZAL');
+    $unidad = isset($postData['unit']) ? trim($postData['unit']) : (isset($postData['unidad']) ? trim($postData['unidad']) : 'pz');
+    $stkMin = isset($postData['stockMin']) ? (float)$postData['stockMin'] : (isset($postData['stock_min']) ? (float)$postData['stock_min'] : 5);
+    $stkMax = isset($postData['stockMax']) ? (float)$postData['stockMax'] : (isset($postData['stock_max']) ? (float)$postData['stock_max'] : 100);
+    $ubic   = isset($postData['location']) ? trim($postData['location']) : (isset($postData['ubicacion']) ? trim($postData['ubicacion']) : 'Bodega Principal');
+    $img    = isset($postData['imageUrl']) ? trim($postData['imageUrl']) : (isset($postData['imagen']) ? trim($postData['imagen']) : '');
+    $provId = isset($postData['supplierId']) ? trim($postData['supplierId']) : (isset($postData['proveedor_id']) ? trim($postData['proveedor_id']) : 'PROV_01');
+    $pRaw   = json_encode($postData);
+
+    $mayoreo  = isset($postData['priceMax']) ? round((float)$postData['priceMax'], 2) : (isset($postData['mayoreo']) ? round((float)$postData['mayoreo'], 2) : 0);
+    $medio    = isset($postData['priceMed']) ? round((float)$postData['priceMed'], 2) : (isset($postData['medio']) ? round((float)$postData['medio'], 2) : 0);
+    $menudeo  = isset($postData['priceMin']) ? round((float)$postData['priceMin'], 2) : (isset($postData['menudeo']) ? round((float)$postData['menudeo'], 2) : 0);
+    $unitario = isset($postData['cost']) ? strval(round((float)$postData['cost'], 2)) : (isset($postData['unitario']) ? strval(round((float)$postData['unitario'], 2)) : '0');
+    $especial = isset($postData['priceSpecial']) ? round((float)$postData['priceSpecial'], 2) : 0;
+
+    if ($prodId > 0) {
+        $stmtP = $mysqli->prepare("UPDATE productos SET clave = ?, nom_p = ?, des = ?, cant = ?, categoria = ?, marca = ?, unidad = ?, stock_min = ?, stock_max = ?, ubicacion = ?, imagen = ?, proveedor_id = ?, raw_data = ? WHERE id = ?");
+        $stmtP->bind_param("sssddssssssssi", $clave, $nom_p, $des, $cant, $cat, $marca, $unidad, $stkMin, $stkMax, $ubic, $img, $provId, $pRaw, $prodId);
+        $stmtP->execute();
+
+        $stmtPr = $mysqli->prepare("INSERT INTO precios (id_producto, mayoreo, medio, menudeo, Unitario, precio_especial) VALUES (?, ?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE mayoreo=VALUES(mayoreo), medio=VALUES(medio), menudeo=VALUES(menudeo), Unitario=VALUES(Unitario), precio_especial=VALUES(precio_especial)");
+        $stmtPr->bind_param("idddsd", $prodId, $mayoreo, $medio, $menudeo, $unitario, $especial);
+        $stmtPr->execute();
+    } else {
+        $stmtP = $mysqli->prepare("INSERT INTO productos (clave, nom_p, des, cant, categoria, marca, unidad, stock_min, stock_max, ubicacion, imagen, proveedor_id, raw_data) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+        $stmtP->bind_param("sssddssssssss", $clave, $nom_p, $des, $cant, $cat, $marca, $unidad, $stkMin, $stkMax, $ubic, $img, $provId, $pRaw);
+        $stmtP->execute();
+        $prodId = $mysqli->insert_id;
+
+        if ($prodId > 0) {
+            $stmtPr = $mysqli->prepare("INSERT INTO precios (id_producto, mayoreo, medio, menudeo, Unitario, precio_especial) VALUES (?, ?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE mayoreo=VALUES(mayoreo), medio=VALUES(medio), menudeo=VALUES(menudeo), Unitario=VALUES(Unitario), precio_especial=VALUES(precio_especial)");
+            $stmtPr->bind_param("idddsd", $prodId, $mayoreo, $medio, $menudeo, $unitario, $especial);
+            $stmtPr->execute();
+        }
+    }
+
+    echo json_encode([
+        "success" => true,
+        "message" => "Producto guardado exitosamente en {$dbname}.",
+        "id" => $prodId,
+        "branch" => $branch,
+        "database" => $dbname
+    ]);
+    exit;
+}
+
+// 9. ELIMINAR PRODUCTO (CRUD: Delete)
+if ($action === 'delete_product' && $_SERVER['REQUEST_METHOD'] === 'POST') {
+    $rawId = isset($postData['id']) ? (string)$postData['id'] : (isset($_GET['id']) ? (string)$_GET['id'] : '');
+    $pId = (int)preg_replace('/[^0-9]/', '', $rawId);
+
+    $deleted = false;
+    if ($pId > 0) {
+        $mysqli->query("DELETE FROM precios WHERE id_producto = {$pId}");
+        $mysqli->query("DELETE FROM productos WHERE id = {$pId}");
+        $deleted = true;
+    }
+
+    echo json_encode([
+        "success" => $deleted,
+        "message" => $deleted ? "Producto #{$pId} eliminado de MySQL ({$dbname})." : "ID de producto inválido.",
+        "branch" => $branch,
+        "database" => $dbname
+    ]);
+    exit;
+}
+
+// 10. ACTUALIZAR STOCK
+if ($action === 'update_stock' && $_SERVER['REQUEST_METHOD'] === 'POST') {
+    $rawId = isset($postData['id']) ? (string)$postData['id'] : (isset($_GET['id']) ? (string)$_GET['id'] : '');
+    $prodId = (int)preg_replace('/[^0-9]/', '', $rawId);
+    $newStock = isset($postData['stock']) ? (float)$postData['stock'] : (isset($postData['cant']) ? (float)$postData['cant'] : 0);
+
+    if ($prodId > 0) {
+        $stmt = $mysqli->prepare("UPDATE productos SET cant = ? WHERE id = ?");
+        $stmt->bind_param("di", $newStock, $prodId);
+        $stmt->execute();
+
+        echo json_encode([
+            "success" => true,
+            "message" => "Stock actualizado para producto #{$prodId} en {$dbname}.",
+            "id" => $prodId,
+            "stock" => $newStock,
+            "branch" => $branch,
+            "database" => $dbname
+        ]);
+        exit;
+    }
+}
+
+// 11. GUARDAR CLIENTE (CRUD: Create / Update)
+if ($action === 'save_customer' && $_SERVER['REQUEST_METHOD'] === 'POST') {
+    $rawId = isset($postData['id']) ? (string)$postData['id'] : (isset($postData['id_cliente']) ? (string)$postData['id_cliente'] : '');
+    $cId = (int)preg_replace('/[^0-9]/', '', $rawId);
+    $cName = isset($postData['name']) ? trim($postData['name']) : (isset($postData['nombre_c']) ? trim($postData['nombre_c']) : '');
+    $cTel = isset($postData['phone']) ? trim($postData['phone']) : (isset($postData['tel']) ? trim($postData['tel']) : '');
+    $cDebt = isset($postData['creditUsed']) ? (float)$postData['creditUsed'] : (isset($postData['cant_ade']) ? (float)$postData['cant_ade'] : 0);
+    $cEmail = isset($postData['email']) ? trim($postData['email']) : '';
+    $cDir = isset($postData['address']) ? trim($postData['address']) : (isset($postData['direccion']) ? trim($postData['direccion']) : '');
+    $cRfc = isset($postData['rfc']) ? trim($postData['rfc']) : '';
+    $cLim = isset($postData['creditLimit']) ? (float)$postData['creditLimit'] : (isset($postData['limite_credito']) ? (float)$postData['limite_credito'] : 0);
+    $cDias = isset($postData['creditDays']) ? (int)$postData['creditDays'] : (isset($postData['dias_credito']) ? (int)$postData['dias_credito'] : 30);
+    $cNotas = isset($postData['notes']) ? trim($postData['notes']) : (isset($postData['notas']) ? trim($postData['notas']) : '');
+    $cStatus = isset($postData['status']) ? trim($postData['status']) : 'Activo';
+    $cRaw = json_encode($postData);
+
+    if (empty($cName)) {
+        echo json_encode(["success" => false, "error" => "El nombre del cliente es obligatorio."]);
+        exit;
+    }
+
+    if ($cId > 0) {
+        $stmtC = $mysqli->prepare("INSERT INTO clientes (id_cliente, nombre_c, tel, cant_ade, email, direccion, rfc, limite_credito, dias_credito, notas, status, raw_data) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE nombre_c=VALUES(nombre_c), tel=VALUES(tel), cant_ade=VALUES(cant_ade), email=VALUES(email), direccion=VALUES(direccion), rfc=VALUES(rfc), limite_credito=VALUES(limite_credito), dias_credito=VALUES(dias_credito), notas=VALUES(notas), status=VALUES(status), raw_data=VALUES(raw_data)");
+        $stmtC->bind_param("issdsssdisss", $cId, $cName, $cTel, $cDebt, $cEmail, $cDir, $cRfc, $cLim, $cDias, $cNotas, $cStatus, $cRaw);
+        $stmtC->execute();
+    } else {
+        $stmtC = $mysqli->prepare("INSERT INTO clientes (nombre_c, tel, cant_ade, email, direccion, rfc, limite_credito, dias_credito, notas, status, raw_data) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+        $stmtC->bind_param("ssdsssdisss", $cName, $cTel, $cDebt, $cEmail, $cDir, $cRfc, $cLim, $cDias, $cNotas, $cStatus, $cRaw);
+        $stmtC->execute();
+        $cId = $mysqli->insert_id;
+    }
+
+    echo json_encode([
+        "success" => true,
+        "message" => "Cliente guardado exitosamente en MySQL ({$dbname}).",
+        "id" => $cId,
+        "branch" => $branch,
+        "database" => $dbname
+    ]);
+    exit;
+}
+
+// 12. ELIMINAR CLIENTE (CRUD: Delete)
+if ($action === 'delete_customer' && $_SERVER['REQUEST_METHOD'] === 'POST') {
+    $rawId = isset($postData['id']) ? (string)$postData['id'] : (isset($postData['id_cliente']) ? (string)$postData['id_cliente'] : '');
+    $cId = (int)preg_replace('/[^0-9]/', '', $rawId);
+    $cName = isset($postData['name']) ? trim($postData['name']) : '';
+
+    $deleted = false;
+    if ($cId > 0) {
+        $stmt = $mysqli->prepare("DELETE FROM clientes WHERE id_cliente = ?");
+        $stmt->bind_param("i", $cId);
+        $stmt->execute();
+        $deleted = true;
+    } else if (!empty($cName)) {
+        $stmt = $mysqli->prepare("DELETE FROM clientes WHERE nombre_c = ?");
+        $stmt->bind_param("s", $cName);
+        $stmt->execute();
+        $deleted = true;
+    }
+
+    echo json_encode([
+        "success" => $deleted,
+        "message" => $deleted ? "Cliente eliminado de MySQL ({$dbname})." : "ID o nombre de cliente no proporcionado.",
+        "branch" => $branch,
+        "database" => $dbname
+    ]);
+    exit;
+}
+
+// 13. GUARDAR PROVEEDOR (CRUD: Create / Update)
+if ($action === 'save_supplier' && $_SERVER['REQUEST_METHOD'] === 'POST') {
+    $rawId = isset($postData['id']) ? (string)$postData['id'] : '';
+    $sId = (int)preg_replace('/[^0-9]/', '', $rawId);
+    $sName = isset($postData['name']) ? trim($postData['name']) : (isset($postData['nombre']) ? trim($postData['nombre']) : '');
+    $sTel = isset($postData['phone']) ? trim($postData['phone']) : (isset($postData['tel']) ? trim($postData['tel']) : '');
+    $sEmpresa = isset($postData['company']) ? trim($postData['company']) : (isset($postData['empresa']) ? trim($postData['empresa']) : $sName);
+    $sAdeudo = isset($postData['outstandingBalance']) ? (float)$postData['outstandingBalance'] : (isset($postData['adeudo']) ? (float)$postData['adeudo'] : 0);
+    $sEmail = isset($postData['email']) ? trim($postData['email']) : '';
+    $sDir = isset($postData['address']) ? trim($postData['address']) : (isset($postData['direccion']) ? trim($postData['direccion']) : '');
+    $sRfc = isset($postData['rfc']) ? trim($postData['rfc']) : '';
+    $sContacto = isset($postData['contact']) ? trim($postData['contact']) : (isset($postData['contacto']) ? trim($postData['contacto']) : '');
+    $sRaw = json_encode($postData);
+
+    if (empty($sName)) {
+        echo json_encode(["success" => false, "error" => "El nombre del proveedor es obligatorio."]);
+        exit;
+    }
+
+    if ($sId > 0) {
+        $stmtS = $mysqli->prepare("INSERT INTO proveedor (id, nombre, tel, empresa, adeudo, email, direccion, rfc, contacto, raw_data) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE nombre=VALUES(nombre), tel=VALUES(tel), empresa=VALUES(empresa), adeudo=VALUES(adeudo), email=VALUES(email), direccion=VALUES(direccion), rfc=VALUES(rfc), contacto=VALUES(contacto), raw_data=VALUES(raw_data)");
+        $stmtS->bind_param("isssdsssss", $sId, $sName, $sTel, $sEmpresa, $sAdeudo, $sEmail, $sDir, $sRfc, $sContacto, $sRaw);
+        $stmtS->execute();
+    } else {
+        $stmtS = $mysqli->prepare("INSERT INTO proveedor (nombre, tel, empresa, adeudo, email, direccion, rfc, contacto, raw_data) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)");
+        $stmtS->bind_param("sssdsssss", $sName, $sTel, $sEmpresa, $sAdeudo, $sEmail, $sDir, $sRfc, $sContacto, $sRaw);
+        $stmtS->execute();
+        $sId = $mysqli->insert_id;
+    }
+
+    echo json_encode([
+        "success" => true,
+        "message" => "Proveedor guardado exitosamente en MySQL ({$dbname}).",
+        "id" => $sId,
+        "branch" => $branch,
+        "database" => $dbname
+    ]);
+    exit;
+}
+
+// 14. ELIMINAR PROVEEDOR (CRUD: Delete)
+if ($action === 'delete_supplier' && $_SERVER['REQUEST_METHOD'] === 'POST') {
+    $rawId = isset($postData['id']) ? (string)$postData['id'] : '';
+    $sId = (int)preg_replace('/[^0-9]/', '', $rawId);
+
+    $deleted = false;
+    if ($sId > 0) {
+        $stmt = $mysqli->prepare("DELETE FROM proveedor WHERE id = ?");
+        $stmt->bind_param("i", $sId);
+        $stmt->execute();
+        $deleted = true;
+    }
+
+    echo json_encode([
+        "success" => $deleted,
+        "message" => $deleted ? "Proveedor eliminado de MySQL ({$dbname})." : "ID de proveedor inválido.",
+        "branch" => $branch,
+        "database" => $dbname
+    ]);
+    exit;
+}
+
+// 15. GUARDAR VENTA DIRECTA (CRUD: Create / Update)
+if ($action === 'save_sale' && $_SERVER['REQUEST_METHOD'] === 'POST') {
+    $rawId = isset($postData['id']) ? (string)$postData['id'] : '';
+    $vId = (int)preg_replace('/[^0-9]/', '', $rawId);
+    $vTicket = isset($postData['ticketNumber']) ? trim($postData['ticketNumber']) : (isset($postData['ticket_number']) ? trim($postData['ticket_number']) : "TICK-" . time());
+    $vDesc = isset($postData['description']) ? trim($postData['description']) : (isset($postData['descripcion']) ? trim($postData['descripcion']) : "Venta Ticket {$vTicket}");
+    $vFecha = isset($postData['date']) ? trim($postData['date']) : (isset($postData['fecha']) ? trim($postData['fecha']) : date("Y-m-d H:i:s"));
+    $vTotal = isset($postData['total']) ? (float)$postData['total'] : 0;
+    $vProfit = isset($postData['profit']) ? (float)$postData['profit'] : (isset($postData['total_utilidad']) ? (float)$postData['total_utilidad'] : 0);
+    $vMetodo = isset($postData['paymentMethod']) ? trim($postData['paymentMethod']) : (isset($postData['metodo_pago']) ? trim($postData['metodo_pago']) : 'Efectivo');
+    $vSucursal = isset($postData['sucursal']) ? trim($postData['sucursal']) : $branch;
+    $vRaw = json_encode($postData);
+
+    $rawCustId = isset($postData['customerId']) ? (string)$postData['customerId'] : (isset($postData['id_cliente']) ? (string)$postData['id_cliente'] : '');
+    $vClienteId = !empty($rawCustId) ? (int)preg_replace('/[^0-9]/', '', $rawCustId) : null;
+    if ($vClienteId === 0) $vClienteId = null;
+
+    if ($vId > 0) {
+        $stmtV = $mysqli->prepare("INSERT INTO ventas (id_venta, ticket_number, descripcion, fecha, total, total_utilidad, id_cliente, metodo_pago, sucursal, raw_data) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE ticket_number=VALUES(ticket_number), descripcion=VALUES(descripcion), fecha=VALUES(fecha), total=VALUES(total), total_utilidad=VALUES(total_utilidad), id_cliente=VALUES(id_cliente), metodo_pago=VALUES(metodo_pago), sucursal=VALUES(sucursal), raw_data=VALUES(raw_data)");
+        $stmtV->bind_param("isssddisss", $vId, $vTicket, $vDesc, $vFecha, $vTotal, $vProfit, $vClienteId, $vMetodo, $vSucursal, $vRaw);
+        $stmtV->execute();
+    } else {
+        $stmtV = $mysqli->prepare("INSERT INTO ventas (ticket_number, descripcion, fecha, total, total_utilidad, id_cliente, metodo_pago, sucursal, raw_data) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)");
+        $stmtV->bind_param("sssddisss", $vTicket, $vDesc, $vFecha, $vTotal, $vProfit, $vClienteId, $vMetodo, $vSucursal, $vRaw);
+        $stmtV->execute();
+        $vId = $mysqli->insert_id;
+    }
+
+    echo json_encode([
+        "success" => true,
+        "message" => "Venta guardada exitosamente en MySQL ({$dbname}).",
+        "id" => $vId,
+        "ticketNumber" => $vTicket,
+        "branch" => $branch,
+        "database" => $dbname
+    ]);
+    exit;
+}
+
+// 16. ELIMINAR VENTA (CRUD: Delete)
+if ($action === 'delete_sale' && $_SERVER['REQUEST_METHOD'] === 'POST') {
+    $rawId = isset($postData['id']) ? (string)$postData['id'] : '';
+    $vId = (int)preg_replace('/[^0-9]/', '', $rawId);
+
+    $deleted = false;
+    if ($vId > 0) {
+        $stmt = $mysqli->prepare("DELETE FROM ventas WHERE id_venta = ?");
+        $stmt->bind_param("i", $vId);
+        $stmt->execute();
+        $deleted = true;
+    }
+
+    echo json_encode([
+        "success" => $deleted,
+        "message" => $deleted ? "Venta eliminada de MySQL ({$dbname})." : "ID de venta inválido.",
+        "branch" => $branch,
+        "database" => $dbname
+    ]);
+    exit;
+}
+
+// 17. GUARDAR MOVIMIENTO DE INVENTARIO (KARDEX: Create / Update)
+if ($action === 'save_movement' && $_SERVER['REQUEST_METHOD'] === 'POST') {
+    $mId = isset($postData['id']) ? trim($postData['id']) : "MOV_" . time();
+    $prodId = isset($postData['productId']) ? trim($postData['productId']) : (isset($postData['product_id']) ? trim($postData['product_id']) : '');
+    $prodName = isset($postData['productName']) ? trim($postData['productName']) : (isset($postData['product_name']) ? trim($postData['product_name']) : '');
+    $mType = isset($postData['type']) ? trim($postData['type']) : 'AJUSTE';
+    $mQty = isset($postData['quantity']) ? (float)$postData['quantity'] : 0;
+    $prevStock = isset($postData['previousStock']) ? (float)$postData['previousStock'] : (isset($postData['previous_stock']) ? (float)$postData['previous_stock'] : 0);
+    $newStock = isset($postData['newStock']) ? (float)$postData['newStock'] : (isset($postData['new_stock']) ? (float)$postData['new_stock'] : 0);
+    $mDate = isset($postData['date']) ? trim($postData['date']) : date("Y-m-d H:i:s");
+    $mUser = isset($postData['user']) ? trim($postData['user']) : (isset($postData['user_name']) ? trim($postData['user_name']) : 'Admin');
+    $mNotes = isset($postData['notes']) ? trim($postData['notes']) : '';
+    $mSucursal = isset($postData['sucursal']) ? trim($postData['sucursal']) : $branch;
+    $mRaw = json_encode($postData);
+
+    $stmtM = $mysqli->prepare("INSERT INTO movimientos_inventario (id, product_id, product_name, type, quantity, previous_stock, new_stock, date, user_name, notes, sucursal, raw_data) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE product_id=VALUES(product_id), product_name=VALUES(product_name), type=VALUES(type), quantity=VALUES(quantity), previous_stock=VALUES(previous_stock), new_stock=VALUES(new_stock), date=VALUES(date), user_name=VALUES(user_name), notes=VALUES(notes), sucursal=VALUES(sucursal), raw_data=VALUES(raw_data)");
+    $stmtM->bind_param("ssssdddsssss", $mId, $prodId, $prodName, $mType, $mQty, $prevStock, $newStock, $mDate, $mUser, $mNotes, $mSucursal, $mRaw);
+    $stmtM->execute();
+
+    echo json_encode([
+        "success" => true,
+        "message" => "Movimiento de inventario guardado en MySQL ({$dbname}).",
+        "id" => $mId,
+        "branch" => $branch,
+        "database" => $dbname
+    ]);
+    exit;
+}
+
+// 18. GUARDAR SESIÓN DE CAJA (CRUD: Create / Update)
+if ($action === 'save_cash_session' && $_SERVER['REQUEST_METHOD'] === 'POST') {
+    $csId = isset($postData['id']) ? trim($postData['id']) : "SESS_" . time();
+    $sTime = isset($postData['startTime']) ? trim($postData['startTime']) : (isset($postData['start_time']) ? trim($postData['start_time']) : date("Y-m-d H:i:s"));
+    $eTime = isset($postData['endTime']) ? trim($postData['endTime']) : (isset($postData['end_time']) ? trim($postData['end_time']) : null);
+    $openedBy = isset($postData['openedBy']) ? trim($postData['openedBy']) : (isset($postData['opened_by']) ? trim($postData['opened_by']) : 'Admin');
+    $initCash = isset($postData['initialCash']) ? (float)$postData['initialCash'] : (isset($postData['initial_cash']) ? (float)$postData['initial_cash'] : 0);
+    $finalCash = isset($postData['finalCash']) ? (float)$postData['finalCash'] : (isset($postData['final_cash']) ? (float)$postData['final_cash'] : null);
+    $csStatus = isset($postData['status']) ? trim($postData['status']) : 'Abierta';
+    $salesTot = isset($postData['salesTotal']) ? (float)$postData['salesTotal'] : (isset($postData['sales_total']) ? (float)$postData['sales_total'] : 0);
+    $expTot = isset($postData['expensesTotal']) ? (float)$postData['expensesTotal'] : (isset($postData['expenses_total']) ? (float)$postData['expenses_total'] : 0);
+    $expFinal = isset($postData['expectedFinalCash']) ? (float)$postData['expectedFinalCash'] : (isset($postData['expected_final_cash']) ? (float)$postData['expected_final_cash'] : 0);
+    $csSucursal = isset($postData['sucursal']) ? trim($postData['sucursal']) : $branch;
+    $csRaw = json_encode($postData);
+
+    $stmtCS = $mysqli->prepare("INSERT INTO sesiones_caja (id, start_time, end_time, opened_by, initial_cash, final_cash, status, sales_total, expenses_total, expected_final_cash, sucursal, raw_data) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE start_time=VALUES(start_time), end_time=VALUES(end_time), opened_by=VALUES(opened_by), initial_cash=VALUES(initial_cash), final_cash=VALUES(final_cash), status=VALUES(status), sales_total=VALUES(sales_total), expenses_total=VALUES(expenses_total), expected_final_cash=VALUES(expected_final_cash), sucursal=VALUES(sucursal), raw_data=VALUES(raw_data)");
+    $stmtCS->bind_param("ssssddsdddss", $csId, $sTime, $eTime, $openedBy, $initCash, $finalCash, $csStatus, $salesTot, $expTot, $expFinal, $csSucursal, $csRaw);
+    $stmtCS->execute();
+
+    echo json_encode([
+        "success" => true,
+        "message" => "Sesión de caja guardada en MySQL ({$dbname}).",
+        "id" => $csId,
+        "branch" => $branch,
+        "database" => $dbname
+    ]);
+    exit;
+}
+
+// 19. GUARDAR GASTO DE CAJA (CRUD: Create / Update)
+if ($action === 'save_expense' && $_SERVER['REQUEST_METHOD'] === 'POST') {
+    $eId = isset($postData['id']) ? trim($postData['id']) : "EXP_" . time();
+    $eDesc = isset($postData['description']) ? trim($postData['description']) : "Gasto";
+    $eAmount = isset($postData['amount']) ? (float)$postData['amount'] : 0;
+    $eCat = isset($postData['category']) ? trim($postData['category']) : "General";
+    $eDate = isset($postData['date']) ? trim($postData['date']) : date("Y-m-d H:i:s");
+    $eUser = isset($postData['user']) ? trim($postData['user']) : (isset($postData['user_name']) ? trim($postData['user_name']) : "Admin");
+    $eSucursal = isset($postData['sucursal']) ? trim($postData['sucursal']) : $branch;
+    $eRaw = json_encode($postData);
+
+    $stmtE = $mysqli->prepare("INSERT INTO gastos_caja (id, description, amount, category, date, user_name, sucursal, raw_data) VALUES (?, ?, ?, ?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE description=VALUES(description), amount=VALUES(amount), category=VALUES(category), date=VALUES(date), user_name=VALUES(user_name), sucursal=VALUES(sucursal), raw_data=VALUES(raw_data)");
+    $stmtE->bind_param("ssdsssss", $eId, $eDesc, $eAmount, $eCat, $eDate, $eUser, $eSucursal, $eRaw);
+    $stmtE->execute();
+
+    echo json_encode([
+        "success" => true,
+        "message" => "Gasto guardado en MySQL ({$dbname}).",
+        "id" => $eId,
+        "branch" => $branch,
+        "database" => $dbname
+    ]);
+    exit;
+}
+
+// 20. ELIMINAR GASTO DE CAJA (CRUD: Delete)
+if ($action === 'delete_expense' && $_SERVER['REQUEST_METHOD'] === 'POST') {
+    $eId = isset($postData['id']) ? trim($postData['id']) : '';
+
+    $deleted = false;
+    if (!empty($eId)) {
+        $stmt = $mysqli->prepare("DELETE FROM gastos_caja WHERE id = ?");
+        $stmt->bind_param("s", $eId);
+        $stmt->execute();
+        $deleted = true;
+    }
+
+    echo json_encode([
+        "success" => $deleted,
+        "message" => $deleted ? "Gasto eliminado de MySQL ({$dbname})." : "ID de gasto inválido.",
+        "branch" => $branch,
+        "database" => $dbname
+    ]);
+    exit;
+}
+
+// 21. GUARDAR ORDEN DE COMPRA (CRUD: Create / Update)
+if ($action === 'save_purchase_order' && $_SERVER['REQUEST_METHOD'] === 'POST') {
+    $poId = isset($postData['id']) ? trim($postData['id']) : "PO_" . time();
+    $suppId = isset($postData['supplierId']) ? trim($postData['supplierId']) : (isset($postData['supplier_id']) ? trim($postData['supplier_id']) : '');
+    $suppName = isset($postData['supplierName']) ? trim($postData['supplierName']) : (isset($postData['supplier_name']) ? trim($postData['supplier_name']) : '');
+    $poTotal = isset($postData['total']) ? (float)$postData['total'] : 0;
+    $poStatus = isset($postData['status']) ? trim($postData['status']) : 'Pendiente';
+    $poDate = isset($postData['date']) ? trim($postData['date']) : date("Y-m-d");
+    $poRecDate = isset($postData['receivedDate']) ? trim($postData['receivedDate']) : (isset($postData['received_date']) ? trim($postData['received_date']) : null);
+    $poPayStatus = isset($postData['paymentStatus']) ? trim($postData['paymentStatus']) : (isset($postData['payment_status']) ? trim($postData['payment_status']) : 'Pendiente');
+    $poSucursal = isset($postData['sucursal']) ? trim($postData['sucursal']) : $branch;
+    $poRaw = json_encode($postData);
+
+    $stmtPO = $mysqli->prepare("INSERT INTO ordenes_compra (id, supplier_id, supplier_name, total, status, date, received_date, payment_status, sucursal, raw_data) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE supplier_id=VALUES(supplier_id), supplier_name=VALUES(supplier_name), total=VALUES(total), status=VALUES(status), date=VALUES(date), received_date=VALUES(received_date), payment_status=VALUES(payment_status), sucursal=VALUES(sucursal), raw_data=VALUES(raw_data)");
+    $stmtPO->bind_param("sssdssssss", $poId, $suppId, $suppName, $poTotal, $poStatus, $poDate, $poRecDate, $poPayStatus, $poSucursal, $poRaw);
+    $stmtPO->execute();
+
+    echo json_encode([
+        "success" => true,
+        "message" => "Orden de compra guardada en MySQL ({$dbname}).",
+        "id" => $poId,
+        "branch" => $branch,
+        "database" => $dbname
+    ]);
+    exit;
+}
+
+// 22. ELIMINAR ORDEN DE COMPRA (CRUD: Delete)
+if ($action === 'delete_purchase_order' && $_SERVER['REQUEST_METHOD'] === 'POST') {
+    $poId = isset($postData['id']) ? trim($postData['id']) : '';
+
+    $deleted = false;
+    if (!empty($poId)) {
+        $stmt = $mysqli->prepare("DELETE FROM ordenes_compra WHERE id = ?");
+        $stmt->bind_param("s", $poId);
+        $stmt->execute();
+        $deleted = true;
+    }
+
+    echo json_encode([
+        "success" => $deleted,
+        "message" => $deleted ? "Orden de compra eliminada de MySQL ({$dbname})." : "ID de orden inválido.",
+        "branch" => $branch,
+        "database" => $dbname
+    ]);
+    exit;
+}
+
+// 23. GUARDAR / EDITAR USUARIO (CRUD: Create / Update)
 if ($action === 'save_user' && $_SERVER['REQUEST_METHOD'] === 'POST') {
     $usuario = isset($postData['username']) ? trim($postData['username']) : (isset($postData['usuario']) ? trim($postData['usuario']) : '');
     $nombre  = isset($postData['name']) ? trim($postData['name']) : (isset($postData['nombrecompleto']) ? trim($postData['nombrecompleto']) : $usuario);
@@ -751,7 +1321,6 @@ if ($action === 'save_user' && $_SERVER['REQUEST_METHOD'] === 'POST') {
         exit;
     }
 
-    // Normalizar rol para compatibilidad
     $rolNorm = strtolower($rol);
     if (strpos($rolNorm, 'admin') !== false) $rol = 'administrador';
     else if (strpos($rolNorm, 'geren') !== false) $rol = 'gerente';
@@ -760,7 +1329,6 @@ if ($action === 'save_user' && $_SERVER['REQUEST_METHOD'] === 'POST') {
     else if (strpos($rolNorm, 'conta') !== false) $rol = 'contabilidad';
     else $rol = 'vendedor';
 
-    // Insert or update in MySQL
     $stmtCheck = $mysqli->prepare("SELECT id FROM usuarios WHERE usuario = ?");
     $stmtCheck->bind_param("s", $usuario);
     $stmtCheck->execute();
@@ -792,7 +1360,7 @@ if ($action === 'save_user' && $_SERVER['REQUEST_METHOD'] === 'POST') {
     exit;
 }
 
-// 9. ELIMINAR USUARIO EN MYSQL
+// 24. ELIMINAR USUARIO (CRUD: Delete)
 if ($action === 'delete_user' && $_SERVER['REQUEST_METHOD'] === 'POST') {
     $usuario = isset($postData['username']) ? trim($postData['username']) : (isset($postData['usuario']) ? trim($postData['usuario']) : '');
     
@@ -814,80 +1382,6 @@ if ($action === 'delete_user' && $_SERVER['REQUEST_METHOD'] === 'POST') {
         ]);
         exit;
     }
-}
-
-// 10. ACTUALIZAR STOCK DE PRODUCTO EN MYSQL
-if ($action === 'update_stock' && $_SERVER['REQUEST_METHOD'] === 'POST') {
-    $prodId = isset($postData['id']) ? (int)$postData['id'] : (isset($_GET['id']) ? (int)$_GET['id'] : 0);
-    $newStock = isset($postData['stock']) ? (float)$postData['stock'] : 0;
-
-    if ($prodId > 0) {
-        $stmt = $mysqli->prepare("UPDATE productos SET cant = ? WHERE id = ?");
-        $stmt->bind_param("di", $newStock, $prodId);
-        $stmt->execute();
-
-        echo json_encode([
-            "success" => true,
-            "message" => "Stock actualizado para producto #{$prodId} en {$dbname}.",
-            "branch" => $branch,
-            "database" => $dbname,
-            "id" => $prodId,
-            "stock" => $newStock
-        ]);
-        exit;
-    }
-}
-
-// 11. GUARDAR O EDITAR PRODUCTO EN MYSQL
-if ($action === 'save_product' && $_SERVER['REQUEST_METHOD'] === 'POST') {
-    $prodId = isset($postData['id']) ? (int)$postData['id'] : 0;
-    $clave  = isset($postData['clave']) ? trim($postData['clave']) : '';
-    $nom_p  = isset($postData['nom_p']) ? trim($postData['nom_p']) : '';
-    $des    = isset($postData['des']) ? trim($postData['des']) : 'entero';
-    $cant   = isset($postData['cant']) ? (float)$postData['cant'] : 0;
-    
-    $mayoreo  = isset($postData['mayoreo']) ? round((float)$postData['mayoreo'], 2) : 0;
-    $medio    = isset($postData['medio']) ? round((float)$postData['medio'], 2) : 0;
-    $menudeo  = isset($postData['menudeo']) ? round((float)$postData['menudeo'], 2) : 0;
-    $unitario = isset($postData['unitario']) ? strval(round((float)$postData['unitario'], 2)) : '0';
-
-    if ($prodId > 0) {
-        // Update
-        $stmtP = $mysqli->prepare("UPDATE productos SET clave = ?, nom_p = ?, des = ?, cant = ? WHERE id = ?");
-        $stmtP->bind_param("sssdi", $clave, $nom_p, $des, $cant, $prodId);
-        $stmtP->execute();
-
-        // Check if price exists
-        $checkPrice = $mysqli->query("SELECT id FROM precios WHERE id_producto = {$prodId}");
-        if ($checkPrice && $checkPrice->num_rows > 0) {
-            $stmtPr = $mysqli->prepare("UPDATE precios SET mayoreo = ?, medio = ?, menudeo = ?, Unitario = ? WHERE id_producto = ?");
-            $stmtPr->bind_param("dddsi", $mayoreo, $medio, $menudeo, $unitario, $prodId);
-            $stmtPr->execute();
-        } else {
-            $stmtPr = $mysqli->prepare("INSERT INTO precios (mayoreo, medio, menudeo, id_producto, Unitario) VALUES (?, ?, ?, ?, ?)");
-            $stmtPr->bind_param("dddis", $mayoreo, $medio, $menudeo, $prodId, $unitario);
-            $stmtPr->execute();
-        }
-    } else {
-        // Insert new
-        $stmtP = $mysqli->prepare("INSERT INTO productos (clave, nom_p, des, cant) VALUES (?, ?, ?, ?)");
-        $stmtP->bind_param("sssd", $clave, $nom_p, $des, $cant);
-        $stmtP->execute();
-        $prodId = $mysqli->insert_id;
-
-        $stmtPr = $mysqli->prepare("INSERT INTO precios (mayoreo, medio, menudeo, id_producto, Unitario) VALUES (?, ?, ?, ?, ?)");
-        $stmtPr->bind_param("dddis", $mayoreo, $medio, $menudeo, $prodId, $unitario);
-        $stmtPr->execute();
-    }
-
-    echo json_encode([
-        "success" => true,
-        "message" => "Producto guardado exitosamente en {$dbname}.",
-        "id" => $prodId,
-        "branch" => $branch,
-        "database" => $dbname
-    ]);
-    exit;
 }
 
 // Default response

@@ -64,6 +64,7 @@ import {
   recordInventoryMovement,
   logAction
 } from "../data";
+import { SYSTEM_CATEGORIES } from "./InventoryModule";
 
 interface CentralWarehouseModuleProps {
   currentUser: { name: string; role: UserRole };
@@ -89,13 +90,16 @@ export default function CentralWarehouseModule({
   // Filter & Search states
   const [searchQuery, setSearchQuery] = useState("");
   const [categoryFilter, setCategoryFilter] = useState("TODAS");
-  const [statusFilter, setStatusFilter] = useState("TODOS");
+  const [statusFilter, setStatusFilter] = useState<"ALL" | "LOW_STOCK" | "OUT_OF_STOCK">("ALL");
+  const [toastMessage, setToastMessage] = useState<{ text: string; type: "success" | "error" | "info" } | null>(null);
+
+  // Helper states for custom category
+  const [isCustomCategoryWarehouse, setIsCustomCategoryWarehouse] = useState(false);
+  const [customCategoryWarehouseText, setCustomCategoryWarehouseText] = useState("");
+
   const [selectedBranchForView, setSelectedBranchForView] = useState<string>("Centro");
 
-  // Notifications / Feedback toast
-  const [toastMessage, setToastMessage] = useState<{ type: "success" | "error" | "info"; text: string } | null>(null);
-
-  const showToast = (text: string, type: "success" | "error" | "info" = "success") => {
+  const showToast = (text: string, type: "success" | "error" | "info" = "info") => {
     setToastMessage({ text, type });
     setTimeout(() => setToastMessage(null), 5000);
   };
@@ -116,6 +120,13 @@ export default function CentralWarehouseModule({
   const activeBranches = useMemo(() => branchesList.filter(b => b.status === "Activo"), [branchesList]);
 
   // Categories list
+  const availableCategoryOptions = useMemo(() => {
+    return Array.from(new Set([
+      ...SYSTEM_CATEGORIES,
+      ...almacenGeneralList.map(p => p.category || (p as any).categoria).filter(Boolean)
+    ])).filter(c => c && c !== "TODAS" && c !== "Todas" && c !== "OTRO" && c !== "Otro (especificar)").sort();
+  }, [almacenGeneralList]);
+
   const categories = useMemo(() => {
     const cats = new Set<string>();
     almacenGeneralList.forEach(p => {
@@ -375,6 +386,8 @@ export default function CentralWarehouseModule({
   });
 
   const handleOpenNewProductModal = () => {
+    setIsCustomCategoryWarehouse(false);
+    setCustomCategoryWarehouseText("");
     setEditingProduct(null);
     setProductForm({
       code: "PROD-" + Math.floor(1000 + Math.random() * 9000),
@@ -382,7 +395,7 @@ export default function CentralWarehouseModule({
       sku: "SKU-" + Math.floor(100 + Math.random() * 900),
       name: "",
       brand: "",
-      category: "General",
+      category: "Abarrotes",
       unit: ProductUnit.PIECE,
       cost: 50,
       priceMin: 80,
@@ -1152,6 +1165,9 @@ export default function CentralWarehouseModule({
                           <td className="p-3 text-right">
                             <button
                               onClick={() => {
+                                const isCust = product.category ? !availableCategoryOptions.includes(product.category) : false;
+                                setIsCustomCategoryWarehouse(isCust);
+                                setCustomCategoryWarehouseText(isCust ? (product.category || "") : "");
                                 setEditingProduct(product);
                                 setProductForm({
                                   code: product.code,
@@ -1902,12 +1918,51 @@ export default function CentralWarehouseModule({
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                 <div className="space-y-1">
                   <label className="font-bold text-slate-700 dark:text-slate-300">Categoría</label>
-                  <input
-                    type="text"
-                    value={productForm.category}
-                    onChange={e => setProductForm({ ...productForm, category: e.target.value })}
-                    className="w-full p-2.5 rounded-xl border bg-slate-50 dark:bg-slate-800"
-                  />
+                  <select
+                    value={
+                      isCustomCategoryWarehouse
+                        ? "OTRO"
+                        : availableCategoryOptions.includes(productForm.category)
+                        ? productForm.category
+                        : productForm.category
+                        ? "OTRO"
+                        : "Abarrotes"
+                    }
+                    onChange={e => {
+                      const val = e.target.value;
+                      if (val === "OTRO") {
+                        setIsCustomCategoryWarehouse(true);
+                        setProductForm({ ...productForm, category: customCategoryWarehouseText || "" });
+                      } else {
+                        setIsCustomCategoryWarehouse(false);
+                        setProductForm({ ...productForm, category: val });
+                      }
+                    }}
+                    className="w-full p-2.5 rounded-xl border bg-slate-50 dark:bg-slate-800 font-semibold text-xs"
+                  >
+                    <option value="" disabled>-- Selecciona una categoría --</option>
+                    {availableCategoryOptions.map(c => (
+                      <option key={c} value={c}>{c}</option>
+                    ))}
+                    <option value="OTRO">➕ Otro (especificar)...</option>
+                  </select>
+
+                  {(isCustomCategoryWarehouse || (!availableCategoryOptions.includes(productForm.category) && Boolean(productForm.category))) && (
+                    <div className="mt-1 space-y-1 animate-fadeIn">
+                      <input
+                        type="text"
+                        required
+                        placeholder="Especifique la categoría..."
+                        value={productForm.category}
+                        onChange={e => {
+                          setCustomCategoryWarehouseText(e.target.value);
+                          setProductForm({ ...productForm, category: e.target.value });
+                        }}
+                        className="w-full p-2 rounded-lg border-2 border-emerald-500 bg-emerald-50/40 dark:bg-slate-800 text-xs font-medium"
+                        autoFocus
+                      />
+                    </div>
+                  )}
                 </div>
 
                 <div className="space-y-1">

@@ -26,10 +26,12 @@ import {
   subscribeOfflineSyncState,
   triggerAutoSync,
   clearPendingQueue,
-  resolveConflict
+  resolveConflict,
+  setForcedOffline,
+  isForcedOfflineMode
 } from "../services/offlineSync";
 import { testSupabaseConnection, isSupabaseConfigured, SUPABASE_URL } from "../supabase";
-import { syncDatabaseWithSupabase, loadDatabaseFromSupabase } from "../data";
+import { syncDatabaseWithSupabase, loadDatabaseFromSupabase, callLocalApi, activeBranch } from "../data";
 import { OfflineSyncState, PendingOperation } from "../types";
 
 interface Props {
@@ -42,10 +44,21 @@ export const OfflineSyncPanelModal: React.FC<Props> = ({ isOpen, onClose }) => {
   const [isSyncingManual, setIsSyncingManual] = useState(false);
   const [activeTab, setActiveTab] = useState<"status" | "queue" | "conflicts">("status");
   const [syncMessage, setSyncMessage] = useState<string | null>(null);
+  const [isForced, setIsForced] = useState<boolean>(isForcedOfflineMode());
+  const [mysqlStatus, setMysqlStatus] = useState<{
+    tested: boolean;
+    online: boolean;
+    database?: string;
+    totalProducts?: number;
+    totalSales?: number;
+    totalUsers?: number;
+    error?: string;
+  }>({ tested: false, online: false });
 
   useEffect(() => {
     const unsub = subscribeOfflineSyncState((newState) => {
       setSyncState(newState);
+      setIsForced(isForcedOfflineMode());
     });
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === "Escape") onClose();
@@ -58,6 +71,42 @@ export const OfflineSyncPanelModal: React.FC<Props> = ({ isOpen, onClose }) => {
   }, [onClose]);
 
   if (!isOpen) return null;
+
+  const handleToggleForcedOffline = (forced: boolean) => {
+    setIsForced(forced);
+    setForcedOffline(forced);
+    setSyncMessage(forced ? "🔴 Modo Offline forzado activado (Contingencia local XAMPP)." : "🟢 Modo En Línea activado (Detección automática).");
+    setTimeout(() => setSyncMessage(null), 4000);
+  };
+
+  const handleTestMySQLLocal = async () => {
+    setIsSyncingManual(true);
+    setSyncMessage("Probando conexión con MySQL Local (XAMPP / api.php)...");
+    try {
+      const res = await callLocalApi(`action=ping&branch=${encodeURIComponent(activeBranch || "Norte")}`);
+      const data = await res.json();
+      if (data.success) {
+        setMysqlStatus({
+          tested: true,
+          online: true,
+          database: data.database,
+          totalProducts: data.total_productos,
+          totalSales: data.total_ventas,
+          totalUsers: data.total_usuarios
+        });
+        setSyncMessage(`✅ Conexión con MySQL Local (${data.database}) exitosa. ${data.total_productos} productos, ${data.total_ventas} ventas en BD.`);
+      } else {
+        setMysqlStatus({ tested: true, online: false, error: data.error || "Respuesta inválida" });
+        setSyncMessage(`❌ Error MySQL: ${data.error || "No respondió adecuadamente"}`);
+      }
+    } catch (e: any) {
+      setMysqlStatus({ tested: true, online: false, error: e.message || String(e) });
+      setSyncMessage(`❌ Error conectando con Apache/MySQL local: ${e.message || String(e)}`);
+    } finally {
+      setIsSyncingManual(false);
+      setTimeout(() => setSyncMessage(null), 6000);
+    }
+  };
 
   const handleSyncNow = async () => {
     setIsSyncingManual(true);
@@ -108,13 +157,13 @@ export const OfflineSyncPanelModal: React.FC<Props> = ({ isOpen, onClose }) => {
             </div>
             <div>
               <h3 className="text-lg font-black tracking-tight flex items-center gap-2">
-                Offline First Sync Manager
+                Offline & Online Sync Manager
                 <span className="text-[10px] bg-slate-800 text-emerald-400 border border-slate-700 px-2 py-0.5 rounded-full font-mono">
-                  PRO v2.5
+                  XAMPP MySQL + Supabase
                 </span>
               </h3>
               <p className="text-xs text-slate-400">
-                Sincronización automática de inventario, ventas y datos locales con Supabase Cloud
+                Detección automática de red, persistencia en BD local (XAMPP) y sincronización con Supabase Cloud
               </p>
             </div>
           </div>
@@ -154,18 +203,32 @@ export const OfflineSyncPanelModal: React.FC<Props> = ({ isOpen, onClose }) => {
                 ? "🟠 Sincronizando información en tiempo real con la nube..."
                 : syncState.isOnline
                 ? "🟢 En Línea: Conexión activa con Supabase Cloud"
-                : "🔴 Trabajando Sin Conexión: Operaciones guardándose en Base Local cifrada"}
+                : "🔴 Modo Offline: Operaciones guardándose en BD Local MySQL (XAMPP)"}
             </span>
           </div>
 
-          <button
-            onClick={handleSyncNow}
-            disabled={isSyncingManual || syncState.isSyncing}
-            className="flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-extrabold px-3 py-1.5 rounded-lg shadow-sm disabled:opacity-50 transition-all cursor-pointer"
-          >
-            <RefreshCw className={`h-3.5 w-3.5 ${isSyncingManual || syncState.isSyncing ? "animate-spin" : ""}`} />
-            <span>{isSyncingManual || syncState.isSyncing ? "Sincronizando..." : "Sincronizar Ahora"}</span>
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => handleToggleForcedOffline(!isForced)}
+              className={`text-xs font-bold px-2.5 py-1.5 rounded-lg border transition-all cursor-pointer ${
+                isForced 
+                  ? "bg-rose-600 text-white border-rose-700 hover:bg-rose-700" 
+                  : "bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 border-slate-300 dark:border-slate-700 hover:bg-slate-200"
+              }`}
+              title="Permite simular la desconexión total para probar el funcionamiento con XAMPP"
+            >
+              {isForced ? "🔴 Offline Forzado (Activo)" : "Simular Offline"}
+            </button>
+
+            <button
+              onClick={handleSyncNow}
+              disabled={isSyncingManual || syncState.isSyncing}
+              className="flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-extrabold px-3 py-1.5 rounded-lg shadow-sm disabled:opacity-50 transition-all cursor-pointer"
+            >
+              <RefreshCw className={`h-3.5 w-3.5 ${isSyncingManual || syncState.isSyncing ? "animate-spin" : ""}`} />
+              <span>{isSyncingManual || syncState.isSyncing ? "Sincronizando..." : "Sincronizar"}</span>
+            </button>
+          </div>
         </div>
 
         {syncMessage && (
@@ -185,7 +248,7 @@ export const OfflineSyncPanelModal: React.FC<Props> = ({ isOpen, onClose }) => {
                 : "border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-slate-200"
             }`}
           >
-            📊 Estado del Sistema
+            📊 Estado de Red y Servidores
           </button>
           <button
             onClick={() => setActiveTab("queue")}
@@ -233,7 +296,7 @@ export const OfflineSyncPanelModal: React.FC<Props> = ({ isOpen, onClose }) => {
                   <div className="text-base font-black text-slate-900 dark:text-white">
                     {syncState.isOnline ? "Conectado" : "Sin Conexión"}
                   </div>
-                  <div className="text-[10px] text-slate-400 mt-0.5">Detección automática</div>
+                  <div className="text-[10px] text-slate-400 mt-0.5">{isForced ? "Modo Forzado Activo" : "Detección Automática"}</div>
                 </div>
 
                 <div className="bg-slate-50 dark:bg-slate-800/60 p-3.5 rounded-xl border border-slate-200 dark:border-slate-800">
@@ -260,13 +323,44 @@ export const OfflineSyncPanelModal: React.FC<Props> = ({ isOpen, onClose }) => {
 
                 <div className="bg-slate-50 dark:bg-slate-800/60 p-3.5 rounded-xl border border-slate-200 dark:border-slate-800">
                   <div className="flex items-center justify-between text-slate-500 mb-1">
-                    <span className="text-[11px] font-bold">Base Local Cifrada</span>
-                    <ShieldCheck className="h-4 w-4 text-purple-500" />
+                    <span className="text-[11px] font-bold">BD Local MySQL</span>
+                    <Database className="h-4 w-4 text-purple-500" />
                   </div>
                   <div className="text-base font-black text-emerald-600 dark:text-emerald-400">
-                    Activa
+                    XAMPP Activo
                   </div>
-                  <div className="text-[10px] text-slate-400 mt-0.5">AES Obfuscated Storage</div>
+                  <div className="text-[10px] text-slate-400 mt-0.5">{activeBranch === "Sur" ? "mazal_bd1" : "mazal_bd"}</div>
+                </div>
+              </div>
+
+              {/* Local MySQL (XAMPP) Card */}
+              <div className="bg-emerald-50 dark:bg-emerald-950/20 border border-emerald-200 dark:border-emerald-900/40 rounded-xl p-4 text-xs text-emerald-900 dark:text-emerald-200 space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="font-black flex items-center gap-2 text-sm text-emerald-800 dark:text-emerald-300">
+                    <Database className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
+                    Base de Datos Local MySQL (XAMPP / localhost)
+                  </div>
+                  <span className="bg-emerald-100 text-emerald-800 dark:bg-emerald-900/50 dark:text-emerald-300 px-2 py-0.5 rounded-full font-bold text-[10px]">
+                    🟢 Activo (CRUD Completo)
+                  </span>
+                </div>
+                <p className="leading-relaxed text-slate-600 dark:text-slate-400">
+                  Todas las operaciones CRUD (Productos, Ventas, Clientes, Proveedores, Kárdex, Caja) se ejecutan y persisten en la base de datos MySQL local ({activeBranch === "Sur" ? "mazal_bd1" : "mazal_bd"}) para garantizar funcionamiento 100% offline.
+                </p>
+                <div className="flex flex-wrap items-center gap-2 pt-1">
+                  <button
+                    onClick={handleTestMySQLLocal}
+                    disabled={isSyncingManual}
+                    className="bg-emerald-600 hover:bg-emerald-500 text-white font-bold px-3 py-1.5 rounded-lg text-xs flex items-center gap-1.5 cursor-pointer shadow-xs transition-all disabled:opacity-50"
+                  >
+                    <Database className="h-3.5 w-3.5" /> Probar Conexión MySQL Local
+                  </button>
+
+                  {mysqlStatus.tested && (
+                    <span className="text-xs font-mono font-bold text-slate-700 dark:text-slate-300">
+                      {mysqlStatus.online ? `✅ ${mysqlStatus.database}: ${mysqlStatus.totalProducts} prods, ${mysqlStatus.totalSales} ventas` : `❌ ${mysqlStatus.error}`}
+                    </span>
+                  )}
                 </div>
               </div>
 
@@ -308,7 +402,7 @@ export const OfflineSyncPanelModal: React.FC<Props> = ({ isOpen, onClose }) => {
                 <div className="flex items-center justify-between">
                   <div className="font-black flex items-center gap-2 text-sm text-sky-800 dark:text-sky-300">
                     <Cloud className="h-4 w-4 text-sky-600 dark:text-sky-400" />
-                    Servidor en la Nube: Sincronización en Tiempo Real
+                    Servidor en la Nube: Supabase Cloud
                   </div>
                   <span className="bg-emerald-100 text-emerald-800 dark:bg-emerald-900/50 dark:text-emerald-300 px-2 py-0.5 rounded-full font-bold text-[10px]">
                     🟢 {isSupabaseConfigured ? "Conectado" : "Pendiente"}
@@ -321,7 +415,7 @@ export const OfflineSyncPanelModal: React.FC<Props> = ({ isOpen, onClose }) => {
                   <button
                     onClick={async () => {
                       setIsSyncingManual(true);
-                      setSyncMessage("Probando conexión con la nube...");
+                      setSyncMessage("Probando conexión con Supabase Cloud...");
                       const res = await testSupabaseConnection();
                       setSyncMessage(res.message ? "Conexión con la nube verificada correctamente." : "Error de conexión.");
                       setIsSyncingManual(false);
@@ -384,10 +478,10 @@ export const OfflineSyncPanelModal: React.FC<Props> = ({ isOpen, onClose }) => {
               <div className="flex items-center justify-between">
                 <div>
                   <h4 className="text-xs font-bold text-slate-700 dark:text-slate-300">
-                    Cola de Eventos Pendientes ({syncState.pendingOperations?.length || 0})
+                    Cola de Operaciones Pendientes ({syncState.pendingCount})
                   </h4>
                   <p className="text-[11px] text-slate-500">
-                    Operaciones registradas localmente en cola de envío.
+                    Operaciones registradas localmente en contingencia para enviar a Supabase.
                   </p>
                 </div>
                 {syncState.pendingCount > 0 && (
@@ -397,7 +491,7 @@ export const OfflineSyncPanelModal: React.FC<Props> = ({ isOpen, onClose }) => {
                         await clearPendingQueue();
                       }
                     }}
-                    className="px-3 py-1.5 bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/40 text-rose-600 dark:text-rose-400 border border-rose-200 dark:border-rose-900 rounded-lg text-xs font-bold transition-all"
+                    className="px-3 py-1.5 bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/40 text-rose-600 dark:text-rose-400 border border-rose-200 dark:border-rose-900 rounded-lg text-xs font-bold transition-all cursor-pointer"
                   >
                     Vaciar Cola
                   </button>
@@ -408,13 +502,19 @@ export const OfflineSyncPanelModal: React.FC<Props> = ({ isOpen, onClose }) => {
                 <div className="p-8 text-center bg-slate-50 dark:bg-slate-900/50 border border-dashed border-slate-200 dark:border-slate-800 rounded-xl">
                   <CheckCircle2 className="h-8 w-8 text-emerald-500 mx-auto mb-2 opacity-80" />
                   <p className="text-xs font-bold text-slate-700 dark:text-slate-300">Sin Operaciones Pendientes</p>
-                  <p className="text-[11px] text-slate-400 mt-1">Todos tus registros están actualizados con la nube.</p>
+                  <p className="text-[11px] text-slate-400 mt-1">Todos tus registros locales están sincronizados con la nube.</p>
                 </div>
               ) : (
-                <div className="space-y-2 max-h-64 overflow-y-auto pr-1">
+                <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
                   <div className="divide-y divide-slate-200 dark:divide-slate-800 border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden bg-white dark:bg-slate-900">
-                    <div className="p-4 text-center text-xs text-slate-500">
-                      Hay {syncState.pendingCount} registro(s) encolados listos para sincronizarse.
+                    <div className="p-3 bg-amber-50 dark:bg-amber-950/30 text-xs text-amber-800 dark:text-amber-300 font-bold border-b border-amber-200 dark:border-amber-900/50 flex items-center justify-between">
+                      <span>Hay {syncState.pendingCount} operaciones encoladas en contingencia.</span>
+                      <button
+                        onClick={handleSyncNow}
+                        className="px-2.5 py-1 bg-amber-600 hover:bg-amber-500 text-white rounded text-[11px] font-bold"
+                      >
+                        Subir Ahora
+                      </button>
                     </div>
                   </div>
                 </div>

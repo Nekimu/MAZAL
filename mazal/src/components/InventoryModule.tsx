@@ -68,6 +68,8 @@ export const SYSTEM_CATEGORIES = [
   "Especias y Condimentos",
   "Enlatados y Conservas",
   "Materias Primas",
+  "Repostería y Panadería",
+  "Jarcería",
   "General"
 ];
 
@@ -108,6 +110,12 @@ export default function InventoryModule({ currentUser, currentBranch }: Inventor
   const [showAdjustModal, setShowAdjustModal] = useState(false);
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
   const [showDetailModal, setShowDetailModal] = useState(false);
+
+  // Helper states for "Otro (especificar)" in Category dropdown
+  const [isCustomCategoryNew, setIsCustomCategoryNew] = useState(false);
+  const [customCategoryNewText, setCustomCategoryNewText] = useState("");
+  const [isCustomCategoryEdit, setIsCustomCategoryEdit] = useState(false);
+  const [customCategoryEditText, setCustomCategoryEditText] = useState("");
 
   // Transfer Modal & Actions State
   const [showTransferModal, setShowTransferModal] = useState(false);
@@ -366,6 +374,10 @@ export default function InventoryModule({ currentUser, currentBranch }: Inventor
   const uniqueUnidades = ["Todas", "Pza", "Kg", "L", "Paq", "g", "ml"];
 
   const categories = uniqueCategories;
+  const availableCategoryOptions = Array.from(new Set([
+    ...SYSTEM_CATEGORIES,
+    ...db.products.map((p: any) => p.category || p.categoria).filter(Boolean)
+  ])).filter(c => c && c !== "Todas" && c !== "OTRO" && c !== "Otro (especificar)").sort();
 
   const triggerReload = () => {
     const freshDb = getDatabase();
@@ -1148,7 +1160,11 @@ export default function InventoryModule({ currentUser, currentBranch }: Inventor
             </button>
             
             <button
-              onClick={() => setShowAddModal(true)}
+              onClick={() => {
+                setIsCustomCategoryNew(false);
+                setCustomCategoryNewText("");
+                setShowAddModal(true);
+              }}
               className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-semibold shadow-xs transition-colors flex items-center gap-1.5 cursor-pointer"
               id="add-product-btn"
             >
@@ -1445,6 +1461,9 @@ export default function InventoryModule({ currentUser, currentBranch }: Inventor
 
                         <button
                           onClick={() => {
+                            const isCustom = prod.category ? !availableCategoryOptions.includes(prod.category) : false;
+                            setIsCustomCategoryEdit(isCustom);
+                            setCustomCategoryEditText(isCustom ? (prod.category || "") : "");
                             setEditingProduct({
                               ...prod,
                               permiteVentaFraccionada: prod.permiteVentaFraccionada ?? (prod.unit === ProductUnit.KILO || prod.unit === ProductUnit.LITER),
@@ -1591,22 +1610,52 @@ export default function InventoryModule({ currentUser, currentBranch }: Inventor
 
                 <div>
                   <label className="text-xs font-semibold text-gray-600 dark:text-slate-400 block mb-1">Categoría</label>
-                  <div className="relative">
-                    <input
-                      type="text"
-                      list="categories-datalist"
-                      required
-                      placeholder="Seleccionar o escribir categoría..."
-                      value={newProduct.category}
-                      onChange={(e) => setNewProduct({ ...newProduct, category: e.target.value })}
-                      className="w-full text-xs rounded-lg border border-gray-200 dark:border-slate-700 p-2.5 bg-white dark:bg-slate-800 dark:text-white"
-                    />
-                    <datalist id="categories-datalist">
-                      {uniqueCategories.filter(c => c !== "Todas").map(c => (
-                        <option key={c} value={c} />
-                      ))}
-                    </datalist>
-                  </div>
+                  <select
+                    value={
+                      isCustomCategoryNew
+                        ? "OTRO"
+                        : availableCategoryOptions.includes(newProduct.category)
+                        ? newProduct.category
+                        : newProduct.category
+                        ? "OTRO"
+                        : "Abarrotes"
+                    }
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      if (val === "OTRO") {
+                        setIsCustomCategoryNew(true);
+                        setNewProduct({ ...newProduct, category: customCategoryNewText || "" });
+                      } else {
+                        setIsCustomCategoryNew(false);
+                        setNewProduct({ ...newProduct, category: val });
+                      }
+                    }}
+                    className="w-full text-xs rounded-lg border border-gray-200 dark:border-slate-700 p-2.5 bg-white dark:bg-slate-800 dark:text-white font-semibold"
+                  >
+                    <option value="" disabled>-- Selecciona una categoría --</option>
+                    {availableCategoryOptions.map(c => (
+                      <option key={c} value={c}>{c}</option>
+                    ))}
+                    <option value="OTRO">➕ Otro (especificar)...</option>
+                  </select>
+
+                  {(isCustomCategoryNew || (!availableCategoryOptions.includes(newProduct.category) && Boolean(newProduct.category))) && (
+                    <div className="mt-2 space-y-1 animate-fadeIn">
+                      <input
+                        type="text"
+                        required
+                        placeholder="Especifique el nombre de la categoría..."
+                        value={newProduct.category}
+                        onChange={(e) => {
+                          setCustomCategoryNewText(e.target.value);
+                          setNewProduct({ ...newProduct, category: e.target.value });
+                        }}
+                        className="w-full text-xs rounded-lg border-2 border-emerald-500 p-2 bg-emerald-50/40 dark:bg-slate-800 dark:text-white font-medium"
+                        autoFocus
+                      />
+                      <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-medium">Escribe el nombre de la categoría personalizada</span>
+                    </div>
+                  )}
                 </div>
 
                 <div>
@@ -2674,14 +2723,51 @@ export default function InventoryModule({ currentUser, currentBranch }: Inventor
                 <div>
                   <label className="text-xs font-semibold text-gray-600 dark:text-slate-400 block mb-1">Categoría</label>
                   <select
-                    value={editingProduct.category}
-                    onChange={(e) => setEditingProduct({ ...editingProduct, category: e.target.value })}
-                    className="w-full text-xs rounded-lg border border-gray-200 dark:border-slate-700 p-2.5 bg-white dark:bg-slate-800 dark:text-white"
+                    value={
+                      isCustomCategoryEdit
+                        ? "OTRO"
+                        : availableCategoryOptions.includes(editingProduct.category)
+                        ? editingProduct.category
+                        : editingProduct.category
+                        ? "OTRO"
+                        : "Abarrotes"
+                    }
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      if (val === "OTRO") {
+                        setIsCustomCategoryEdit(true);
+                        setEditingProduct({ ...editingProduct, category: customCategoryEditText || "" });
+                      } else {
+                        setIsCustomCategoryEdit(false);
+                        setEditingProduct({ ...editingProduct, category: val });
+                      }
+                    }}
+                    className="w-full text-xs rounded-lg border border-gray-200 dark:border-slate-700 p-2.5 bg-white dark:bg-slate-800 dark:text-white font-semibold"
                   >
-                    {categories.filter(c => c !== "Todas").map(c => (
+                    <option value="" disabled>-- Selecciona una categoría --</option>
+                    {availableCategoryOptions.map(c => (
                       <option key={c} value={c}>{c}</option>
                     ))}
+                    <option value="OTRO">➕ Otro (especificar)...</option>
                   </select>
+
+                  {(isCustomCategoryEdit || (!availableCategoryOptions.includes(editingProduct.category) && Boolean(editingProduct.category))) && (
+                    <div className="mt-2 space-y-1 animate-fadeIn">
+                      <input
+                        type="text"
+                        required
+                        placeholder="Especifique el nombre de la categoría..."
+                        value={editingProduct.category}
+                        onChange={(e) => {
+                          setCustomCategoryEditText(e.target.value);
+                          setEditingProduct({ ...editingProduct, category: e.target.value });
+                        }}
+                        className="w-full text-xs rounded-lg border-2 border-emerald-500 p-2 bg-emerald-50/40 dark:bg-slate-800 dark:text-white font-medium"
+                        autoFocus
+                      />
+                      <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-medium">Escribe el nombre de la categoría personalizada</span>
+                    </div>
+                  )}
                 </div>
 
                 <div>
