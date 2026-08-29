@@ -117,6 +117,16 @@ function autoMigrateSchema($db, $targetDb) {
         }
     };
 
+    // Enlarge legacy column sizes if existing from old dump
+    @$db->query("ALTER TABLE `usuarios` MODIFY COLUMN `usuario` VARCHAR(100);");
+    @$db->query("ALTER TABLE `usuarios` MODIFY COLUMN `password` VARCHAR(255);");
+    @$db->query("ALTER TABLE `usuarios` MODIFY COLUMN `nombrecompleto` VARCHAR(255);");
+    @$db->query("ALTER TABLE `productos` MODIFY COLUMN `nom_p` VARCHAR(255);");
+    @$db->query("ALTER TABLE `productos` MODIFY COLUMN `clave` VARCHAR(100);");
+    @$db->query("ALTER TABLE `clientes` MODIFY COLUMN `nombre_c` VARCHAR(255);");
+    @$db->query("ALTER TABLE `proveedor` MODIFY COLUMN `nombre` VARCHAR(255);");
+    @$db->query("ALTER TABLE `proveedor` MODIFY COLUMN `empresa` VARCHAR(255);");
+
     // A. TABLA USUARIOS
     $db->query("CREATE TABLE IF NOT EXISTS `usuarios` (
         `id` INT AUTO_INCREMENT PRIMARY KEY,
@@ -802,11 +812,11 @@ if ($action === 'save_state' && $_SERVER['REQUEST_METHOD'] === 'POST') {
             $pProv = isset($p['supplierId']) ? trim($p['supplierId']) : (isset($p['proveedor_id']) ? trim($p['proveedor_id']) : 'PROV_01');
             $pSucursal = isset($p['sucursal']) ? trim($p['sucursal']) : $branch;
 
-            $pMayoreo = isset($p['priceMax']) ? round((float)$p['priceMax'], 2) : 0;
-            $pMedio = isset($p['priceMed']) ? round((float)$p['priceMed'], 2) : 0;
-            $pMenudeo = isset($p['priceMin']) ? round((float)$p['priceMin'], 2) : 0;
-            $pUnitario = isset($p['cost']) ? strval(round((float)$p['cost'], 2)) : '0';
-            $pEspecial = isset($p['priceSpecial']) ? round((float)$p['priceSpecial'], 2) : 0;
+            $pMayoreo = isset($p['priceMax']) ? round((float)$p['priceMax'], 4) : 0;
+            $pMedio = isset($p['priceMed']) ? round((float)$p['priceMed'], 4) : 0;
+            $pMenudeo = isset($p['priceMin']) ? round((float)$p['priceMin'], 4) : 0;
+            $pUnitario = isset($p['cost']) ? strval(round((float)$p['cost'], 4)) : '0';
+            $pEspecial = isset($p['priceSpecial']) ? round((float)$p['priceSpecial'], 4) : 0;
             $pRaw = json_encode($p);
 
             if (!empty($pName)) {
@@ -841,8 +851,8 @@ if ($action === 'save_state' && $_SERVER['REQUEST_METHOD'] === 'POST') {
             $vTicket = isset($v['ticketNumber']) ? trim($v['ticketNumber']) : (isset($v['ticket_number']) ? trim($v['ticket_number']) : ($rawId ? "TICK-{$rawId}" : ''));
             $vDesc = isset($v['description']) ? trim($v['description']) : (isset($v['descripcion']) ? trim($v['descripcion']) : "Venta Ticket {$vTicket}");
             $vFecha = isset($v['date']) ? trim($v['date']) : (isset($v['fecha']) ? trim($v['fecha']) : date("Y-m-d H:i:s"));
-            $vTotal = isset($v['total']) ? (float)$v['total'] : 0;
-            $vProfit = isset($v['profit']) ? (float)$v['profit'] : (isset($v['total_utilidad']) ? (float)$v['total_utilidad'] : 0);
+            $vTotal = isset($v['total']) ? round((float)$v['total'], 4) : 0;
+            $vProfit = isset($v['profit']) ? round((float)$v['profit'], 4) : (isset($v['total_utilidad']) ? round((float)$v['total_utilidad'], 4) : 0);
             $vMetodo = isset($v['paymentMethod']) ? trim($v['paymentMethod']) : (isset($v['metodo_pago']) ? trim($v['metodo_pago']) : 'Efectivo');
             $vSucursal = isset($v['sucursal']) ? trim($v['sucursal']) : $branch;
             $vRaw = json_encode($v);
@@ -922,18 +932,18 @@ if ($action === 'get_native_tables') {
     };
 
     $usuarios = $fetchRows("SELECT id, usuario, nombrecompleto, password, rol, status, last_login FROM usuarios ORDER BY id ASC");
-    $clientes = $fetchRows("SELECT id_cliente, nombre_c, tel, ROUND(cant_ade, 2) as cant_ade, email, direccion, rfc, limite_credito, dias_credito, notas, status, raw_data FROM clientes");
-    $proveedores = $fetchRows("SELECT id, nombre, tel, empresa, ROUND(adeudo, 2) as adeudo, email, direccion, rfc, contacto, raw_data FROM proveedor");
+    $clientes = $fetchRows("SELECT id_cliente, nombre_c, tel, ROUND(cant_ade, 4) as cant_ade, email, direccion, rfc, limite_credito, dias_credito, notas, status, raw_data FROM clientes");
+    $proveedores = $fetchRows("SELECT id, nombre, tel, empresa, ROUND(adeudo, 4) as adeudo, email, direccion, rfc, contacto, raw_data FROM proveedor");
     $abonos = $fetchRows("SELECT * FROM abonos_credito ORDER BY date DESC LIMIT 300");
 
     $productos = [];
     $resP = $mysqli->query("
         SELECT p.id, p.clave, p.nom_p, p.des, p.cant, p.categoria, p.marca, p.unidad, p.stock_min, p.stock_max, p.ubicacion, p.imagen, p.proveedor_id, p.sucursal, p.raw_data,
-               ROUND(COALESCE(pr.mayoreo, 0), 2) as mayoreo,
-               ROUND(COALESCE(pr.medio, 0), 2) as medio,
-               ROUND(COALESCE(pr.menudeo, 0), 2) as menudeo,
-               ROUND(COALESCE(CAST(pr.Unitario AS DECIMAL(12,2)), 0), 2) as unitario,
-               ROUND(COALESCE(pr.precio_especial, 0), 2) as precio_especial
+               ROUND(COALESCE(pr.mayoreo, 0), 4) as mayoreo,
+               ROUND(COALESCE(pr.medio, 0), 4) as medio,
+               ROUND(COALESCE(pr.menudeo, 0), 4) as menudeo,
+               ROUND(COALESCE(CAST(pr.Unitario AS DECIMAL(14,4)), 0), 4) as unitario,
+               ROUND(COALESCE(pr.precio_especial, 0), 4) as precio_especial
         FROM productos p
         LEFT JOIN precios pr ON p.id = pr.id_producto
         GROUP BY p.id
@@ -956,11 +966,11 @@ if ($action === 'get_native_tables') {
                 "imagen" => $row['imagen'] ?: '',
                 "proveedor_id" => $row['proveedor_id'] ?: 'PROV_01',
                 "sucursal" => $row['sucursal'] ?: 'Norte',
-                "mayoreo" => round((float)$row['mayoreo'], 2),
-                "medio" => round((float)$row['medio'], 2),
-                "menudeo" => round((float)$row['menudeo'], 2),
-                "unitario" => round((float)$row['unitario'], 2),
-                "precio_especial" => round((float)$row['precio_especial'], 2),
+                "mayoreo" => round((float)$row['mayoreo'], 4),
+                "medio" => round((float)$row['medio'], 4),
+                "menudeo" => round((float)$row['menudeo'], 4),
+                "unitario" => round((float)$row['unitario'], 4),
+                "precio_especial" => round((float)$row['precio_especial'], 4),
                 "raw_data" => $row['raw_data'] ? json_decode($row['raw_data'], true) : null
             ];
         }
@@ -968,7 +978,16 @@ if ($action === 'get_native_tables') {
 
     $movements = $fetchRows("SELECT * FROM movimientos_inventario ORDER BY date DESC LIMIT 300");
     $cashSessions = $fetchRows("SELECT * FROM sesiones_caja ORDER BY start_time DESC LIMIT 50");
-    $expenses = $fetchRows("SELECT * FROM gastos_caja ORDER BY date DESC LIMIT 100");
+    // Gastos tradicionales de mazal_base y gastos de caja
+    $gastosTrad = $fetchRows("SELECT id_gasto as id, gasto as description, costo as amount, 'General' as category, fecha as date, 'Admin' as user_name, 'Norte' as sucursal, NULL as raw_data FROM gastos ORDER BY fecha DESC LIMIT 500");
+    $gastosCaja = $fetchRows("SELECT * FROM gastos_caja ORDER BY date DESC LIMIT 100");
+    $expenses = array_merge($gastosCaja, $gastosTrad);
+
+    $adeudos = $fetchRows("SELECT a.*, p.nombre as proveedor_nombre, pr.nom_p as producto_nombre FROM adeudos a LEFT JOIN proveedor p ON a.id_proveedor = p.id LEFT JOIN productos pr ON a.id_producto = pr.id ORDER BY a.fecha DESC LIMIT 500");
+    $pagos = $fetchRows("SELECT pg.*, u.nombrecompleto as usuario_nombre FROM pagos pg LEFT JOIN usuarios u ON pg.id_usuario = u.id ORDER BY pg.fecha_pago DESC LIMIT 500");
+    $empleados = $fetchRows("SELECT * FROM empleados ORDER BY empleado_id ASC");
+    $nomina = $fetchRows("SELECT n.*, e.nombre, e.apellido FROM nomina n LEFT JOIN empleados e ON n.empleado_id = e.empleado_id ORDER BY n.fecha_pago DESC LIMIT 500");
+
     $purchaseOrders = $fetchRows("SELECT * FROM ordenes_compra ORDER BY date DESC LIMIT 100");
     $bankAccounts = $fetchRows("SELECT * FROM cuentas_bancarias ORDER BY id ASC");
     $bankMovements = $fetchRows("SELECT * FROM movimientos_bancarios ORDER BY date DESC LIMIT 200");
@@ -996,6 +1015,10 @@ if ($action === 'get_native_tables') {
         "clientes" => $clientes,
         "abonos_credito" => $abonos,
         "proveedores" => $proveedores,
+        "adeudos" => $adeudos,
+        "pagos" => $pagos,
+        "empleados" => $empleados,
+        "nomina" => $nomina,
         "productos" => $productos,
         "movimientos" => $movements,
         "sesiones_caja" => $cashSessions,
@@ -1017,7 +1040,9 @@ if ($action === 'get_native_tables') {
             "total_ventas" => $totalVentas,
             "total_proveedores" => count($proveedores),
             "total_clientes" => count($clientes),
-            "total_usuarios" => count($usuarios)
+            "total_usuarios" => count($usuarios),
+            "total_adeudos" => count($adeudos),
+            "total_gastos" => count($expenses)
         ],
         "source" => "MySQL ({$dbname})"
     ]);
@@ -1031,8 +1056,8 @@ if ($action === 'get_historical_sales') {
     $ventas = [];
     $resV = $mysqli->query("
         SELECT v.id_venta, v.ticket_number, v.id_producto, p.nom_p, p.clave, v.descripcion, v.fecha, v.cantidad, 
-               ROUND(v.total, 2) as total, 
-               ROUND(v.total_utilidad, 2) as total_utilidad, 
+               ROUND(v.total, 4) as total, 
+               ROUND(v.total_utilidad, 4) as total_utilidad, 
                v.id_cliente, c.nombre_c, v.metodo_pago, v.sucursal, v.raw_data
         FROM ventas v
         LEFT JOIN productos p ON v.id_producto = p.id
@@ -1077,11 +1102,11 @@ if ($action === 'save_product' && $_SERVER['REQUEST_METHOD'] === 'POST') {
     $suc    = isset($postData['sucursal']) ? trim($postData['sucursal']) : $branch;
     $pRaw   = json_encode($postData);
 
-    $mayoreo  = isset($postData['priceMax']) ? round((float)$postData['priceMax'], 2) : 0;
-    $medio    = isset($postData['priceMed']) ? round((float)$postData['priceMed'], 2) : 0;
-    $menudeo  = isset($postData['priceMin']) ? round((float)$postData['priceMin'], 2) : 0;
-    $unitario = isset($postData['cost']) ? strval(round((float)$postData['cost'], 2)) : '0';
-    $especial = isset($postData['priceSpecial']) ? round((float)$postData['priceSpecial'], 2) : 0;
+    $mayoreo  = isset($postData['priceMax']) ? round((float)$postData['priceMax'], 4) : 0;
+    $medio    = isset($postData['priceMed']) ? round((float)$postData['priceMed'], 4) : 0;
+    $menudeo  = isset($postData['priceMin']) ? round((float)$postData['priceMin'], 4) : 0;
+    $unitario = isset($postData['cost']) ? strval(round((float)$postData['cost'], 4)) : '0';
+    $especial = isset($postData['priceSpecial']) ? round((float)$postData['priceSpecial'], 4) : 0;
 
     $existingId = 0;
     if ($prodId > 0) {

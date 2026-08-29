@@ -321,11 +321,11 @@ export function normalizeProduct(p: any): Product {
   const tipoVenta = p.tipoVenta || (unit === ProductUnit.KILO ? "peso" : unit === ProductUnit.LITER ? "volumen" : "pieza");
   const gramajeBase = Number(p.gramajeBase ?? (unit === ProductUnit.KILO ? 1000 : 0));
 
-  const priceMin = parseFloat((Number(p.priceMin ?? p.precioMenudeo ?? 0)).toFixed(2));
-  const priceMed = parseFloat((Number(p.priceMed ?? p.precioMedioMayoreo ?? 0)).toFixed(2));
-  const priceMax = parseFloat((Number(p.priceMax ?? p.precioMayoreo ?? 0)).toFixed(2));
-  const priceSpecial = parseFloat((Number(p.priceSpecial ?? p.precioEspecial ?? 0)).toFixed(2));
-  const cost = parseFloat((Number(p.cost ?? p.costo ?? 0)).toFixed(2));
+  const priceMin = parseFloat((Number(p.priceMin ?? p.precioMenudeo ?? 0)).toFixed(4));
+  const priceMed = parseFloat((Number(p.priceMed ?? p.precioMedioMayoreo ?? 0)).toFixed(4));
+  const priceMax = parseFloat((Number(p.priceMax ?? p.precioMayoreo ?? 0)).toFixed(4));
+  const priceSpecial = parseFloat((Number(p.priceSpecial ?? p.precioEspecial ?? 0)).toFixed(4));
+  const cost = parseFloat((Number(p.cost ?? p.costo ?? 0)).toFixed(4));
   const stock = Number(p.stock ?? p.stockDisponible ?? 0);
 
   return {
@@ -374,13 +374,13 @@ export function normalizeProduct(p: any): Product {
     stockMaximo: Number(p.stockMaximo ?? (p.stockMax ?? 1000)),
     puntoReorden: Number(p.puntoReorden ?? 0),
     costo: cost,
-    ultimoCosto: parseFloat(Number(p.ultimoCosto ?? cost).toFixed(2)),
-    costoPromedio: parseFloat(Number(p.costoPromedio ?? cost).toFixed(2)),
+    ultimoCosto: parseFloat(Number(p.ultimoCosto ?? cost).toFixed(4)),
+    costoPromedio: parseFloat(Number(p.costoPromedio ?? cost).toFixed(4)),
     precioMenudeo: priceMin,
     precioMedioMayoreo: priceMed,
     precioMayoreo: priceMax,
     precioEspecial: priceSpecial,
-    utilidad: parseFloat(Number(p.utilidad ?? 0).toFixed(2)),
+    utilidad: parseFloat(Number(p.utilidad ?? 0).toFixed(4)),
     aplicaIVA: Boolean(p.aplicaIVA),
     porcentajeIVA: Number(p.porcentajeIVA ?? 0),
     proveedorId: p.proveedorId || p.supplierId || "",

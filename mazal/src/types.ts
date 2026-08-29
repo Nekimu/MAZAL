@@ -487,18 +487,24 @@ export interface ReplenishmentRequest {
 // --- HELPER FUNCTIONS ---
 
 export function formatPrice(price: number | string | null | undefined, isPerGramOrMl: boolean = false): string {
-  if (price === undefined || price === null) return "0.00";
+  if (price === undefined || price === null || price === "") return "0.00";
   const num = typeof price === "string" ? parseFloat(price) : Number(price);
   if (isNaN(num)) return "0.00";
-  
-  // High precision only for micro-fractions per gram / ml (< 0.01)
-  if (isPerGramOrMl && Math.abs(num) > 0 && Math.abs(num) < 0.01) {
-    return (Math.round((num + Number.EPSILON) * 10000) / 10000).toFixed(4);
-  }
 
-  // All product prices are cleanly rounded to two decimal places ($X.XX)
-  const rounded = Math.round((num + Number.EPSILON) * 100) / 100;
-  return rounded.toFixed(2);
+  // Redondeo de decimales de los productos a 4 dígitos después del punto
+  const rounded = Math.round((num + Number.EPSILON) * 10000) / 10000;
+  const str = rounded.toFixed(4);
+
+  // Si termina en 00 (ej. 15.5000), mostrar con formato estándar de 2 decimales (15.50)
+  if (str.endsWith("00")) {
+    return rounded.toFixed(2);
+  }
+  // Si termina en un solo 0 (ej. 15.5450), mostrar los 3 decimales reales (15.545)
+  if (str.endsWith("0")) {
+    return rounded.toFixed(3);
+  }
+  // Si tiene 4 decimales significativos (ej. 15.5458, 9.3366), mostrar los 4 dígitos completos
+  return str;
 }
 
 // --- OFFLINE SYNC TYPES ---
