@@ -482,22 +482,6 @@ export const subscribeToDb = (cb: (db: any) => void) => {
   return () => subscribers.delete(cb);
 };
 
-export const networkSubscribers = new Set<(status: { isOnline: boolean; isSyncing: boolean; pendingSync: boolean }) => void>();
-export const subscribeNetworkStatus = (cb: (status: { isOnline: boolean; isSyncing: boolean; pendingSync: boolean }) => void) => {
-  networkSubscribers.add(cb);
-  cb({ isOnline: isOnlineState, isSyncing: isSyncingState, pendingSync: pendingOfflineSync });
-  return () => networkSubscribers.delete(cb);
-};
-
-export const notifyNetworkSubscribers = () => {
-  networkSubscribers.forEach((cb) => {
-    try {
-      cb({ isOnline: isOnlineState, isSyncing: isSyncingState, pendingSync: pendingOfflineSync });
-    } catch (e) {
-      console.error("Network subscriber notification error:", e);
-    }
-  });
-};
 
 export const notifySubscribers = () => {
   const currentDb = getDatabase();
@@ -1858,39 +1842,6 @@ export const syncWithLocalMySQL = async (branchParam?: string): Promise<{ succes
   return { success: false, totalProducts: inMemoryDb.products?.length || 0, message: "Usando base local." };
 };
 
-export const saveUserToMySQL = async (user: { name: string; username: string; password?: string; role: string }): Promise<boolean> => {
-  if (typeof window !== "undefined" && window.location.hostname !== "localhost" && window.location.hostname !== "127.0.0.1") {
-    return false;
-  }
-  try {
-    const res = await callLocalApi(`action=save_user&branch=${encodeURIComponent(activeBranch || "Norte")}`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(user)
-    });
-    const data = await res.json();
-    return Boolean(data.success);
-  } catch (e) {
-    return false;
-  }
-};
-
-export const deleteUserFromMySQL = async (username: string): Promise<boolean> => {
-  if (typeof window !== "undefined" && window.location.hostname !== "localhost" && window.location.hostname !== "127.0.0.1") {
-    return false;
-  }
-  try {
-    const res = await callLocalApi(`action=delete_user&branch=${encodeURIComponent(activeBranch || "Norte")}`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ username })
-    });
-    const data = await res.json();
-    return Boolean(data.success);
-  } catch (e) {
-    return false;
-  }
-};
 
 export const resetDatabaseToFactory = async () => {
   // Clear/reset in-memory and local collections
