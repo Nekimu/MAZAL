@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useMemo } from "react";
 import { 
   Package, 
   Search, 
@@ -82,6 +82,49 @@ export const SYSTEM_DEPARTMENTS = [
   "Dulcería",
   "General"
 ];
+
+function getSearchRelevance(p: Product, query: string): number {
+  if (!query) return 0;
+  const q = (query || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
+  if (!q) return 0;
+
+  const name = (p.name || p.descripcion || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
+  const code = (p.code || p.codigo || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
+  const barcode = (p.barcode || p.codigoBarras || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
+  const sku = (p.sku || p.codigoInterno || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
+  const brand = (p.brand || p.marca || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
+
+  // 1. Coincidencia exacta en nombre o clave
+  if (name === q || code === q || barcode === q) return 1000;
+
+  // 2. El nombre empieza con el término (ej. "Pasta Espacial" al buscar "Pasta")
+  if (name.startsWith(q)) return 800;
+
+  // 3. Alguna palabra del nombre empieza con el término
+  const words = name.split(/\s+/);
+  if (words.some(w => w.startsWith(q))) return 600;
+
+  // 4. Clave o código de barras empieza con el término
+  if (code.startsWith(q) || barcode.startsWith(q) || sku.startsWith(q)) return 500;
+
+  // 5. El nombre contiene el término en cualquier parte
+  if (name.includes(q)) return 400;
+
+  // 6. Coincidencia de múltiples palabras escritas
+  const tokens = q.split(/\s+/).filter(Boolean);
+  if (tokens.length > 1) {
+    const fullText = `${name} ${code} ${barcode} ${brand}`;
+    if (tokens.every(tok => fullText.includes(tok))) return 350;
+  }
+
+  // 7. El código o barcode contiene el término
+  if (code.includes(q) || barcode.includes(q) || sku.includes(q)) return 300;
+
+  // 8. La marca contiene el término
+  if (brand && (brand === q || brand.includes(q))) return 200;
+
+  return 0;
+}
 
 export default function InventoryModule({ currentUser, currentBranch }: InventoryModuleProps) {
   const [db, setDb] = useState(getDatabase());
@@ -411,18 +454,11 @@ export default function InventoryModule({ currentUser, currentBranch }: Inventor
       if (!hasMovement) return false;
     }
 
-    // 2. Apply search text filters (Name, Code, SKU, Barcode)
-    const matchesSearch = 
-      p.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      p.code.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      (p.codigo && p.codigo.toLowerCase().includes(searchTerm.toLowerCase())) ||
-      p.brand.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      (p.marca && p.marca.toLowerCase().includes(searchTerm.toLowerCase())) ||
-      p.sku.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      p.barcode.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      (p.codigoBarras && p.codigoBarras.toLowerCase().includes(searchTerm.toLowerCase()));
-    
-    if (!matchesSearch) return false;
+    // 2. Apply search text filters por relevancia estricta
+    if (searchTerm) {
+      const score = getSearchRelevance(p, searchTerm);
+      if (score <= 0) return false;
+    }
 
     // 3. Apply category dropdown filters
     const matchesCategory = selectedCategory === "Todas" || p.category === selectedCategory || p.categoria === selectedCategory;
@@ -476,8 +512,24 @@ export default function InventoryModule({ currentUser, currentBranch }: Inventor
     selectedMetricFilter
   ]);
 
-  const totalPages = Math.max(1, Math.ceil(filteredProducts.length / itemsPerPage));
-  const paginatedProducts = filteredProducts.slice(
+  // Sort products: Search relevance first if searching, else by name
+  const sortedProducts = useMemo(() => {
+    const list = [...filteredProducts];
+    if (searchTerm) {
+      list.sort((a, b) => {
+        const scoreA = getSearchRelevance(a, searchTerm);
+        const scoreB = getSearchRelevance(b, searchTerm);
+        if (scoreA !== scoreB) {
+          return scoreB - scoreA;
+        }
+        return (a.name || "").localeCompare(b.name || "");
+      });
+    }
+    return list;
+  }, [filteredProducts, searchTerm]);
+
+  const totalPages = Math.max(1, Math.ceil(sortedProducts.length / itemsPerPage));
+  const paginatedProducts = sortedProducts.slice(
     (currentPage - 1) * itemsPerPage,
     currentPage * itemsPerPage
   );

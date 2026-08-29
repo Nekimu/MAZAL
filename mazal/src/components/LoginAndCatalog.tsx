@@ -51,6 +51,49 @@ interface LoginAndCatalogProps {
 
 const ITEMS_PER_PAGE = 24;
 
+function getSearchRelevance(p: Product, query: string): number {
+  if (!query) return 0;
+  const q = (query || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
+  if (!q) return 0;
+
+  const name = (p.name || p.descripcion || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
+  const code = (p.code || p.codigo || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
+  const barcode = (p.barcode || p.codigoBarras || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
+  const sku = (p.sku || p.codigoInterno || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
+  const brand = (p.brand || p.marca || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
+
+  // 1. Coincidencia exacta en nombre o clave
+  if (name === q || code === q || barcode === q) return 1000;
+
+  // 2. El nombre empieza con el término (ej. "Pasta Espacial" al buscar "Pasta")
+  if (name.startsWith(q)) return 800;
+
+  // 3. Alguna palabra del nombre empieza con el término
+  const words = name.split(/\s+/);
+  if (words.some(w => w.startsWith(q))) return 600;
+
+  // 4. Clave o código de barras empieza con el término
+  if (code.startsWith(q) || barcode.startsWith(q) || sku.startsWith(q)) return 500;
+
+  // 5. El nombre contiene el término en cualquier parte
+  if (name.includes(q)) return 400;
+
+  // 6. Coincidencia de múltiples palabras escritas
+  const tokens = q.split(/\s+/).filter(Boolean);
+  if (tokens.length > 1) {
+    const fullText = `${name} ${code} ${barcode} ${brand}`;
+    if (tokens.every(tok => fullText.includes(tok))) return 350;
+  }
+
+  // 7. El código o barcode contiene el término
+  if (code.includes(q) || barcode.includes(q) || sku.includes(q)) return 300;
+
+  // 8. La marca contiene el término
+  if (brand && (brand === q || brand.includes(q))) return 200;
+
+  return 0;
+}
+
 export default function LoginAndCatalog({ 
   currentBranch = "Norte",
   onBranchChange,
@@ -142,22 +185,10 @@ export default function LoginAndCatalog({
         if (pBranch === "sur") return false;
       }
 
-      // Text search
+      // Text search estricto por relevancia
       if (cleanSearch) {
-        const name = (p.name || "").toLowerCase();
-        const brand = (p.brand || "").toLowerCase();
-        const barcode = (p.barcode || "").toLowerCase();
-        const category = (p.category || "").toLowerCase();
-        const dept = (p.departamento || "").toLowerCase();
-
-        const matches = 
-          name.includes(cleanSearch) || 
-          brand.includes(cleanSearch) || 
-          barcode.includes(cleanSearch) || 
-          category.includes(cleanSearch) || 
-          dept.includes(cleanSearch);
-
-        if (!matches) return false;
+        const score = getSearchRelevance(p, cleanSearch);
+        if (score <= 0) return false;
       }
 
       // Department filter
@@ -168,7 +199,7 @@ export default function LoginAndCatalog({
 
       // Category filter
       if (selectedCategory !== "Todos") {
-        if (p.category !== selectedCategory) return false;
+        if (p.category !== selectedCategory && p.categoria !== selectedCategory) return false;
       }
 
       // Unit filter
@@ -176,7 +207,7 @@ export default function LoginAndCatalog({
         const u = (p.unit || p.unidad || "").toLowerCase();
         const t = (p.tipoVenta || "").toLowerCase();
         if (selectedUnitType === "Pieza") {
-          if (!u.includes("pza") && !u.includes("ud") && !t.includes("pieza")) return false;
+          if (!u.includes("pz") && !u.includes("pza") && !u.includes("ud") && !t.includes("pieza")) return false;
         } else if (selectedUnitType === "Kilo") {
           if (!u.includes("kg") && !u.includes("gram") && !u.includes("g") && !t.includes("peso")) return false;
         } else if (selectedUnitType === "Paquete") {
@@ -187,8 +218,16 @@ export default function LoginAndCatalog({
       return true;
     });
 
-    // Sorting
+    // Sorting: Relevancia primero cuando hay búsqueda activa, luego el orden seleccionado
     filtered.sort((a, b) => {
+      if (cleanSearch) {
+        const scoreA = getSearchRelevance(a, cleanSearch);
+        const scoreB = getSearchRelevance(b, cleanSearch);
+        if (scoreA !== scoreB) {
+          return scoreB - scoreA; // Mayor relevancia primero
+        }
+      }
+
       if (sortBy === "price-asc") {
         return (a.priceMin || 0) - (b.priceMin || 0);
       }
@@ -223,22 +262,22 @@ export default function LoginAndCatalog({
     try {
       const result = await authenticateStaff(username, password);
 
-      if (!result.success || !result.user) {
-        setErrorMsg("Usuario o contraseña incorrectos. Verifica tus credenciales.");
-        setUsername("");
-        setPassword("");
+      if (!result || !result.success || !result.user) {
+        setErrorMsg(result?.message || "Usuario o contraseña incorrectos. Verifica tus credenciales.");
         setIsSubmitting(false);
         return;
       }
 
       const authenticatedUser = result.user;
 
-      logAction(
-        authenticatedUser.name,
-        authenticatedUser.role,
-        "Inicio de Sesión",
-        `El colaborador @${authenticatedUser.username} ingresó al ERP central desde el portal de inicio.`
-      );
+      try {
+        logAction(
+          authenticatedUser.name,
+          authenticatedUser.role,
+          "Inicio de Sesión",
+          `El colaborador @${authenticatedUser.username} ingresó al ERP central desde el portal de inicio.`
+        ).catch(() => {});
+      } catch (e) {}
 
       setSuccessMsg(`Iniciando sesión... ¡Bienvenido, ${authenticatedUser.name}!`);
       
@@ -249,11 +288,10 @@ export default function LoginAndCatalog({
           name: authenticatedUser.name,
           role: normalizeUserRole(authenticatedUser.role)
         });
-      }, 500);
+      }, 300);
     } catch (err: any) {
+      console.error("Login submission error:", err);
       setErrorMsg("Error inesperado al intentar autenticar. Intenta de nuevo.");
-      setUsername("");
-      setPassword("");
       setIsSubmitting(false);
     }
   };

@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useMemo } from "react";
 import { jsPDF } from "jspdf";
 import { 
   Search, 
@@ -77,6 +77,49 @@ interface POSModuleProps {
   onOpenCashSession: () => void;
   onlyPOSMode?: boolean;
   onSaleComplete?: () => void;
+}
+
+function getSearchRelevance(p: Product, query: string): number {
+  if (!query) return 0;
+  const q = (query || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
+  if (!q) return 0;
+
+  const name = (p.name || p.descripcion || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
+  const code = (p.code || p.codigo || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
+  const barcode = (p.barcode || p.codigoBarras || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
+  const sku = (p.sku || p.codigoInterno || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
+  const brand = (p.brand || p.marca || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
+
+  // 1. Coincidencia exacta en nombre o clave
+  if (name === q || code === q || barcode === q) return 1000;
+
+  // 2. El nombre empieza con el término (ej. "Pasta Espacial" al buscar "Pasta")
+  if (name.startsWith(q)) return 800;
+
+  // 3. Alguna palabra del nombre empieza con el término
+  const words = name.split(/\s+/);
+  if (words.some(w => w.startsWith(q))) return 600;
+
+  // 4. Clave o código de barras empieza con el término
+  if (code.startsWith(q) || barcode.startsWith(q) || sku.startsWith(q)) return 500;
+
+  // 5. El nombre contiene el término en cualquier parte
+  if (name.includes(q)) return 400;
+
+  // 6. Coincidencia de múltiples palabras escritas
+  const tokens = q.split(/\s+/).filter(Boolean);
+  if (tokens.length > 1) {
+    const fullText = `${name} ${code} ${barcode} ${brand}`;
+    if (tokens.every(tok => fullText.includes(tok))) return 350;
+  }
+
+  // 7. El código o barcode contiene el término
+  if (code.includes(q) || barcode.includes(q) || sku.includes(q)) return 300;
+
+  // 8. La marca contiene el término
+  if (brand && (brand === q || brand.includes(q))) return 200;
+
+  return 0;
 }
 
 export default function POSModule({ 
@@ -168,25 +211,21 @@ export default function POSModule({
 
   // Search filter
   const filteredProducts = db.products.filter((product: Product) => {
-    const matchesSearch = 
-      product.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      product.code.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      product.brand.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      product.sku.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      (product.category && product.category.toLowerCase().includes(searchTerm.toLowerCase())) ||
-      (product.departamento && product.departamento.toLowerCase().includes(searchTerm.toLowerCase()));
+    if (searchTerm) {
+      const score = getSearchRelevance(product, searchTerm);
+      if (score <= 0) return false;
+    }
 
     const pDept = product.departamento || "Sin clasificar";
     const matchesDepartment = selectedDepartment === "Todos" || pDept === selectedDepartment;
-
-    const matchesCategory = selectedCategory === "Todos" || product.category === selectedCategory;
+    const matchesCategory = selectedCategory === "Todos" || product.category === selectedCategory || product.categoria === selectedCategory;
 
     let matchesUnitType = true;
     if (selectedUnitType !== "Todos") {
       const u = (product.unit || product.unidad || "").toLowerCase();
       const t = (product.tipoVenta || "").toLowerCase();
       if (selectedUnitType === "Pieza") {
-        matchesUnitType = u.includes("pza") || u.includes("ud") || t.includes("pieza");
+        matchesUnitType = u.includes("pz") || u.includes("pza") || u.includes("ud") || t.includes("pieza");
       } else if (selectedUnitType === "Kilo") {
         matchesUnitType = u.includes("kg") || u.includes("gram") || u.includes("g") || t.includes("peso");
       } else if (selectedUnitType === "Paquete") {
@@ -194,7 +233,7 @@ export default function POSModule({
       }
     }
 
-    return matchesSearch && matchesDepartment && matchesCategory && matchesUnitType;
+    return matchesDepartment && matchesCategory && matchesUnitType;
   });
 
   // Reset page when search or filters change
@@ -202,8 +241,24 @@ export default function POSModule({
     setCurrentPage(1);
   }, [searchTerm, selectedDepartment, selectedCategory, selectedUnitType]);
 
-  const totalPages = Math.max(1, Math.ceil(filteredProducts.length / ITEMS_PER_PAGE));
-  const paginatedProducts = filteredProducts.slice(
+  // Sort by relevance if search term is active, otherwise by name
+  const sortedProducts = useMemo(() => {
+    const list = [...filteredProducts];
+    if (searchTerm) {
+      list.sort((a, b) => {
+        const scoreA = getSearchRelevance(a, searchTerm);
+        const scoreB = getSearchRelevance(b, searchTerm);
+        if (scoreA !== scoreB) {
+          return scoreB - scoreA;
+        }
+        return (a.name || "").localeCompare(b.name || "");
+      });
+    }
+    return list;
+  }, [filteredProducts, searchTerm]);
+
+  const totalPages = Math.max(1, Math.ceil(sortedProducts.length / ITEMS_PER_PAGE));
+  const paginatedProducts = sortedProducts.slice(
     (currentPage - 1) * ITEMS_PER_PAGE,
     currentPage * ITEMS_PER_PAGE
   );

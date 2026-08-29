@@ -315,7 +315,22 @@ const saveToLocalStorage = (data: any) => {
 
 export function normalizeProduct(p: any): Product {
   if (!p) return p;
-  const unit = p.unit || p.unidadVenta || ProductUnit.PIECE;
+  const rawUnit = (p.unit || p.unidad || p.unidadVenta || "").toLowerCase();
+  const rawDes = (p.des || p.subcategory || p.subcategoria || "").toLowerCase();
+  
+  let unit: ProductUnit = ProductUnit.PIECE;
+  if (rawUnit === "kg" || rawUnit === "kilo" || rawUnit === "kilogramo" || rawDes === "mixto") {
+    unit = ProductUnit.KILO;
+  } else if (rawUnit === "lt" || rawUnit === "litro" || rawUnit === "l") {
+    unit = ProductUnit.LITER;
+  } else if (rawUnit === "paq" || rawUnit === "paquete") {
+    unit = ProductUnit.PACKAGE;
+  } else if (rawUnit === "caja") {
+    unit = ProductUnit.BOX;
+  } else if (p.unit) {
+    unit = p.unit as ProductUnit;
+  }
+
   const isBulk = unit === ProductUnit.KILO || unit === ProductUnit.LITER;
   const permiteVentaFraccionada = p.permiteVentaFraccionada ?? isBulk;
   const tipoVenta = p.tipoVenta || (unit === ProductUnit.KILO ? "peso" : unit === ProductUnit.LITER ? "volumen" : "pieza");
@@ -864,7 +879,7 @@ export const loadDatabaseFromMySQL = async (branchParam?: string): Promise<typeo
     if (data.success) {
       let stateChanged = false;
 
-      // A. Mapear y combinar productos desde MySQL
+      // A. Mapear y asignar productos desde MySQL directamente
       if (Array.isArray(data.productos) && data.productos.length > 0) {
         const mySqlProducts: Product[] = data.productos.map((p: any) => {
           let raw: any = {};
@@ -873,9 +888,9 @@ export const loadDatabaseFromMySQL = async (branchParam?: string): Promise<typeo
           } else if (p.raw_data && typeof p.raw_data === "string") {
             try { raw = JSON.parse(p.raw_data); } catch { raw = {}; }
           }
-          const pId = raw.id || `PROD_${p.id || p.clave}`;
-          const code = p.clave || raw.code || raw.codigo || String(p.id);
-          const unit = p.unidad || raw.unit || ProductUnit.PIECE;
+          const pId = String(p.id);
+          const code = p.clave || String(p.id);
+          const unit = p.unidad || raw.unit || (p.des === 'mixto' ? ProductUnit.KILO : ProductUnit.PIECE);
           const cost = Number(p.unitario ?? raw.cost ?? 0);
           const priceMin = Number(p.menudeo ?? raw.priceMin ?? 0);
           const priceMed = Number(p.medio ?? raw.priceMed ?? priceMin);
@@ -887,10 +902,10 @@ export const loadDatabaseFromMySQL = async (branchParam?: string): Promise<typeo
             ...raw,
             id: pId,
             code: code,
-            barcode: p.clave || raw.barcode || code,
-            sku: raw.sku || `SKU-${code}`,
+            barcode: p.clave || `750000${String(p.id).padStart(6, '0')}`,
+            sku: `SKU-${p.id}`,
             name: p.nom_p || raw.name || raw.descripcion || "Producto",
-            brand: p.marca || raw.brand || "",
+            brand: p.marca || raw.brand || "MAZAL",
             category: p.categoria || raw.category || "General",
             subcategory: p.des || raw.subcategory || "",
             unit: unit,
@@ -902,24 +917,14 @@ export const loadDatabaseFromMySQL = async (branchParam?: string): Promise<typeo
             stock: stock,
             stockMin: Number(p.stock_min ?? raw.stockMin ?? 5),
             stockMax: Number(p.stock_max ?? raw.stockMax ?? 100),
-            location: p.ubicacion || raw.location || "",
+            location: p.ubicacion || raw.location || "Bodega Principal",
             imageUrl: p.imagen || raw.imageUrl || "",
             supplierId: p.proveedor_id || raw.supplierId || "SUPP1",
-            sucursal: branch
+            sucursal: branch || "Norte"
           });
         });
 
-        const prodMap = new Map<string, Product>();
-        (inMemoryDb.products || []).forEach((p: Product) => {
-          const key = (p.code || p.barcode || p.id).trim();
-          if (key) prodMap.set(key, p);
-        });
-        mySqlProducts.forEach((p: Product) => {
-          const key = (p.code || p.barcode || p.id).trim();
-          if (key) prodMap.set(key, p);
-        });
-
-        inMemoryDb.products = Array.from(prodMap.values());
+        inMemoryDb.products = mySqlProducts;
         stateChanged = true;
       }
 
@@ -1121,6 +1126,7 @@ export const loadDatabaseFromMySQL = async (branchParam?: string): Promise<typeo
           id: String(u.id),
           username: u.usuario || u.username,
           name: u.nombrecompleto || u.name || u.usuario,
+          password: u.password || "",
           role: u.rol || u.role || UserRole.CASHIER,
           status: u.status || "Activo",
           lastLogin: u.last_login || u.lastLogin
@@ -1338,19 +1344,12 @@ if (typeof window !== "undefined") {
   });
 }
 
-// Real-time Listeners Setup (Supabase Realtime Cloud)
+// Real-time Listeners Setup (Desactivado en modo 100% local MySQL)
 export const initRealtimeListeners = () => {
-  if (typeof window === "undefined" || !isSupabaseConfigured) return () => {};
-  return initSupabaseRealtime((table, payload) => {
-    console.log(`[Supabase Realtime] Evento recibido en tabla ${table}:`, payload.eventType);
-    loadDatabaseFromSupabase(activeBranch);
-  });
+  return () => {};
 };
 
 export const loadDatabaseFromCloud = async () => {
-  if (!PAUSE_ONLINE_SYNC && isSupabaseConfigured) {
-    await loadDatabaseFromSupabase(activeBranch);
-  }
   await loadDatabaseFromMySQL(activeBranch);
   return inMemoryDb;
 };
@@ -1360,281 +1359,12 @@ let supabaseRealtimeUnsub: (() => void) | null = null;
 
 export const loadDatabaseFromSupabase = async (branchParam?: string): Promise<typeof inMemoryDb> => {
   const branch = branchParam || activeBranch || "Norte";
-  if (PAUSE_ONLINE_SYNC) {
-    await loadDatabaseFromMySQL(branch);
-    return inMemoryDb;
-  }
-  try {
-    const isConfigured = await ensureSupabaseConfigured();
-    if (!isConfigured) {
-      console.warn("Supabase no está configurado. Omitiendo carga desde la nube.");
-      await loadDatabaseFromMySQL(branch);
-      return inMemoryDb;
-    }
-
-    const res = await loadAllFromSupabase(branch);
-    if (res.success && res.data) {
-      const data = res.data;
-      if (Array.isArray(data.products)) {
-        inMemoryDb.products = data.products.map(normalizeProduct);
-      }
-      if (Array.isArray(data.customers)) {
-        inMemoryDb.customers = data.customers;
-      }
-      if (Array.isArray(data.suppliers)) {
-        inMemoryDb.suppliers = data.suppliers;
-      }
-      if (Array.isArray(data.sales)) {
-        inMemoryDb.sales = data.sales;
-      }
-      if (Array.isArray(data.movements)) {
-        inMemoryDb.movements = data.movements;
-      }
-      if (Array.isArray(data.cashSessions)) {
-        inMemoryDb.cashSessions = data.cashSessions;
-      }
-      if (Array.isArray(data.expenses)) {
-        inMemoryDb.expenses = data.expenses;
-      }
-      if (Array.isArray(data.users)) {
-        inMemoryDb.users = data.users;
-      }
-      if (Array.isArray(data.sucursales)) {
-        inMemoryDb.sucursales = data.sucursales;
-      }
-      if (Array.isArray(data.purchaseOrders)) {
-        inMemoryDb.purchaseOrders = data.purchaseOrders;
-      }
-      if (Array.isArray(data.stockTransfers)) {
-        inMemoryDb.stockTransfers = data.stockTransfers;
-      }
-
-      saveToLocalStorage(inMemoryDb);
-      dbCache = JSON.parse(JSON.stringify(inMemoryDb));
-      notifySubscribers();
-      console.log("🟢 Datos cargados exitosamente desde Supabase Cloud.");
-    }
-
-    // Initialize or refresh Supabase real-time channel
-    if (supabaseRealtimeUnsub) {
-      supabaseRealtimeUnsub();
-    }
-
-    let debounceRefreshTimer: any = null;
-
-    supabaseRealtimeUnsub = initSupabaseRealtime((table, payload) => {
-      console.log(`[Supabase Realtime] Cambio en ${table}:`, payload.eventType);
-
-      const eventType = payload.eventType;
-      let stateChanged = false;
-
-      // 1. PRODUCTOS: Eliminación, Adición, Edición, Precios y Stock instantáneos
-      if (table === "products") {
-        if (eventType === "DELETE") {
-          const delId = String(payload.old?.id || payload.old?.code || "");
-          if (delId) {
-            inMemoryDb.products = (inMemoryDb.products || []).filter(
-              (p: Product) => p.id !== delId && p.code !== delId
-            );
-            stateChanged = true;
-          }
-        } else if (payload.new) {
-          const incoming = mapDbProductToLocal(payload.new);
-          const idx = (inMemoryDb.products || []).findIndex(
-            (p: Product) => p.id === incoming.id || p.code === incoming.code
-          );
-          if (idx >= 0) {
-            inMemoryDb.products[idx] = normalizeProduct({ ...inMemoryDb.products[idx], ...incoming });
-          } else {
-            inMemoryDb.products.unshift(normalizeProduct(incoming));
-          }
-          stateChanged = true;
-        }
-      }
-
-      // 2. CLIENTES
-      else if (table === "customers") {
-        if (eventType === "DELETE") {
-          const delId = String(payload.old?.id || "");
-          if (delId) {
-            inMemoryDb.customers = (inMemoryDb.customers || []).filter((c: Customer) => c.id !== delId);
-            stateChanged = true;
-          }
-        } else if (payload.new) {
-          const incoming: Customer = {
-            id: payload.new.id,
-            name: payload.new.name,
-            phone: payload.new.phone || "",
-            email: payload.new.email || "",
-            address: payload.new.address || "",
-            rfc: payload.new.rfc || "",
-            role: payload.new.role || "Cliente Normal",
-            creditLimit: Number(payload.new.credit_limit || 0),
-            creditUsed: Number(payload.new.credit_used || 0),
-            creditDays: Number(payload.new.credit_days || 30),
-            notes: payload.new.notes || "",
-            status: payload.new.status || "Activo",
-            ...(payload.new.raw_data || {})
-          };
-          const idx = (inMemoryDb.customers || []).findIndex((c: Customer) => c.id === incoming.id);
-          if (idx >= 0) inMemoryDb.customers[idx] = incoming;
-          else inMemoryDb.customers.unshift(incoming);
-          stateChanged = true;
-        }
-      }
-
-      // 3. PROVEEDORES
-      else if (table === "suppliers") {
-        if (eventType === "DELETE") {
-          const delId = String(payload.old?.id || "");
-          if (delId) {
-            inMemoryDb.suppliers = (inMemoryDb.suppliers || []).filter((s: Supplier) => s.id !== delId);
-            stateChanged = true;
-          }
-        } else if (payload.new) {
-          const incoming: Supplier = {
-            id: payload.new.id,
-            name: payload.new.name,
-            contact: payload.new.contact || "",
-            phone: payload.new.phone || "",
-            email: payload.new.email || "",
-            address: payload.new.address || "",
-            rfc: payload.new.rfc || "",
-            outstandingBalance: Number(payload.new.outstanding_balance || 0),
-            ...(payload.new.raw_data || {})
-          };
-          const idx = (inMemoryDb.suppliers || []).findIndex((s: Supplier) => s.id === incoming.id);
-          if (idx >= 0) inMemoryDb.suppliers[idx] = incoming;
-          else inMemoryDb.suppliers.unshift(incoming);
-          stateChanged = true;
-        }
-      }
-
-      // 4. ÓRDENES DE SUMINISTRO / COMPRA
-      else if (table === "purchase_orders") {
-        if (eventType === "DELETE") {
-          const delId = String(payload.old?.id || "");
-          if (delId) {
-            inMemoryDb.purchaseOrders = (inMemoryDb.purchaseOrders || []).filter((po: PurchaseOrder) => po.id !== delId);
-            stateChanged = true;
-          }
-        } else if (payload.new) {
-          const incoming: PurchaseOrder = {
-            id: payload.new.id,
-            supplierId: payload.new.supplier_id,
-            supplierName: payload.new.supplier_name,
-            total: Number(payload.new.total || 0),
-            status: payload.new.status || "Pendiente",
-            date: payload.new.date || new Date().toISOString().split("T")[0],
-            receivedDate: payload.new.received_date,
-            paymentStatus: payload.new.payment_status || "Pendiente",
-            items: payload.new.items || [],
-            ...(payload.new.raw_data || {})
-          };
-          const idx = (inMemoryDb.purchaseOrders || []).findIndex((po: PurchaseOrder) => po.id === incoming.id);
-          if (idx >= 0) inMemoryDb.purchaseOrders[idx] = incoming;
-          else inMemoryDb.purchaseOrders.unshift(incoming);
-          stateChanged = true;
-        }
-      }
-
-      // 5. VENTAS
-      else if (table === "sales") {
-        if (eventType === "DELETE") {
-          const delId = String(payload.old?.id || "");
-          if (delId) {
-            inMemoryDb.sales = (inMemoryDb.sales || []).filter((s: Sale) => s.id !== delId);
-            stateChanged = true;
-          }
-        } else if (payload.new) {
-          const incoming: Sale = {
-            id: payload.new.id,
-            ticketNumber: payload.new.ticket_number,
-            total: Number(payload.new.total || 0),
-            costTotal: Number(payload.new.cost_total || 0),
-            profit: Number(payload.new.profit || 0),
-            paymentMethod: payload.new.payment_method,
-            customerId: payload.new.customer_id,
-            customerName: payload.new.customer_name,
-            userId: payload.new.user_id,
-            userName: payload.new.user_name,
-            date: payload.new.date,
-            amountPaid: Number(payload.new.amount_paid || 0),
-            change: Number(payload.new.change || 0),
-            items: payload.new.items || [],
-            ...(payload.new.raw_data || {})
-          };
-          const idx = (inMemoryDb.sales || []).findIndex((s: Sale) => s.id === incoming.id);
-          if (idx >= 0) inMemoryDb.sales[idx] = incoming;
-          else inMemoryDb.sales.unshift(incoming);
-          stateChanged = true;
-        }
-      }
-
-      // 6. USUARIOS
-      else if (table === "users") {
-        if (eventType === "DELETE") {
-          const delId = String(payload.old?.id || payload.old?.username || "");
-          if (delId) {
-            inMemoryDb.users = (inMemoryDb.users || []).filter((u: User) => u.id !== delId && u.username !== delId);
-            stateChanged = true;
-          }
-        } else if (payload.new) {
-          const incoming: User = {
-            id: payload.new.id,
-            username: payload.new.username,
-            name: payload.new.name,
-            password: payload.new.password,
-            role: payload.new.role,
-            status: payload.new.status,
-            lastLogin: payload.new.last_login
-          };
-          const idx = (inMemoryDb.users || []).findIndex((u: User) => u.id === incoming.id || u.username === incoming.username);
-          if (idx >= 0) inMemoryDb.users[idx] = incoming;
-          else inMemoryDb.users.unshift(incoming);
-          stateChanged = true;
-        }
-      }
-
-      // Si hubo un cambio de datos inmediato, notificar a todas las pantallas de inmediato
-      if (stateChanged) {
-        saveToLocalStorage(inMemoryDb);
-        dbCache = JSON.parse(JSON.stringify(inMemoryDb));
-        notifySubscribers();
-      }
-
-      // Sincronización completa de respaldo con debounce
-      clearTimeout(debounceRefreshTimer);
-      debounceRefreshTimer = setTimeout(() => {
-        loadAllFromSupabase(branch).then((refreshRes) => {
-          if (refreshRes.success && refreshRes.data) {
-            if (Array.isArray(refreshRes.data.products)) inMemoryDb.products = refreshRes.data.products.map(normalizeProduct);
-            if (Array.isArray(refreshRes.data.sales)) inMemoryDb.sales = refreshRes.data.sales;
-            if (Array.isArray(refreshRes.data.customers)) inMemoryDb.customers = refreshRes.data.customers;
-            if (Array.isArray(refreshRes.data.suppliers)) inMemoryDb.suppliers = refreshRes.data.suppliers;
-            if (Array.isArray(refreshRes.data.cashSessions)) inMemoryDb.cashSessions = refreshRes.data.cashSessions;
-            if (Array.isArray(refreshRes.data.users)) inMemoryDb.users = refreshRes.data.users;
-            if (Array.isArray(refreshRes.data.movements)) inMemoryDb.movements = refreshRes.data.movements;
-            if (Array.isArray(refreshRes.data.expenses)) inMemoryDb.expenses = refreshRes.data.expenses;
-            if (Array.isArray(refreshRes.data.purchaseOrders)) inMemoryDb.purchaseOrders = refreshRes.data.purchaseOrders;
-            if (Array.isArray(refreshRes.data.stockTransfers)) inMemoryDb.stockTransfers = refreshRes.data.stockTransfers;
-            saveToLocalStorage(inMemoryDb);
-            dbCache = JSON.parse(JSON.stringify(inMemoryDb));
-            notifySubscribers();
-          }
-        }).catch(() => {});
-      }, 400);
-    });
-  } catch (err) {
-    console.warn("Aviso al cargar desde Supabase:", err);
-  }
-
+  await loadDatabaseFromMySQL(branch);
   return inMemoryDb;
 };
 
 export const syncDatabaseWithSupabase = async (branchParam?: string) => {
-  const branch = branchParam || activeBranch || "Norte";
-  return syncAllToSupabase(getDatabase(), branch);
+  return { success: true };
 };
 
 
@@ -1869,21 +1599,26 @@ export const resetDatabaseToFactory = async () => {
 };
 
 export const logAction = (user: string, role: string, action: string, details: string): Promise<void> => {
-  const db = getDatabase();
-  const timestamp = new Date().toISOString().replace("T", " ").substring(0, 19);
-  const newLog: AuditLog = {
-    id: "AUD" + generateId(),
-    user,
-    role,
-    action,
-    details,
-    timestamp,
-    ip: "192.168.1." + Math.floor(100 + Math.random() * 50),
-    branch: activeBranch === "Sur" ? "MAZAL 2" : "MAZAL 1"
-  };
-  db.auditLogs.unshift(newLog);
-
-  return saveDatabase(db);
+  try {
+    const db = getDatabase();
+    if (!db) return Promise.resolve();
+    if (!Array.isArray(db.auditLogs)) db.auditLogs = [];
+    const timestamp = new Date().toISOString().replace("T", " ").substring(0, 19);
+    const newLog: AuditLog = {
+      id: "AUD" + generateId(),
+      user,
+      role,
+      action,
+      details,
+      timestamp,
+      ip: "192.168.1." + Math.floor(100 + Math.random() * 50),
+      branch: activeBranch === "Sur" ? "MAZAL 2" : "MAZAL 1"
+    };
+    db.auditLogs.unshift(newLog);
+    return saveDatabase(db);
+  } catch (e) {
+    return Promise.resolve();
+  }
 };
 
 export const registerMovement = (
@@ -1896,21 +1631,27 @@ export const registerMovement = (
   user: string,
   notes?: string
 ): Promise<void> => {
-  const db = getDatabase();
-  const movement: StockMovement = {
-    id: "MOV" + generateId(),
-    productId,
-    productName,
-    type,
-    quantity,
-    previousStock,
-    newStock,
-    date: new Date().toISOString().replace("T", " ").substring(0, 19),
-    user,
-    notes
-  };
-  db.movements.unshift(movement);
-  return saveDatabase(db);
+  try {
+    const db = getDatabase();
+    if (!db) return Promise.resolve();
+    if (!Array.isArray(db.movements)) db.movements = [];
+    const movement: StockMovement = {
+      id: "MOV" + generateId(),
+      productId,
+      productName,
+      type,
+      quantity,
+      previousStock,
+      newStock,
+      date: new Date().toISOString().replace("T", " ").substring(0, 19),
+      user,
+      notes
+    };
+    db.movements.unshift(movement);
+    return saveDatabase(db);
+  } catch (e) {
+    return Promise.resolve();
+  }
 };
 
 // --- CENTRAL WAREHOUSE & DISTRIBUTION ENGINE HELPERS ---

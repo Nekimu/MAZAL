@@ -19,74 +19,53 @@ try {
 const windowConfig = (typeof window !== "undefined" && (window as any).__MAZAL_CONFIG__) || {};
 const metaEnv = (import.meta as any).env || {};
 
-const HARDCODED_SUPABASE_URL = "https://omyrorntudpnpimevtya.supabase.co";
-const HARDCODED_SUPABASE_ANON_KEY = "sb_publishable_ShCmXvsdnLdzhGJgDYIfsw_a4CN3jJl";
+// Todas las llaves de Supabase removidas para operación 100% local en MySQL
+const HARDCODED_SUPABASE_URL = "";
+const HARDCODED_SUPABASE_ANON_KEY = "";
 
-// Constante para controlar el modo de operación: true = 100% Localhost MySQL / XAMPP (Pausa la lógica online sin eliminarla)
+// Constante para controlar el modo de operación: 100% Localhost MySQL / XAMPP
 export const PAUSE_ONLINE_SYNC: boolean = true;
 
-export let SUPABASE_URL: string =
-  windowConfig.supabaseUrl ||
-  storedConfig?.supabaseUrl ||
-  metaEnv.VITE_SUPABASE_URL ||
-  HARDCODED_SUPABASE_URL;
-
-export let SUPABASE_ANON_KEY: string =
-  windowConfig.supabaseAnonKey ||
-  storedConfig?.supabaseAnonKey ||
-  metaEnv.VITE_SUPABASE_ANON_KEY ||
-  HARDCODED_SUPABASE_ANON_KEY;
+export let SUPABASE_URL: string = "";
+export let SUPABASE_ANON_KEY: string = "";
 
 export function checkIsConfigured(url: string, key: string): boolean {
-  if (PAUSE_ONLINE_SYNC) return false;
-  return Boolean(
-    url &&
-    key &&
-    url.includes("supabase.co") &&
-    !url.includes("placeholder-project") &&
-    !url.includes("your-project") &&
-    !key.includes("your-anon-key")
-  );
+  return false;
 }
 
-export let isSupabaseConfigured = checkIsConfigured(SUPABASE_URL, SUPABASE_ANON_KEY);
+export let isSupabaseConfigured = false;
 
-function createSupabaseInstance(url: string, key: string): SupabaseClient {
-  const isConf = checkIsConfigured(url, key);
-  return isConf
-    ? createClient(url, key, {
-        auth: {
-          persistSession: true,
-          autoRefreshToken: true,
-          detectSessionInUrl: false
-        },
-        realtime: {
-          params: {
-            eventsPerSecond: 10
-          }
-        }
-      })
-    : createClient(HARDCODED_SUPABASE_URL, HARDCODED_SUPABASE_ANON_KEY, {
-        auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false }
-      });
+// Mock inerte de Supabase para evitar conexiones de red o subscriptions innecesarias
+function createSafeDummyClient(): SupabaseClient {
+  return {
+    from: () => ({
+      select: () => Promise.resolve({ data: [], error: null }),
+      insert: () => Promise.resolve({ data: [], error: null }),
+      upsert: () => Promise.resolve({ data: [], error: null }),
+      update: () => Promise.resolve({ data: [], error: null }),
+      delete: () => Promise.resolve({ data: [], error: null }),
+      eq: function() { return this; },
+      order: function() { return this; },
+      limit: function() { return this; },
+      single: () => Promise.resolve({ data: null, error: null }),
+      maybeSingle: () => Promise.resolve({ data: null, error: null })
+    }),
+    channel: () => ({
+      on: function() { return this; },
+      subscribe: () => ({ unsubscribe: () => {} })
+    }),
+    removeChannel: () => {},
+    auth: {
+      getSession: () => Promise.resolve({ data: { session: null }, error: null }),
+      onAuthStateChange: () => ({ data: { subscription: { unsubscribe: () => {} } } })
+    }
+  } as unknown as SupabaseClient;
 }
 
-// Create the Supabase client instance with realtime enabled
-export let supabase: SupabaseClient = createSupabaseInstance(SUPABASE_URL, SUPABASE_ANON_KEY);
+// Create the safe Supabase client instance (inactivo)
+export let supabase: SupabaseClient = createSafeDummyClient();
 
 export function getSupabaseClient(): SupabaseClient {
-  if (!isSupabaseConfigured || !checkIsConfigured(SUPABASE_URL, SUPABASE_ANON_KEY)) {
-    const windowConf = (typeof window !== "undefined" && (window as any).__MAZAL_CONFIG__) || {};
-    const metaEnv = (import.meta as any).env || {};
-    const url = windowConf.supabaseUrl || metaEnv.VITE_SUPABASE_URL || SUPABASE_URL || HARDCODED_SUPABASE_URL;
-    const key = windowConf.supabaseAnonKey || metaEnv.VITE_SUPABASE_ANON_KEY || SUPABASE_ANON_KEY || HARDCODED_SUPABASE_ANON_KEY;
-    if (checkIsConfigured(url, key)) {
-      SUPABASE_URL = url;
-      SUPABASE_ANON_KEY = key;
-      isSupabaseConfigured = true;
-      supabase = createSupabaseInstance(url, key);
-    }
-  }
   return supabase;
 }
 

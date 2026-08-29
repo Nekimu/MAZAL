@@ -288,8 +288,7 @@ export default function App() {
       // Set the active branch in our data engine
       setActiveBranch(currentBranch);
 
-      // Cargar tanto de Supabase Cloud como de MySQL Localhost para máxima disponibilidad
-      await loadDatabaseFromSupabase(currentBranch).catch(() => {});
+      // Carga directa y exclusiva desde MySQL Localhost (mazal_bd)
       await loadDatabaseFromMySQL(currentBranch).catch(() => {});
       
       setDb(getDatabase());
