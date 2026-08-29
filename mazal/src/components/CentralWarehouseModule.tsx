@@ -426,6 +426,28 @@ export default function CentralWarehouseModule({
     if (!currentDatabase.almacen_general) currentDatabase.almacen_general = [];
     if (!currentDatabase.products) currentDatabase.products = [];
 
+    const cleanCode = (productForm.code || "").trim();
+    const cleanBarcode = (productForm.barcode || "").trim();
+
+    if (!editingProduct) {
+      const isDuplicate = (currentDatabase.almacen_general || []).concat(currentDatabase.products || []).some((p: any) =>
+        (cleanCode && p.code && p.code.trim().toLowerCase() === cleanCode.toLowerCase()) ||
+        (cleanBarcode && p.barcode && p.barcode.trim().toLowerCase() === cleanBarcode.toLowerCase())
+      );
+      if (isDuplicate) {
+        showToast(`⚠️ Ya existe un producto con el código "${productForm.code}". Usa un código diferente.`, "error");
+        return;
+      }
+
+      if (!window.confirm(`¿Confirmas registrar el nuevo producto "${productForm.name}" en Almacén Central?`)) {
+        return;
+      }
+    } else {
+      if (!window.confirm(`¿Confirmas guardar los cambios del producto "${productForm.name}"?`)) {
+        return;
+      }
+    }
+
     const newId = editingProduct ? editingProduct.id : "PRD" + Math.random().toString(36).substring(2, 8).toUpperCase();
 
     const fullProduct: Product = {

@@ -1,5 +1,5 @@
 // Service Worker for Mazal POS - Cloud Supabase & Offline Engine
-const CACHE_NAME = "mazal-pos-v11-clean-sync";
+const CACHE_NAME = "mazal-pos-v9-clean-sync";
 const ASSETS_TO_CACHE = [
   "./",
   "./index.html",

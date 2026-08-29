@@ -117,6 +117,26 @@ export default function CustomersModule({ currentUser }: CustomersModuleProps) {
       database.customers = [];
     }
 
+    const cleanName = (newCustomer.name || "").trim().toLowerCase();
+    const cleanPhone = (newCustomer.phone || "").trim();
+    const cleanRfc = (newCustomer.rfc || "").trim().toLowerCase();
+
+    const isDuplicate = database.customers.some((c: Customer) => 
+      (cleanName && (c.name || "").trim().toLowerCase() === cleanName) ||
+      (cleanPhone && (c.phone || "").trim() === cleanPhone) ||
+      (cleanRfc && cleanRfc !== "xaax010101000" && (c.rfc || "").trim().toLowerCase() === cleanRfc)
+    );
+
+    if (isDuplicate) {
+      if (!window.confirm(`⚠️ Es posible que ya exista un cliente con el mismo nombre o teléfono (${newCustomer.name}). ¿Deseas registrarlo de todos modos?`)) {
+        return;
+      }
+    } else {
+      if (!window.confirm(`¿Confirmas registrar al cliente "${newCustomer.name}"?`)) {
+        return;
+      }
+    }
+
     const created: Customer = {
       ...newCustomer,
       id: "CLI_" + Math.random().toString(36).substring(2, 9).toUpperCase(),
@@ -205,6 +225,10 @@ export default function CustomersModule({ currentUser }: CustomersModuleProps) {
 
     if (!isAdmin) {
       alert("🔒 Permiso Denegado: Únicamente los usuarios con rol de Administrador pueden modificar los datos del cliente.");
+      return;
+    }
+
+    if (!window.confirm(`¿Confirmas guardar los cambios del cliente "${editingCustomer.name}"?`)) {
       return;
     }
 

@@ -426,44 +426,77 @@ export const resolveConflict = async (
   }
 };
 
-// Simulated / Forced Offline Mode
-const FORCED_OFFLINE_KEY = "mazal_forced_offline";
-let isForcedOffline = typeof window !== "undefined" ? localStorage.getItem(FORCED_OFFLINE_KEY) === "true" : false;
-
-if (isForcedOffline) {
-  isOnline = false;
-}
-
-export const setForcedOffline = (forced: boolean) => {
-  isForcedOffline = forced;
-  if (typeof window !== "undefined") {
-    localStorage.setItem(FORCED_OFFLINE_KEY, forced ? "true" : "false");
+// Active Network & Real Adapter Internet Prober
+export const checkActiveConnection = async (): Promise<boolean> => {
+  // 1. Hardware network adapter check
+  if (typeof navigator !== "undefined" && !navigator.onLine) {
+    if (isOnline) {
+      isOnline = false;
+      notifySubscribers();
+      console.warn("🔴 Adaptador de red desconectado. Modo contingencia local XAMPP activo.");
+    }
+    return false;
   }
-  isOnline = forced ? false : (typeof navigator !== "undefined" ? navigator.onLine : true);
-  notifySubscribers();
-  if (isOnline) {
-    triggerAutoSync();
+
+  // 2. Real Internet & Cloud endpoint probe (with 3-second timeout)
+  try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 3000);
+    
+    // Probe Supabase or fallback public CDN
+    const probeUrl = "https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css";
+    const res = await fetch(probeUrl, {
+      method: "HEAD",
+      cache: "no-store",
+      signal: controller.signal
+    });
+    clearTimeout(timeoutId);
+
+    const wasOffline = !isOnline;
+    isOnline = true;
+
+    if (wasOffline) {
+      console.log("🌐 Conexión a Internet detectada: Sincronizando operaciones pendientes...");
+      notifySubscribers();
+      triggerAutoSync();
+    }
+    return true;
+  } catch (e) {
+    const wasOnline = isOnline;
+    isOnline = false;
+
+    if (wasOnline) {
+      console.warn("🔴 Sin acceso a Internet en adaptador de red: Activando modo contingencia XAMPP.");
+      notifySubscribers();
+    }
+    return false;
   }
+};
+
+export const setForcedOffline = (_forced: boolean) => {
+  checkActiveConnection();
 };
 
 export const isForcedOfflineMode = (): boolean => {
-  return isForcedOffline;
+  return false;
 };
 
-// Automatic Network Event Listeners & Active Connectivity
+// Automatic Network Event Listeners & Active Connectivity Probe
 if (typeof window !== "undefined") {
   window.addEventListener("online", () => {
-    if (!isForcedOffline) {
-      isOnline = true;
-      notifySubscribers();
-      console.log("🌐 Conexión detectada: Ejecutando Offline Sync Manager...");
-      triggerAutoSync();
-    }
+    console.log("🌐 Evento de adaptador en línea detectado. Verificando acceso a internet...");
+    checkActiveConnection();
   });
 
   window.addEventListener("offline", () => {
     isOnline = false;
     notifySubscribers();
-    console.warn("🔴 Modo sin conexión activo: Todas las operaciones se guardarán localmente.");
+    console.warn("🔴 Evento de adaptador desconectado. Trabajando en modo local XAMPP.");
   });
+
+  // Probe real connectivity every 6 seconds
+  setInterval(checkActiveConnection, 6000);
+  
+  // Initial check on boot
+  setTimeout(checkActiveConnection, 1000);
 }

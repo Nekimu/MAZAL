@@ -932,10 +932,155 @@ export const initRealtimeListeners = () => {
   });
 };
 
+export const loadDatabaseFromMySQL = async (branchParam?: string): Promise<typeof inMemoryDb> => {
+  const branch = branchParam || activeBranch || "Norte";
+  try {
+    const res = await callLocalApi(`action=get_native_tables&branch=${encodeURIComponent(branch)}`);
+    if (!res || !res.ok) {
+      console.warn("MySQL Local no respondió adecuadamente en api.php.");
+      return inMemoryDb;
+    }
+    const data = await res.json();
+    if (data.success) {
+      let stateChanged = false;
+
+      // 1. Mapear y combinar productos desde MySQL
+      if (Array.isArray(data.productos) && data.productos.length > 0) {
+        const mySqlProducts: Product[] = data.productos.map((p: any) => {
+          let raw: any = {};
+          if (p.raw_data && typeof p.raw_data === "object") {
+            raw = p.raw_data;
+          } else if (p.raw_data && typeof p.raw_data === "string") {
+            try { raw = JSON.parse(p.raw_data); } catch { raw = {}; }
+          }
+          const pId = raw.id || `PROD_${p.id || p.clave}`;
+          const code = p.clave || raw.code || raw.codigo || String(p.id);
+          const unit = p.unidad || raw.unit || ProductUnit.PIECE;
+          const cost = Number(p.unitario ?? raw.cost ?? 0);
+          const priceMin = Number(p.menudeo ?? raw.priceMin ?? 0);
+          const priceMed = Number(p.medio ?? raw.priceMed ?? priceMin);
+          const priceMax = Number(p.mayoreo ?? raw.priceMax ?? priceMin);
+          const priceSpecial = Number(p.precio_especial ?? raw.priceSpecial ?? 0);
+          const stock = Number(p.cant !== undefined ? p.cant : (raw.stock ?? 0));
+
+          return normalizeProduct({
+            ...raw,
+            id: pId,
+            code: code,
+            barcode: p.clave || raw.barcode || code,
+            sku: raw.sku || `SKU-${code}`,
+            name: p.nom_p || raw.name || raw.descripcion || "Producto",
+            brand: p.marca || raw.brand || "",
+            category: p.categoria || raw.category || "General",
+            subcategory: p.des || raw.subcategory || "",
+            unit: unit,
+            cost: cost,
+            priceMin: priceMin,
+            priceMed: priceMed,
+            priceMax: priceMax,
+            priceSpecial: priceSpecial,
+            stock: stock,
+            stockMin: Number(p.stock_min ?? raw.stockMin ?? 5),
+            stockMax: Number(p.stock_max ?? raw.stockMax ?? 100),
+            location: p.ubicacion || raw.location || "",
+            imageUrl: p.imagen || raw.imageUrl || "",
+            supplierId: p.proveedor_id || raw.supplierId || "SUPP1",
+            sucursal: branch
+          });
+        });
+
+        const prodMap = new Map<string, Product>();
+        (inMemoryDb.products || []).forEach((p: Product) => {
+          const key = (p.code || p.barcode || p.id).trim();
+          if (key) prodMap.set(key, p);
+        });
+        mySqlProducts.forEach((p: Product) => {
+          const key = (p.code || p.barcode || p.id).trim();
+          if (key) prodMap.set(key, p);
+        });
+
+        inMemoryDb.products = Array.from(prodMap.values());
+        stateChanged = true;
+      }
+
+      // 2. Mapear y combinar clientes
+      if (Array.isArray(data.clientes) && data.clientes.length > 0) {
+        const mySqlCustomers = data.clientes.map((c: any) => {
+          let raw: any = {};
+          if (c.raw_data && typeof c.raw_data === "object") {
+            raw = c.raw_data;
+          } else if (c.raw_data && typeof c.raw_data === "string") {
+            try { raw = JSON.parse(c.raw_data); } catch { raw = {}; }
+          }
+          return {
+            id: raw.id || `CUST_${c.id_cliente}`,
+            name: c.nombre_c || raw.name || "",
+            phone: c.tel || raw.phone || "",
+            email: c.email || raw.email || "",
+            address: c.direccion || raw.address || "",
+            rfc: c.rfc || raw.rfc || "",
+            role: raw.role || "Cliente Normal",
+            creditLimit: Number(c.limite_credito ?? raw.creditLimit ?? 0),
+            creditUsed: Number(c.cant_ade ?? raw.creditUsed ?? 0),
+            creditDays: Number(c.dias_credito ?? raw.creditDays ?? 30),
+            notes: c.notas || raw.notes || "",
+            status: c.status || raw.status || "Activo"
+          };
+        });
+
+        const custMap = new Map<string, Customer>();
+        (inMemoryDb.customers || []).forEach((c: Customer) => custMap.set(c.id, c));
+        mySqlCustomers.forEach((c: Customer) => custMap.set(c.id, c));
+        inMemoryDb.customers = Array.from(custMap.values());
+        stateChanged = true;
+      }
+
+      // 3. Mapear y combinar proveedores
+      if (Array.isArray(data.proveedores) && data.proveedores.length > 0) {
+        const mySqlSuppliers = data.proveedores.map((s: any) => {
+          let raw: any = {};
+          if (s.raw_data && typeof s.raw_data === "object") {
+            raw = s.raw_data;
+          } else if (s.raw_data && typeof s.raw_data === "string") {
+            try { raw = JSON.parse(s.raw_data); } catch { raw = {}; }
+          }
+          return {
+            id: raw.id || `SUPP_${s.id}`,
+            name: s.nombre || raw.name || "",
+            contact: s.contacto || raw.contact || "",
+            phone: s.tel || raw.phone || "",
+            email: s.email || raw.email || "",
+            address: s.direccion || raw.address || "",
+            rfc: s.rfc || raw.rfc || "",
+            outstandingBalance: Number(s.adeudo ?? raw.outstandingBalance ?? 0)
+          };
+        });
+
+        const suppMap = new Map<string, Supplier>();
+        (inMemoryDb.suppliers || []).forEach((s: Supplier) => suppMap.set(s.id, s));
+        mySqlSuppliers.forEach((s: Supplier) => suppMap.set(s.id, s));
+        inMemoryDb.suppliers = Array.from(suppMap.values());
+        stateChanged = true;
+      }
+
+      if (stateChanged) {
+        saveToLocalStorage(inMemoryDb);
+        dbCache = JSON.parse(JSON.stringify(inMemoryDb));
+        notifySubscribers();
+        console.log(`💾 Registros sincronizados desde MySQL Localhost (${data.database}) hacia la memoria de la aplicación.`);
+      }
+    }
+  } catch (e) {
+    console.warn("Error cargando base de datos desde MySQL Localhost:", e);
+  }
+  return inMemoryDb;
+};
+
 export const loadDatabaseFromCloud = async () => {
   if (isSupabaseConfigured) {
-    return loadDatabaseFromSupabase(activeBranch);
+    await loadDatabaseFromSupabase(activeBranch);
   }
+  await loadDatabaseFromMySQL(activeBranch);
   return inMemoryDb;
 };
 
@@ -948,6 +1093,7 @@ export const loadDatabaseFromSupabase = async (branchParam?: string): Promise<ty
     const isConfigured = await ensureSupabaseConfigured();
     if (!isConfigured) {
       console.warn("Supabase no está configurado. Omitiendo carga desde la nube.");
+      await loadDatabaseFromMySQL(branch);
       return inMemoryDb;
     }
 

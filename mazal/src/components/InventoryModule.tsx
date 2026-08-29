@@ -550,6 +550,11 @@ export default function InventoryModule({ currentUser, currentBranch }: Inventor
   const handleEditProduct = (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingProduct) return;
+
+    if (!window.confirm(`¿Confirmas guardar los cambios realizados en el producto "${editingProduct.name}"?`)) {
+      return;
+    }
+
     const database = getDatabase();
     const index = database.products.findIndex((p: Product) => p.id === editingProduct.id);
     if (index !== -1) {
@@ -650,6 +655,21 @@ export default function InventoryModule({ currentUser, currentBranch }: Inventor
     e.preventDefault();
     const database = getDatabase();
     
+    const cleanCode = (newProduct.code || "").trim();
+    const cleanBarcode = (newProduct.barcode || "").trim();
+    const isDuplicate = database.products.some((p: Product) => 
+      (cleanCode && p.code && p.code.trim().toLowerCase() === cleanCode.toLowerCase()) ||
+      (cleanBarcode && p.barcode && p.barcode.trim().toLowerCase() === cleanBarcode.toLowerCase())
+    );
+    if (isDuplicate) {
+      alert(`⚠️ Ya existe un producto con el código "${newProduct.code}". Por favor utiliza un código o código de barras diferente o edita el producto existente.`);
+      return;
+    }
+
+    if (!window.confirm(`¿Confirmas registrar el nuevo producto "${newProduct.name}" con código "${newProduct.code}"?`)) {
+      return;
+    }
+
     const productToAdd: Product = {
       ...newProduct,
       id: "PROD_" + Math.random().toString(36).substring(2, 9).toUpperCase(),

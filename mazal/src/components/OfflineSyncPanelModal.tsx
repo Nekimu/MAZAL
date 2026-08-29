@@ -28,7 +28,8 @@ import {
   clearPendingQueue,
   resolveConflict,
   setForcedOffline,
-  isForcedOfflineMode
+  isForcedOfflineMode,
+  checkActiveConnection
 } from "../services/offlineSync";
 import { testSupabaseConnection, isSupabaseConfigured, SUPABASE_URL } from "../supabase";
 import { syncDatabaseWithSupabase, loadDatabaseFromSupabase, callLocalApi, activeBranch } from "../data";
@@ -209,15 +210,19 @@ export const OfflineSyncPanelModal: React.FC<Props> = ({ isOpen, onClose }) => {
 
           <div className="flex items-center gap-2">
             <button
-              onClick={() => handleToggleForcedOffline(!isForced)}
-              className={`text-xs font-bold px-2.5 py-1.5 rounded-lg border transition-all cursor-pointer ${
-                isForced 
-                  ? "bg-rose-600 text-white border-rose-700 hover:bg-rose-700" 
-                  : "bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 border-slate-300 dark:border-slate-700 hover:bg-slate-200"
-              }`}
-              title="Permite simular la desconexión total para probar el funcionamiento con XAMPP"
+              onClick={async () => {
+                setIsSyncingManual(true);
+                setSyncMessage("Verificando estado del adaptador de red e internet...");
+                const online = await checkActiveConnection();
+                setIsSyncingManual(false);
+                setSyncMessage(online ? "🟢 Conexión a Internet activa y verificada." : "🔴 Sin conexión a Internet detectada. Operando en modo local XAMPP.");
+                setTimeout(() => setSyncMessage(null), 4000);
+              }}
+              className="text-xs font-bold px-2.5 py-1.5 rounded-lg border bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 border-slate-300 dark:border-slate-700 hover:bg-slate-200 transition-all cursor-pointer flex items-center gap-1.5"
+              title="Comprueba en tiempo real el estado del adaptador de red y acceso a internet"
             >
-              {isForced ? "🔴 Offline Forzado (Activo)" : "Simular Offline"}
+              <Wifi className="h-3.5 w-3.5 text-emerald-600" />
+              <span>Verificar Conexión</span>
             </button>
 
             <button

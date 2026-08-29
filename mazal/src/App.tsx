@@ -72,6 +72,7 @@ import {
   saveDatabase, 
   logAction, 
   loadDatabaseFromSupabase,
+  loadDatabaseFromMySQL,
   syncWithLocalMySQL,
   subscribeToDb, 
   activeBranch, 
@@ -287,8 +288,9 @@ export default function App() {
       // Set the active branch in our data engine
       setActiveBranch(currentBranch);
 
-      // Sincronizar directamente con Supabase Cloud (Base de datos principal en línea)
-      await loadDatabaseFromSupabase(currentBranch);
+      // Cargar tanto de Supabase Cloud como de MySQL Localhost para máxima disponibilidad
+      await loadDatabaseFromSupabase(currentBranch).catch(() => {});
+      await loadDatabaseFromMySQL(currentBranch).catch(() => {});
       
       setDb(getDatabase());
 

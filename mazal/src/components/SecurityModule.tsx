@@ -210,6 +210,10 @@ export default function SecurityModule({ currentUser, onChangeRole }: SecurityMo
     }
 
     if (isEditing) {
+      if (!window.confirm(`¿Confirmas guardar las modificaciones en el colaborador "${formData.name}"?`)) {
+        return;
+      }
+
       const existingUser = (currentDb.users || []).find((u: User) => u.id === formData.id);
       const preservedPassword = existingUser?.password || "";
 
@@ -270,6 +274,10 @@ export default function SecurityModule({ currentUser, onChangeRole }: SecurityMo
 
       if (formData.password !== formData.confirmPassword) {
         setUserErrorMessage("Las contraseñas no coinciden. Por favor confirma la contraseña correctamente.");
+        return;
+      }
+
+      if (!window.confirm(`¿Confirmas crear y registrar la nueva cuenta de usuario para "${formData.name}" (@${cleanUsername})?`)) {
         return;
       }
 

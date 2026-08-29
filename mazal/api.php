@@ -360,7 +360,7 @@ function autoMigrateSchema($db, $targetDb) {
 // Ejecutar auto-migración garantizada en cada arranque
 autoMigrateSchema($mysqli, $dbname);
 
-$action = isset($_GET['action']) ? $_GET['action'] : '';
+$action = isset($_GET['action']) ? $_GET['action'] : (isset($_POST['action']) ? $_POST['action'] : (isset($postData['action']) ? $postData['action'] : ''));
 
 // 0. LOGIN & AUTENTICACIÓN (Server-Side)
 if ($action === 'login' && $_SERVER['REQUEST_METHOD'] === 'POST') {
@@ -745,6 +745,7 @@ if ($action === 'get_native_tables') {
                ROUND(COALESCE(pr.precio_especial, 0), 2) as precio_especial
         FROM productos p
         LEFT JOIN precios pr ON p.id = pr.id_producto
+        GROUP BY p.id
         ORDER BY p.id ASC
     ");
     if ($resP) {
@@ -889,14 +890,35 @@ if ($action === 'save_product' && $_SERVER['REQUEST_METHOD'] === 'POST') {
     $unitario = isset($postData['cost']) ? strval(round((float)$postData['cost'], 2)) : (isset($postData['unitario']) ? strval(round((float)$postData['unitario'], 2)) : '0');
     $especial = isset($postData['priceSpecial']) ? round((float)$postData['priceSpecial'], 2) : 0;
 
+    $existingId = 0;
     if ($prodId > 0) {
+        $stmtC = $mysqli->prepare("SELECT id FROM productos WHERE id = ?");
+        $stmtC->bind_param("i", $prodId);
+        $stmtC->execute();
+        $resC = $stmtC->get_result();
+        if ($resC && $rowC = $resC->fetch_assoc()) {
+            $existingId = (int)$rowC['id'];
+        }
+    }
+    if (!$existingId && !empty($clave)) {
+        $stmtC = $mysqli->prepare("SELECT id FROM productos WHERE clave = ? LIMIT 1");
+        $stmtC->bind_param("s", $clave);
+        $stmtC->execute();
+        $resC = $stmtC->get_result();
+        if ($resC && $rowC = $resC->fetch_assoc()) {
+            $existingId = (int)$rowC['id'];
+        }
+    }
+
+    if ($existingId > 0) {
         $stmtP = $mysqli->prepare("UPDATE productos SET clave = ?, nom_p = ?, des = ?, cant = ?, categoria = ?, marca = ?, unidad = ?, stock_min = ?, stock_max = ?, ubicacion = ?, imagen = ?, proveedor_id = ?, raw_data = ? WHERE id = ?");
-        $stmtP->bind_param("sssddssssssssi", $clave, $nom_p, $des, $cant, $cat, $marca, $unidad, $stkMin, $stkMax, $ubic, $img, $provId, $pRaw, $prodId);
+        $stmtP->bind_param("sssddssssssssi", $clave, $nom_p, $des, $cant, $cat, $marca, $unidad, $stkMin, $stkMax, $ubic, $img, $provId, $pRaw, $existingId);
         $stmtP->execute();
 
         $stmtPr = $mysqli->prepare("INSERT INTO precios (id_producto, mayoreo, medio, menudeo, Unitario, precio_especial) VALUES (?, ?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE mayoreo=VALUES(mayoreo), medio=VALUES(medio), menudeo=VALUES(menudeo), Unitario=VALUES(Unitario), precio_especial=VALUES(precio_especial)");
-        $stmtPr->bind_param("idddsd", $prodId, $mayoreo, $medio, $menudeo, $unitario, $especial);
+        $stmtPr->bind_param("idddsd", $existingId, $mayoreo, $medio, $menudeo, $unitario, $especial);
         $stmtPr->execute();
+        $prodId = $existingId;
     } else {
         $stmtP = $mysqli->prepare("INSERT INTO productos (clave, nom_p, des, cant, categoria, marca, unidad, stock_min, stock_max, ubicacion, imagen, proveedor_id, raw_data) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
         $stmtP->bind_param("sssddssssssss", $clave, $nom_p, $des, $cant, $cat, $marca, $unidad, $stkMin, $stkMax, $ubic, $img, $provId, $pRaw);

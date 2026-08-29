@@ -581,6 +581,10 @@ export default function POSModule({
       }
     }
 
+    if (!window.confirm(`¿Confirmas procesar la venta por un total de $${total.toFixed(2)} MXN con método de pago "${paymentMethod}"?`)) {
+      return;
+    }
+
     // 1. Process and update stock
     const updatedProducts = database.products.map((prod: Product) => {
       const totalSoldForProd = cart
