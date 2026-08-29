@@ -246,8 +246,8 @@ export default function App() {
   const [showReconnectedToast, setShowReconnectedToast] = useState(false);
 
   useEffect(() => {
-    // Initial sync with Supabase Cloud on boot
-    loadDatabaseFromSupabase().then(() => {
+    // Initial sync with MySQL Localhost on boot
+    loadDatabaseFromMySQL().then(() => {
       setDb(getDatabase());
     }).catch(() => {});
 

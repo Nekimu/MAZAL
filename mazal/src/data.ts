@@ -59,7 +59,7 @@ import {
   mapDbProductToLocal,
   mapLocalProductToDb
 } from "./services/supabaseSync";
-import { supabase, isSupabaseConfigured, testSupabaseConnection, ensureSupabaseConfigured, getSupabaseClient } from "./supabase";
+import { supabase, isSupabaseConfigured, testSupabaseConnection, ensureSupabaseConfigured, getSupabaseClient, PAUSE_ONLINE_SYNC } from "./supabase";
 
 export {
   saveSaleToSupabase,
@@ -476,16 +476,27 @@ export const getDatabase = () => {
   return inMemoryDb;
 };
 
-// Subscriptions for React components updates
-const subscribers = new Set<(db: any) => void>();
+export const subscribers = new Set<(db: any) => void>();
+export const subscribeToDb = (cb: (db: any) => void) => {
+  subscribers.add(cb);
+  return () => subscribers.delete(cb);
+};
 
-export const subscribeToDb = (callback: (db: any) => void) => {
-  subscribers.add(callback);
-  // Call immediately with current in-memory values
-  callback(inMemoryDb);
-  return () => {
-    subscribers.delete(callback);
-  };
+export const networkSubscribers = new Set<(status: { isOnline: boolean; isSyncing: boolean; pendingSync: boolean }) => void>();
+export const subscribeNetworkStatus = (cb: (status: { isOnline: boolean; isSyncing: boolean; pendingSync: boolean }) => void) => {
+  networkSubscribers.add(cb);
+  cb({ isOnline: isOnlineState, isSyncing: isSyncingState, pendingSync: pendingOfflineSync });
+  return () => networkSubscribers.delete(cb);
+};
+
+export const notifyNetworkSubscribers = () => {
+  networkSubscribers.forEach((cb) => {
+    try {
+      cb({ isOnline: isOnlineState, isSyncing: isSyncingState, pendingSync: pendingOfflineSync });
+    } catch (e) {
+      console.error("Network subscriber notification error:", e);
+    }
+  });
 };
 
 export const notifySubscribers = () => {
@@ -501,25 +512,21 @@ export const notifySubscribers = () => {
 
 // Helper for local API calls with fallback endpoints
 export const callLocalApi = async (queryString: string, options?: RequestInit): Promise<Response> => {
-  if (typeof window !== "undefined" && window.location.hostname !== "localhost" && window.location.hostname !== "127.0.0.1") {
-    throw new Error("Local backend is only available on localhost");
-  }
-
   const candidateUrls = [
-    `http://localhost/MAZAL/api.php?${queryString}`,
-    `http://localhost/mazal/api.php?${queryString}`,
-    `http://localhost/api.php?${queryString}`,
+    `api.php?${queryString}`,
     `/MAZAL/api.php?${queryString}`,
     `/mazal/api.php?${queryString}`,
     `/api.php?${queryString}`,
-    `api.php?${queryString}`
+    `http://localhost/MAZAL/api.php?${queryString}`,
+    `http://localhost/mazal/api.php?${queryString}`,
+    `http://localhost/api.php?${queryString}`
   ];
 
   for (const url of candidateUrls) {
     try {
       const res = await fetch(url, {
         ...options,
-        signal: options?.signal || AbortSignal.timeout(2000)
+        signal: options?.signal || AbortSignal.timeout(3000)
       });
       if (res.ok) return res;
     } catch (e) {
@@ -754,21 +761,446 @@ export const deletePurchaseOrderFromMySQL = async (orderId: string, branchParam?
   }
 };
 
-export const persistToLocalMySQL = async (dbToSave: any, branchParam?: string) => {
-  if (typeof window !== "undefined" && window.location.hostname !== "localhost" && window.location.hostname !== "127.0.0.1") {
-    return;
-  }
-  const branch = branchParam || activeBranch || "Norte";
+export const saveCreditPaymentToMySQL = async (payment: any, branchParam?: string): Promise<boolean> => {
   try {
-    const payload = JSON.stringify(dbToSave);
-    await callLocalApi(`action=save_state&branch=${encodeURIComponent(branch)}`, {
+    const branch = branchParam || activeBranch || "Norte";
+    const res = await callLocalApi(`action=save_credit_payment&branch=${encodeURIComponent(branch)}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: payload
+      body: JSON.stringify(payment)
     });
+    const data = await res.json();
+    return Boolean(data.success);
   } catch (e) {
-    // Non-blocking local notice
+    return false;
   }
+};
+
+export const saveBankAccountToMySQL = async (account: any, branchParam?: string): Promise<boolean> => {
+  try {
+    const branch = branchParam || activeBranch || "Norte";
+    const res = await callLocalApi(`action=save_bank_account&branch=${encodeURIComponent(branch)}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(account)
+    });
+    const data = await res.json();
+    return Boolean(data.success);
+  } catch (e) {
+    return false;
+  }
+};
+
+export const saveBankMovementToMySQL = async (movement: any, branchParam?: string): Promise<boolean> => {
+  try {
+    const branch = branchParam || activeBranch || "Norte";
+    const res = await callLocalApi(`action=save_bank_movement&branch=${encodeURIComponent(branch)}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(movement)
+    });
+    const data = await res.json();
+    return Boolean(data.success);
+  } catch (e) {
+    return false;
+  }
+};
+
+export const saveAuditLogToMySQL = async (log: any, branchParam?: string): Promise<boolean> => {
+  try {
+    const branch = branchParam || activeBranch || "Norte";
+    const res = await callLocalApi(`action=save_audit_log&branch=${encodeURIComponent(branch)}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(log)
+    });
+    const data = await res.json();
+    return Boolean(data.success);
+  } catch (e) {
+    return false;
+  }
+};
+
+export const saveUserToMySQL = async (user: any, branchParam?: string): Promise<boolean> => {
+  try {
+    const branch = branchParam || activeBranch || "Norte";
+    const res = await callLocalApi(`action=save_user&branch=${encodeURIComponent(branch)}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(user)
+    });
+    const data = await res.json();
+    return Boolean(data.success);
+  } catch (e) {
+    return false;
+  }
+};
+
+export const deleteUserFromMySQL = async (username: string, branchParam?: string): Promise<boolean> => {
+  try {
+    const branch = branchParam || activeBranch || "Norte";
+    const res = await callLocalApi(`action=delete_user&branch=${encodeURIComponent(branch)}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ username })
+    });
+    const data = await res.json();
+    return Boolean(data.success);
+  } catch (e) {
+    return false;
+  }
+};
+
+export const loadDatabaseFromMySQL = async (branchParam?: string): Promise<typeof inMemoryDb> => {
+  const branch = branchParam || activeBranch || "Norte";
+  try {
+    // 1. Primero intentar cargar el snapshot completo si existe en mazal_app_state
+    try {
+      const stateRes = await callLocalApi(`action=get_state&branch=${encodeURIComponent(branch)}`);
+      if (stateRes && stateRes.ok) {
+        const stateJson = await stateRes.json();
+        if (stateJson.success && stateJson.data && typeof stateJson.data === "object") {
+          const loaded = stateJson.data;
+          Object.keys(loaded).forEach((key) => {
+            if (Array.isArray(loaded[key])) {
+              inMemoryDb[key] = loaded[key];
+            }
+          });
+        }
+      }
+    } catch (e) {}
+
+    // 2. Cargar y combinar tablas nativas de MySQL
+    const res = await callLocalApi(`action=get_native_tables&branch=${encodeURIComponent(branch)}`);
+    if (!res || !res.ok) {
+      console.warn("MySQL Local no respondió adecuadamente en api.php.");
+      return inMemoryDb;
+    }
+    const data = await res.json();
+    if (data.success) {
+      let stateChanged = false;
+
+      // A. Mapear y combinar productos desde MySQL
+      if (Array.isArray(data.productos) && data.productos.length > 0) {
+        const mySqlProducts: Product[] = data.productos.map((p: any) => {
+          let raw: any = {};
+          if (p.raw_data && typeof p.raw_data === "object") {
+            raw = p.raw_data;
+          } else if (p.raw_data && typeof p.raw_data === "string") {
+            try { raw = JSON.parse(p.raw_data); } catch { raw = {}; }
+          }
+          const pId = raw.id || `PROD_${p.id || p.clave}`;
+          const code = p.clave || raw.code || raw.codigo || String(p.id);
+          const unit = p.unidad || raw.unit || ProductUnit.PIECE;
+          const cost = Number(p.unitario ?? raw.cost ?? 0);
+          const priceMin = Number(p.menudeo ?? raw.priceMin ?? 0);
+          const priceMed = Number(p.medio ?? raw.priceMed ?? priceMin);
+          const priceMax = Number(p.mayoreo ?? raw.priceMax ?? priceMin);
+          const priceSpecial = Number(p.precio_especial ?? raw.priceSpecial ?? 0);
+          const stock = Number(p.cant !== undefined ? p.cant : (raw.stock ?? 0));
+
+          return normalizeProduct({
+            ...raw,
+            id: pId,
+            code: code,
+            barcode: p.clave || raw.barcode || code,
+            sku: raw.sku || `SKU-${code}`,
+            name: p.nom_p || raw.name || raw.descripcion || "Producto",
+            brand: p.marca || raw.brand || "",
+            category: p.categoria || raw.category || "General",
+            subcategory: p.des || raw.subcategory || "",
+            unit: unit,
+            cost: cost,
+            priceMin: priceMin,
+            priceMed: priceMed,
+            priceMax: priceMax,
+            priceSpecial: priceSpecial,
+            stock: stock,
+            stockMin: Number(p.stock_min ?? raw.stockMin ?? 5),
+            stockMax: Number(p.stock_max ?? raw.stockMax ?? 100),
+            location: p.ubicacion || raw.location || "",
+            imageUrl: p.imagen || raw.imageUrl || "",
+            supplierId: p.proveedor_id || raw.supplierId || "SUPP1",
+            sucursal: branch
+          });
+        });
+
+        const prodMap = new Map<string, Product>();
+        (inMemoryDb.products || []).forEach((p: Product) => {
+          const key = (p.code || p.barcode || p.id).trim();
+          if (key) prodMap.set(key, p);
+        });
+        mySqlProducts.forEach((p: Product) => {
+          const key = (p.code || p.barcode || p.id).trim();
+          if (key) prodMap.set(key, p);
+        });
+
+        inMemoryDb.products = Array.from(prodMap.values());
+        stateChanged = true;
+      }
+
+      // B. Mapear y combinar clientes
+      if (Array.isArray(data.clientes) && data.clientes.length > 0) {
+        const mySqlCustomers = data.clientes.map((c: any) => {
+          let raw: any = {};
+          if (c.raw_data && typeof c.raw_data === "object") {
+            raw = c.raw_data;
+          } else if (c.raw_data && typeof c.raw_data === "string") {
+            try { raw = JSON.parse(c.raw_data); } catch { raw = {}; }
+          }
+          return {
+            id: raw.id || `CUST_${c.id_cliente}`,
+            name: c.nombre_c || raw.name || "",
+            phone: c.tel || raw.phone || "",
+            email: c.email || raw.email || "",
+            address: c.direccion || raw.address || "",
+            rfc: c.rfc || raw.rfc || "",
+            role: raw.role || "Cliente Normal",
+            creditLimit: Number(c.limite_credito ?? raw.creditLimit ?? 0),
+            creditUsed: Number(c.cant_ade ?? raw.creditUsed ?? 0),
+            creditDays: Number(c.dias_credito ?? raw.creditDays ?? 30),
+            notes: c.notas || raw.notes || "",
+            status: c.status || raw.status || "Activo"
+          };
+        });
+
+        const custMap = new Map<string, Customer>();
+        (inMemoryDb.customers || []).forEach((c: Customer) => custMap.set(c.id, c));
+        mySqlCustomers.forEach((c: Customer) => custMap.set(c.id, c));
+        inMemoryDb.customers = Array.from(custMap.values());
+        stateChanged = true;
+      }
+
+      // C. Mapear y combinar proveedores
+      if (Array.isArray(data.proveedores) && data.proveedores.length > 0) {
+        const mySqlSuppliers = data.proveedores.map((s: any) => {
+          let raw: any = {};
+          if (s.raw_data && typeof s.raw_data === "object") {
+            raw = s.raw_data;
+          } else if (s.raw_data && typeof s.raw_data === "string") {
+            try { raw = JSON.parse(s.raw_data); } catch { raw = {}; }
+          }
+          return {
+            id: raw.id || `SUPP_${s.id}`,
+            name: s.nombre || raw.name || "",
+            contact: s.contacto || raw.contact || "",
+            phone: s.tel || raw.phone || "",
+            email: s.email || raw.email || "",
+            address: s.direccion || raw.address || "",
+            rfc: s.rfc || raw.rfc || "",
+            outstandingBalance: Number(s.adeudo ?? raw.outstandingBalance ?? 0)
+          };
+        });
+
+        const suppMap = new Map<string, Supplier>();
+        (inMemoryDb.suppliers || []).forEach((s: Supplier) => suppMap.set(s.id, s));
+        mySqlSuppliers.forEach((s: Supplier) => suppMap.set(s.id, s));
+        inMemoryDb.suppliers = Array.from(suppMap.values());
+        stateChanged = true;
+      }
+
+      // D. Cuentas bancarias y finanzas
+      if (Array.isArray(data.cuentas_bancarias) && data.cuentas_bancarias.length > 0) {
+        inMemoryDb.bankAccounts = data.cuentas_bancarias.map((b: any) => ({
+          id: b.id,
+          bankName: b.bank_name || b.bankName || "Banco",
+          accountNumber: b.account_number || b.accountNumber || "",
+          type: b.type || "Cheques",
+          balance: Number(b.balance || 0),
+          initialBalance: Number(b.initial_balance || b.initialBalance || 0),
+          currency: b.currency || "MXN",
+          status: b.status || "Activo",
+          branch: b.branch || branch
+        }));
+        stateChanged = true;
+      }
+
+      // E. Movimientos bancarios
+      if (Array.isArray(data.movimientos_bancarios) && data.movimientos_bancarios.length > 0) {
+        inMemoryDb.bankMovements = data.movimientos_bancarios.map((bm: any) => ({
+          id: bm.id,
+          bankAccountId: bm.bank_account_id || bm.bankAccountId,
+          type: bm.type || "Depósito",
+          amount: Number(bm.amount || 0),
+          date: bm.date || "",
+          description: bm.description || "",
+          category: bm.category || "General",
+          reference: bm.reference || "",
+          user: bm.user_name || bm.user || "Admin"
+        }));
+        stateChanged = true;
+      }
+
+      // F. Gastos de caja
+      if (Array.isArray(data.gastos) && data.gastos.length > 0) {
+        inMemoryDb.expenses = data.gastos.map((g: any) => {
+          let raw: any = {};
+          if (g.raw_data) {
+            try { raw = typeof g.raw_data === "string" ? JSON.parse(g.raw_data) : g.raw_data; } catch {}
+          }
+          return {
+            ...raw,
+            id: g.id,
+            description: g.description || "Gasto",
+            amount: Number(g.amount || 0),
+            category: g.category || "General",
+            date: g.date || "",
+            user: g.user_name || g.user || "Admin",
+            sucursal: g.sucursal || branch
+          };
+        });
+        stateChanged = true;
+      }
+
+      // G. Sesiones de caja
+      if (Array.isArray(data.sesiones_caja) && data.sesiones_caja.length > 0) {
+        inMemoryDb.cashSessions = data.sesiones_caja.map((cs: any) => {
+          let raw: any = {};
+          if (cs.raw_data) {
+            try { raw = typeof cs.raw_data === "string" ? JSON.parse(cs.raw_data) : cs.raw_data; } catch {}
+          }
+          return {
+            ...raw,
+            id: cs.id,
+            startTime: cs.start_time || cs.startTime || "",
+            endTime: cs.end_time || cs.endTime || undefined,
+            openedBy: cs.opened_by || cs.openedBy || "Admin",
+            initialCash: Number(cs.initial_cash ?? cs.initialCash ?? 0),
+            finalCash: cs.final_cash !== null ? Number(cs.final_cash) : undefined,
+            status: cs.status || "Abierta",
+            salesTotal: Number(cs.sales_total ?? cs.salesTotal ?? 0),
+            expensesTotal: Number(cs.expenses_total ?? cs.expensesTotal ?? 0),
+            expectedFinalCash: Number(cs.expected_final_cash ?? cs.expectedFinalCash ?? 0)
+          };
+        });
+        stateChanged = true;
+      }
+
+      // H. Órdenes de compra
+      if (Array.isArray(data.ordenes_compra) && data.ordenes_compra.length > 0) {
+        inMemoryDb.purchaseOrders = data.ordenes_compra.map((po: any) => {
+          let raw: any = {};
+          if (po.raw_data) {
+            try { raw = typeof po.raw_data === "string" ? JSON.parse(po.raw_data) : po.raw_data; } catch {}
+          }
+          return {
+            ...raw,
+            id: po.id,
+            supplierId: po.supplier_id || po.supplierId || "",
+            supplierName: po.supplier_name || po.supplierName || "",
+            total: Number(po.total || 0),
+            status: po.status || "Pendiente",
+            date: po.date || "",
+            receivedDate: po.received_date || po.receivedDate || undefined,
+            paymentStatus: po.payment_status || po.paymentStatus || "Pendiente",
+            items: Array.isArray(raw.items) ? raw.items : []
+          };
+        });
+        stateChanged = true;
+      }
+
+      // I. Movimientos de inventario (Kárdex)
+      if (Array.isArray(data.movimientos) && data.movimientos.length > 0) {
+        inMemoryDb.movements = data.movimientos.map((m: any) => ({
+          id: m.id,
+          productId: m.product_id || m.productId,
+          productName: m.product_name || m.productName || "",
+          type: m.type || MovementType.ENTRY_ADJUSTMENT,
+          quantity: Number(m.quantity || 0),
+          previousStock: Number(m.previous_stock ?? m.previousStock ?? 0),
+          newStock: Number(m.new_stock ?? m.newStock ?? 0),
+          date: m.date || "",
+          user: m.user_name || m.user || "Admin",
+          notes: m.notes || ""
+        }));
+        stateChanged = true;
+      }
+
+      // J. Sucursales
+      if (Array.isArray(data.sucursales) && data.sucursales.length > 0) {
+        inMemoryDb.sucursales = data.sucursales.map((s: any) => ({
+          id: s.id,
+          name: s.name,
+          code: s.code,
+          address: s.address || "",
+          phone: s.phone || "",
+          manager: s.manager || "Administrador",
+          status: s.status || "Activo",
+          isCentral: Boolean(s.is_central)
+        }));
+        stateChanged = true;
+      }
+
+      // K. Usuarios
+      if (Array.isArray(data.usuarios) && data.usuarios.length > 0) {
+        inMemoryDb.users = data.usuarios.map((u: any) => ({
+          id: String(u.id),
+          username: u.usuario || u.username,
+          name: u.nombrecompleto || u.name || u.usuario,
+          role: u.rol || u.role || UserRole.CASHIER,
+          status: u.status || "Activo",
+          lastLogin: u.last_login || u.lastLogin
+        }));
+        stateChanged = true;
+      }
+
+      // 3. Cargar ventas históricas nativas
+      try {
+        const salesRes = await callLocalApi(`action=get_historical_sales&branch=${encodeURIComponent(branch)}`);
+        if (salesRes && salesRes.ok) {
+          const salesData = await salesRes.json();
+          if (salesData.success && Array.isArray(salesData.ventas) && salesData.ventas.length > 0) {
+            const mySqlSales: Sale[] = salesData.ventas.map((v: any) => {
+              let raw: any = {};
+              if (v.raw_data) {
+                try { raw = typeof v.raw_data === "string" ? JSON.parse(v.raw_data) : v.raw_data; } catch {}
+              }
+              return {
+                id: raw.id || `SALE_${v.id_venta}`,
+                ticketNumber: v.ticket_number || raw.ticketNumber || `TICK-${v.id_venta}`,
+                items: Array.isArray(raw.items) ? raw.items : [{
+                  productId: String(v.id_producto || ""),
+                  productName: v.nom_p || v.descripcion || "Venta",
+                  quantity: Number(v.cantidad || 1),
+                  unitPrice: Number(v.total || 0),
+                  totalPrice: Number(v.total || 0),
+                  cost: 0
+                }],
+                total: Number(v.total || 0),
+                costTotal: Number(raw.costTotal || 0),
+                profit: Number(v.total_utilidad ?? raw.profit ?? 0),
+                paymentMethod: (v.metodo_pago || raw.paymentMethod || PaymentMethod.CASH) as any,
+                customerId: v.id_cliente ? `CUST_${v.id_cliente}` : (raw.customerId || undefined),
+                customerName: v.nombre_c || raw.customerName || "Público General",
+                userId: raw.userId || "USR_1",
+                userName: raw.userName || "Admin",
+                date: v.fecha || raw.date || "",
+                amountPaid: Number(raw.amountPaid || v.total || 0),
+                change: Number(raw.change || 0),
+                sucursal: v.sucursal || branch
+              };
+            });
+
+            const saleMap = new Map<string, Sale>();
+            (inMemoryDb.sales || []).forEach((s: Sale) => saleMap.set(s.id, s));
+            mySqlSales.forEach((s: Sale) => saleMap.set(s.id, s));
+            inMemoryDb.sales = Array.from(saleMap.values());
+            stateChanged = true;
+          }
+        }
+      } catch (e) {}
+
+      if (stateChanged) {
+        saveToLocalStorage(inMemoryDb);
+        dbCache = JSON.parse(JSON.stringify(inMemoryDb));
+        notifySubscribers();
+        console.log(`💾 Base de datos sincronizada 100% desde MySQL Localhost (${data.database}).`);
+      }
+    }
+  } catch (e) {
+    console.warn("Error cargando base de datos desde MySQL Localhost:", e);
+  }
+  return inMemoryDb;
 };
 
 export const saveDatabase = (db: any): Promise<void> => {
@@ -877,7 +1309,7 @@ export const saveDatabase = (db: any): Promise<void> => {
   // Persistir en base de datos local MySQL (mazal_bd para Norte, mazal_bd1 para Sur)
   persistToLocalMySQL(updatedDb, activeBranch || "Norte").catch(() => {});
 
-  if (isOnline) {
+  if (!PAUSE_ONLINE_SYNC && isOnline) {
     triggerAutoSync();
     
     // Sync with Supabase Cloud in background with guaranteed config check
@@ -897,9 +1329,8 @@ export const saveDatabase = (db: any): Promise<void> => {
 
     return Promise.resolve();
   } else {
-    pendingOfflineSync = true;
+    pendingOfflineSync = false;
     notifyNetworkSubscribers();
-    console.log("🔴 Modo Sin Conexión: Cambios e inventario guardados en Base Local y encolados en Pending Operations Queue.");
     return Promise.resolve();
   }
 };
@@ -932,152 +1363,8 @@ export const initRealtimeListeners = () => {
   });
 };
 
-export const loadDatabaseFromMySQL = async (branchParam?: string): Promise<typeof inMemoryDb> => {
-  const branch = branchParam || activeBranch || "Norte";
-  try {
-    const res = await callLocalApi(`action=get_native_tables&branch=${encodeURIComponent(branch)}`);
-    if (!res || !res.ok) {
-      console.warn("MySQL Local no respondió adecuadamente en api.php.");
-      return inMemoryDb;
-    }
-    const data = await res.json();
-    if (data.success) {
-      let stateChanged = false;
-
-      // 1. Mapear y combinar productos desde MySQL
-      if (Array.isArray(data.productos) && data.productos.length > 0) {
-        const mySqlProducts: Product[] = data.productos.map((p: any) => {
-          let raw: any = {};
-          if (p.raw_data && typeof p.raw_data === "object") {
-            raw = p.raw_data;
-          } else if (p.raw_data && typeof p.raw_data === "string") {
-            try { raw = JSON.parse(p.raw_data); } catch { raw = {}; }
-          }
-          const pId = raw.id || `PROD_${p.id || p.clave}`;
-          const code = p.clave || raw.code || raw.codigo || String(p.id);
-          const unit = p.unidad || raw.unit || ProductUnit.PIECE;
-          const cost = Number(p.unitario ?? raw.cost ?? 0);
-          const priceMin = Number(p.menudeo ?? raw.priceMin ?? 0);
-          const priceMed = Number(p.medio ?? raw.priceMed ?? priceMin);
-          const priceMax = Number(p.mayoreo ?? raw.priceMax ?? priceMin);
-          const priceSpecial = Number(p.precio_especial ?? raw.priceSpecial ?? 0);
-          const stock = Number(p.cant !== undefined ? p.cant : (raw.stock ?? 0));
-
-          return normalizeProduct({
-            ...raw,
-            id: pId,
-            code: code,
-            barcode: p.clave || raw.barcode || code,
-            sku: raw.sku || `SKU-${code}`,
-            name: p.nom_p || raw.name || raw.descripcion || "Producto",
-            brand: p.marca || raw.brand || "",
-            category: p.categoria || raw.category || "General",
-            subcategory: p.des || raw.subcategory || "",
-            unit: unit,
-            cost: cost,
-            priceMin: priceMin,
-            priceMed: priceMed,
-            priceMax: priceMax,
-            priceSpecial: priceSpecial,
-            stock: stock,
-            stockMin: Number(p.stock_min ?? raw.stockMin ?? 5),
-            stockMax: Number(p.stock_max ?? raw.stockMax ?? 100),
-            location: p.ubicacion || raw.location || "",
-            imageUrl: p.imagen || raw.imageUrl || "",
-            supplierId: p.proveedor_id || raw.supplierId || "SUPP1",
-            sucursal: branch
-          });
-        });
-
-        const prodMap = new Map<string, Product>();
-        (inMemoryDb.products || []).forEach((p: Product) => {
-          const key = (p.code || p.barcode || p.id).trim();
-          if (key) prodMap.set(key, p);
-        });
-        mySqlProducts.forEach((p: Product) => {
-          const key = (p.code || p.barcode || p.id).trim();
-          if (key) prodMap.set(key, p);
-        });
-
-        inMemoryDb.products = Array.from(prodMap.values());
-        stateChanged = true;
-      }
-
-      // 2. Mapear y combinar clientes
-      if (Array.isArray(data.clientes) && data.clientes.length > 0) {
-        const mySqlCustomers = data.clientes.map((c: any) => {
-          let raw: any = {};
-          if (c.raw_data && typeof c.raw_data === "object") {
-            raw = c.raw_data;
-          } else if (c.raw_data && typeof c.raw_data === "string") {
-            try { raw = JSON.parse(c.raw_data); } catch { raw = {}; }
-          }
-          return {
-            id: raw.id || `CUST_${c.id_cliente}`,
-            name: c.nombre_c || raw.name || "",
-            phone: c.tel || raw.phone || "",
-            email: c.email || raw.email || "",
-            address: c.direccion || raw.address || "",
-            rfc: c.rfc || raw.rfc || "",
-            role: raw.role || "Cliente Normal",
-            creditLimit: Number(c.limite_credito ?? raw.creditLimit ?? 0),
-            creditUsed: Number(c.cant_ade ?? raw.creditUsed ?? 0),
-            creditDays: Number(c.dias_credito ?? raw.creditDays ?? 30),
-            notes: c.notas || raw.notes || "",
-            status: c.status || raw.status || "Activo"
-          };
-        });
-
-        const custMap = new Map<string, Customer>();
-        (inMemoryDb.customers || []).forEach((c: Customer) => custMap.set(c.id, c));
-        mySqlCustomers.forEach((c: Customer) => custMap.set(c.id, c));
-        inMemoryDb.customers = Array.from(custMap.values());
-        stateChanged = true;
-      }
-
-      // 3. Mapear y combinar proveedores
-      if (Array.isArray(data.proveedores) && data.proveedores.length > 0) {
-        const mySqlSuppliers = data.proveedores.map((s: any) => {
-          let raw: any = {};
-          if (s.raw_data && typeof s.raw_data === "object") {
-            raw = s.raw_data;
-          } else if (s.raw_data && typeof s.raw_data === "string") {
-            try { raw = JSON.parse(s.raw_data); } catch { raw = {}; }
-          }
-          return {
-            id: raw.id || `SUPP_${s.id}`,
-            name: s.nombre || raw.name || "",
-            contact: s.contacto || raw.contact || "",
-            phone: s.tel || raw.phone || "",
-            email: s.email || raw.email || "",
-            address: s.direccion || raw.address || "",
-            rfc: s.rfc || raw.rfc || "",
-            outstandingBalance: Number(s.adeudo ?? raw.outstandingBalance ?? 0)
-          };
-        });
-
-        const suppMap = new Map<string, Supplier>();
-        (inMemoryDb.suppliers || []).forEach((s: Supplier) => suppMap.set(s.id, s));
-        mySqlSuppliers.forEach((s: Supplier) => suppMap.set(s.id, s));
-        inMemoryDb.suppliers = Array.from(suppMap.values());
-        stateChanged = true;
-      }
-
-      if (stateChanged) {
-        saveToLocalStorage(inMemoryDb);
-        dbCache = JSON.parse(JSON.stringify(inMemoryDb));
-        notifySubscribers();
-        console.log(`💾 Registros sincronizados desde MySQL Localhost (${data.database}) hacia la memoria de la aplicación.`);
-      }
-    }
-  } catch (e) {
-    console.warn("Error cargando base de datos desde MySQL Localhost:", e);
-  }
-  return inMemoryDb;
-};
-
 export const loadDatabaseFromCloud = async () => {
-  if (isSupabaseConfigured) {
+  if (!PAUSE_ONLINE_SYNC && isSupabaseConfigured) {
     await loadDatabaseFromSupabase(activeBranch);
   }
   await loadDatabaseFromMySQL(activeBranch);
@@ -1089,6 +1376,10 @@ let supabaseRealtimeUnsub: (() => void) | null = null;
 
 export const loadDatabaseFromSupabase = async (branchParam?: string): Promise<typeof inMemoryDb> => {
   const branch = branchParam || activeBranch || "Norte";
+  if (PAUSE_ONLINE_SYNC) {
+    await loadDatabaseFromMySQL(branch);
+    return inMemoryDb;
+  }
   try {
     const isConfigured = await ensureSupabaseConfigured();
     if (!isConfigured) {

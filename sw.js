@@ -1,5 +1,5 @@
-// Service Worker for Mazal POS - Cloud Supabase & Offline Engine
-const CACHE_NAME = "mazal-pos-v9-clean-sync";
+// Service Worker for Mazal POS & ERP - 100% Localhost XAMPP & Apache
+const CACHE_NAME = "mazal-pos-v10-local-xampp";
 const ASSETS_TO_CACHE = [
   "./",
   "./index.html",
@@ -37,11 +37,12 @@ self.addEventListener("activate", (event) => {
 self.addEventListener("fetch", (event) => {
   const request = event.request;
 
-  // Bypass non-GET, API calls or external requests
+  // Bypass non-GET, PHP API calls, local backend or external sync endpoints
   if (
     request.method !== "GET" || 
     request.url.includes("api.php") || 
     request.url.includes("supabase.co") ||
+    request.url.includes("localhost/MAZAL/api.php") ||
     request.url.includes("/api/")
   ) {
     return;
@@ -51,25 +52,30 @@ self.addEventListener("fetch", (event) => {
   event.respondWith(
     fetch(request)
       .then((networkResponse) => {
-        if (networkResponse && networkResponse.status === 200 && networkResponse.type === "basic") {
+        if (networkResponse && networkResponse.status === 200) {
           const responseToCache = networkResponse.clone();
           caches.open(CACHE_NAME).then((cache) => {
-            cache.put(request, responseToCache);
+            cache.put(request, responseToCache).catch(() => {});
           });
         }
         return networkResponse;
       })
       .catch(async () => {
-        // Fallback to cache if network fails (Offline mode)
+        // Fallback to cache if network fails
         const cachedResponse = await caches.match(request);
         if (cachedResponse) {
           return cachedResponse;
         }
         if (request.mode === "navigate") {
-          const fallback = await caches.match("./index.html");
+          const fallback = await caches.match("./index.html") || await caches.match("./");
           if (fallback) return fallback;
         }
-        return new Response("Offline", { status: 503, statusText: "Service Unavailable Offline" });
+        // Return transparent 404 instead of 503 to avoid crashing asset loaders
+        return new Response("Resource not available in offline cache", { 
+          status: 404, 
+          statusText: "Not Found",
+          headers: { "Content-Type": "text/plain" }
+        });
       })
   );
 });

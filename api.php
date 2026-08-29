@@ -6,13 +6,16 @@
  * Maneja el almacenamiento local, contingencia offline y sincronización en MySQL.
  * Soporta todas las operaciones CRUD para:
  * - Productos y Precios (Multitarifa)
- * - Clientes y Créditos
+ * - Clientes, Créditos y Abonos
  * - Proveedores y Cuentas por Pagar
  * - Ventas e Historial de Tickets
  * - Movimientos de Inventario (Kárdex)
- * - Sesiones de Caja
- * - Gastos de Caja
+ * - Sesiones y Gastos de Caja
  * - Órdenes de Compra / Suministro
+ * - Cuentas Bancarias, Movimientos y Finanzas
+ * - Presupuestos, Centros de Costos y Vehículos
+ * - Auditoría y Logs de Seguridad
+ * - Sucursales, Inventario Multi-Sucursal, Transferencias y Distribución
  * - Usuarios, Autenticación y Matriz de Permisos
  * - Estado Global (mazal_app_state)
  * ==============================================================================
@@ -71,8 +74,8 @@ $rawMysqli = @new mysqli($servername, $username, $password);
 
 if ($rawMysqli && !$rawMysqli->connect_errno) {
     // Crear bases de datos automáticamente si no existen
-    $rawMysqli->query("CREATE DATABASE IF NOT EXISTS mazal_bd CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;");
-    $rawMysqli->query("CREATE DATABASE IF NOT EXISTS mazal_bd1 CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;");
+    $rawMysqli->query("CREATE DATABASE IF NOT EXISTS `mazal_bd` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;");
+    $rawMysqli->query("CREATE DATABASE IF NOT EXISTS `mazal_bd1` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;");
 }
 
 $mysqli = @new mysqli($servername, $username, $password, $dbname);
@@ -100,7 +103,7 @@ $mysqli->set_charset("utf8mb4");
 // 2. FUNCIÓN DE AUTO-PROVISIÓN Y AUTO-MIGRACIÓN DE ESQUEMA (SELF-HEALING SCHEMA)
 function autoMigrateSchema($db, $targetDb) {
     $ensureColumns = function($tableName, $columns) use ($db) {
-        $res = $db->query("SHOW COLUMNS FROM {$tableName}");
+        $res = $db->query("SHOW COLUMNS FROM `{$tableName}`");
         $existingCols = [];
         if ($res) {
             while ($row = $res->fetch_assoc()) {
@@ -109,106 +112,112 @@ function autoMigrateSchema($db, $targetDb) {
         }
         foreach ($columns as $colName => $colDef) {
             if (!isset($existingCols[strtolower($colName)])) {
-                $db->query("ALTER TABLE {$tableName} ADD COLUMN {$colName} {$colDef};");
+                $db->query("ALTER TABLE `{$tableName}` ADD COLUMN `{$colName}` {$colDef};");
             }
         }
     };
 
     // A. TABLA USUARIOS
-    $db->query("CREATE TABLE IF NOT EXISTS usuarios (
-        id INT AUTO_INCREMENT PRIMARY KEY,
-        usuario VARCHAR(100) NOT NULL UNIQUE,
-        nombrecompleto VARCHAR(255) DEFAULT '',
-        password VARCHAR(255) NOT NULL,
-        rol VARCHAR(50) DEFAULT 'vendedor',
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    $db->query("CREATE TABLE IF NOT EXISTS `usuarios` (
+        `id` INT AUTO_INCREMENT PRIMARY KEY,
+        `usuario` VARCHAR(100) NOT NULL UNIQUE,
+        `nombrecompleto` VARCHAR(255) DEFAULT '',
+        `password` VARCHAR(255) NOT NULL,
+        `rol` VARCHAR(50) DEFAULT 'vendedor',
+        `status` VARCHAR(50) DEFAULT 'Activo',
+        `last_login` VARCHAR(50) DEFAULT NULL,
+        `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;");
     $ensureColumns('usuarios', [
         'nombrecompleto' => "VARCHAR(255) DEFAULT ''",
         'password' => "VARCHAR(255) NOT NULL",
         'rol' => "VARCHAR(50) DEFAULT 'vendedor'",
+        'status' => "VARCHAR(50) DEFAULT 'Activo'",
+        'last_login' => "VARCHAR(50) DEFAULT NULL",
         'created_at' => "TIMESTAMP DEFAULT CURRENT_TIMESTAMP"
     ]);
 
     // B. TABLA PRODUCTOS
-    $db->query("CREATE TABLE IF NOT EXISTS productos (
-        id INT AUTO_INCREMENT PRIMARY KEY,
-        clave VARCHAR(100) DEFAULT '',
-        nom_p VARCHAR(255) NOT NULL,
-        des VARCHAR(255) DEFAULT 'entero',
-        cant DECIMAL(10,2) DEFAULT 0,
-        categoria VARCHAR(100) DEFAULT 'General',
-        marca VARCHAR(100) DEFAULT 'MAZAL',
-        unidad VARCHAR(50) DEFAULT 'pz',
-        stock_min DECIMAL(10,2) DEFAULT 5,
-        stock_max DECIMAL(10,2) DEFAULT 100,
-        ubicacion VARCHAR(255) DEFAULT 'Bodega Principal',
-        imagen VARCHAR(500) DEFAULT '',
-        proveedor_id VARCHAR(100) DEFAULT 'PROV_01',
-        raw_data LONGTEXT DEFAULT NULL,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    $db->query("CREATE TABLE IF NOT EXISTS `productos` (
+        `id` INT AUTO_INCREMENT PRIMARY KEY,
+        `clave` VARCHAR(100) DEFAULT '',
+        `nom_p` VARCHAR(255) NOT NULL,
+        `des` VARCHAR(255) DEFAULT 'entero',
+        `cant` DECIMAL(12,3) DEFAULT 0,
+        `categoria` VARCHAR(100) DEFAULT 'General',
+        `marca` VARCHAR(100) DEFAULT 'MAZAL',
+        `unidad` VARCHAR(50) DEFAULT 'pz',
+        `stock_min` DECIMAL(12,3) DEFAULT 5,
+        `stock_max` DECIMAL(12,3) DEFAULT 100,
+        `ubicacion` VARCHAR(255) DEFAULT 'Bodega Principal',
+        `imagen` VARCHAR(500) DEFAULT '',
+        `proveedor_id` VARCHAR(100) DEFAULT 'PROV_01',
+        `sucursal` VARCHAR(50) DEFAULT 'Norte',
+        `raw_data` LONGTEXT DEFAULT NULL,
+        `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;");
     $ensureColumns('productos', [
         'clave' => "VARCHAR(100) DEFAULT ''",
         'nom_p' => "VARCHAR(255) NOT NULL",
         'des' => "VARCHAR(255) DEFAULT 'entero'",
-        'cant' => "DECIMAL(10,2) DEFAULT 0",
+        'cant' => "DECIMAL(12,3) DEFAULT 0",
         'categoria' => "VARCHAR(100) DEFAULT 'General'",
         'marca' => "VARCHAR(100) DEFAULT 'MAZAL'",
         'unidad' => "VARCHAR(50) DEFAULT 'pz'",
-        'stock_min' => "DECIMAL(10,2) DEFAULT 5",
-        'stock_max' => "DECIMAL(10,2) DEFAULT 100",
+        'stock_min' => "DECIMAL(12,3) DEFAULT 5",
+        'stock_max' => "DECIMAL(12,3) DEFAULT 100",
         'ubicacion' => "VARCHAR(255) DEFAULT 'Bodega Principal'",
         'imagen' => "VARCHAR(500) DEFAULT ''",
         'proveedor_id' => "VARCHAR(100) DEFAULT 'PROV_01'",
+        'sucursal' => "VARCHAR(50) DEFAULT 'Norte'",
         'raw_data' => "LONGTEXT DEFAULT NULL",
         'created_at' => "TIMESTAMP DEFAULT CURRENT_TIMESTAMP"
     ]);
 
     // C. TABLA PRECIOS
-    $db->query("CREATE TABLE IF NOT EXISTS precios (
-        id INT AUTO_INCREMENT PRIMARY KEY,
-        id_producto INT NOT NULL,
-        mayoreo DECIMAL(10,2) DEFAULT 0,
-        medio DECIMAL(10,2) DEFAULT 0,
-        menudeo DECIMAL(10,2) DEFAULT 0,
-        Unitario DECIMAL(10,2) DEFAULT 0,
-        precio_especial DECIMAL(10,2) DEFAULT 0,
-        UNIQUE KEY uq_prod (id_producto)
+    $db->query("CREATE TABLE IF NOT EXISTS `precios` (
+        `id` INT AUTO_INCREMENT PRIMARY KEY,
+        `id_producto` INT NOT NULL,
+        `mayoreo` DECIMAL(12,2) DEFAULT 0,
+        `medio` DECIMAL(12,2) DEFAULT 0,
+        `menudeo` DECIMAL(12,2) DEFAULT 0,
+        `Unitario` DECIMAL(12,2) DEFAULT 0,
+        `precio_especial` DECIMAL(12,2) DEFAULT 0,
+        UNIQUE KEY `uq_prod` (`id_producto`)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;");
     $ensureColumns('precios', [
         'id_producto' => "INT NOT NULL",
-        'mayoreo' => "DECIMAL(10,2) DEFAULT 0",
-        'medio' => "DECIMAL(10,2) DEFAULT 0",
-        'menudeo' => "DECIMAL(10,2) DEFAULT 0",
-        'Unitario' => "DECIMAL(10,2) DEFAULT 0",
-        'precio_especial' => "DECIMAL(10,2) DEFAULT 0"
+        'mayoreo' => "DECIMAL(12,2) DEFAULT 0",
+        'medio' => "DECIMAL(12,2) DEFAULT 0",
+        'menudeo' => "DECIMAL(12,2) DEFAULT 0",
+        'Unitario' => "DECIMAL(12,2) DEFAULT 0",
+        'precio_especial' => "DECIMAL(12,2) DEFAULT 0"
     ]);
 
     // D. TABLA CLIENTES
-    $db->query("CREATE TABLE IF NOT EXISTS clientes (
-        id_cliente INT AUTO_INCREMENT PRIMARY KEY,
-        nombre_c VARCHAR(255) NOT NULL,
-        tel VARCHAR(50) DEFAULT '',
-        cant_ade DECIMAL(10,2) DEFAULT 0,
-        email VARCHAR(255) DEFAULT '',
-        direccion VARCHAR(255) DEFAULT '',
-        rfc VARCHAR(50) DEFAULT '',
-        limite_credito DECIMAL(10,2) DEFAULT 0,
-        dias_credito INT DEFAULT 30,
-        notas TEXT DEFAULT NULL,
-        status VARCHAR(50) DEFAULT 'Activo',
-        raw_data LONGTEXT DEFAULT NULL,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    $db->query("CREATE TABLE IF NOT EXISTS `clientes` (
+        `id_cliente` INT AUTO_INCREMENT PRIMARY KEY,
+        `nombre_c` VARCHAR(255) NOT NULL,
+        `tel` VARCHAR(50) DEFAULT '',
+        `cant_ade` DECIMAL(12,2) DEFAULT 0,
+        `email` VARCHAR(255) DEFAULT '',
+        `direccion` VARCHAR(255) DEFAULT '',
+        `rfc` VARCHAR(50) DEFAULT '',
+        `limite_credito` DECIMAL(12,2) DEFAULT 0,
+        `dias_credito` INT DEFAULT 30,
+        `notas` TEXT DEFAULT NULL,
+        `status` VARCHAR(50) DEFAULT 'Activo',
+        `raw_data` LONGTEXT DEFAULT NULL,
+        `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;");
     $ensureColumns('clientes', [
         'nombre_c' => "VARCHAR(255) NOT NULL",
         'tel' => "VARCHAR(50) DEFAULT ''",
-        'cant_ade' => "DECIMAL(10,2) DEFAULT 0",
+        'cant_ade' => "DECIMAL(12,2) DEFAULT 0",
         'email' => "VARCHAR(255) DEFAULT ''",
         'direccion' => "VARCHAR(255) DEFAULT ''",
         'rfc' => "VARCHAR(50) DEFAULT ''",
-        'limite_credito' => "DECIMAL(10,2) DEFAULT 0",
+        'limite_credito' => "DECIMAL(12,2) DEFAULT 0",
         'dias_credito' => "INT DEFAULT 30",
         'notas' => "TEXT DEFAULT NULL",
         'status' => "VARCHAR(50) DEFAULT 'Activo'",
@@ -216,25 +225,38 @@ function autoMigrateSchema($db, $targetDb) {
         'created_at' => "TIMESTAMP DEFAULT CURRENT_TIMESTAMP"
     ]);
 
-    // E. TABLA PROVEEDOR
-    $db->query("CREATE TABLE IF NOT EXISTS proveedor (
-        id INT AUTO_INCREMENT PRIMARY KEY,
-        nombre VARCHAR(255) NOT NULL,
-        tel VARCHAR(50) DEFAULT '',
-        empresa VARCHAR(255) DEFAULT '',
-        adeudo DECIMAL(10,2) DEFAULT 0,
-        email VARCHAR(255) DEFAULT '',
-        direccion VARCHAR(255) DEFAULT '',
-        rfc VARCHAR(50) DEFAULT '',
-        contacto VARCHAR(255) DEFAULT '',
-        raw_data LONGTEXT DEFAULT NULL,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    // E. TABLA ABONOS_CREDITO
+    $db->query("CREATE TABLE IF NOT EXISTS `abonos_credito` (
+        `id` VARCHAR(100) PRIMARY KEY,
+        `customer_id` VARCHAR(100) NOT NULL,
+        `amount` DECIMAL(12,2) NOT NULL DEFAULT 0,
+        `date` DATETIME DEFAULT CURRENT_TIMESTAMP,
+        `payment_method` VARCHAR(50) DEFAULT 'Efectivo',
+        `notes` TEXT DEFAULT NULL,
+        `user_name` VARCHAR(100) DEFAULT 'Admin',
+        `sucursal` VARCHAR(50) DEFAULT 'Norte',
+        `raw_data` LONGTEXT DEFAULT NULL
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;");
+
+    // F. TABLA PROVEEDOR
+    $db->query("CREATE TABLE IF NOT EXISTS `proveedor` (
+        `id` INT AUTO_INCREMENT PRIMARY KEY,
+        `nombre` VARCHAR(255) NOT NULL,
+        `tel` VARCHAR(50) DEFAULT '',
+        `empresa` VARCHAR(255) DEFAULT '',
+        `adeudo` DECIMAL(12,2) DEFAULT 0,
+        `email` VARCHAR(255) DEFAULT '',
+        `direccion` VARCHAR(255) DEFAULT '',
+        `rfc` VARCHAR(50) DEFAULT '',
+        `contacto` VARCHAR(255) DEFAULT '',
+        `raw_data` LONGTEXT DEFAULT NULL,
+        `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;");
     $ensureColumns('proveedor', [
         'nombre' => "VARCHAR(255) NOT NULL",
         'tel' => "VARCHAR(50) DEFAULT ''",
         'empresa' => "VARCHAR(255) DEFAULT ''",
-        'adeudo' => "DECIMAL(10,2) DEFAULT 0",
+        'adeudo' => "DECIMAL(12,2) DEFAULT 0",
         'email' => "VARCHAR(255) DEFAULT ''",
         'direccion' => "VARCHAR(255) DEFAULT ''",
         'rfc' => "VARCHAR(50) DEFAULT ''",
@@ -243,118 +265,268 @@ function autoMigrateSchema($db, $targetDb) {
         'created_at' => "TIMESTAMP DEFAULT CURRENT_TIMESTAMP"
     ]);
 
-    // F. TABLA VENTAS
-    $db->query("CREATE TABLE IF NOT EXISTS ventas (
-        id_venta INT AUTO_INCREMENT PRIMARY KEY,
-        ticket_number VARCHAR(100) DEFAULT '',
-        id_producto INT DEFAULT NULL,
-        descripcion VARCHAR(255) DEFAULT '',
-        fecha DATETIME DEFAULT CURRENT_TIMESTAMP,
-        cantidad DECIMAL(10,2) DEFAULT 1,
-        total DECIMAL(10,2) DEFAULT 0,
-        total_utilidad DECIMAL(10,2) DEFAULT 0,
-        id_cliente INT DEFAULT NULL,
-        metodo_pago VARCHAR(50) DEFAULT 'Efectivo',
-        sucursal VARCHAR(50) DEFAULT 'Norte',
-        raw_data LONGTEXT DEFAULT NULL
+    // G. TABLA VENTAS
+    $db->query("CREATE TABLE IF NOT EXISTS `ventas` (
+        `id_venta` INT AUTO_INCREMENT PRIMARY KEY,
+        `ticket_number` VARCHAR(100) DEFAULT '',
+        `id_producto` INT DEFAULT NULL,
+        `descripcion` VARCHAR(255) DEFAULT '',
+        `fecha` DATETIME DEFAULT CURRENT_TIMESTAMP,
+        `cantidad` DECIMAL(12,3) DEFAULT 1,
+        `total` DECIMAL(12,2) DEFAULT 0,
+        `total_utilidad` DECIMAL(12,2) DEFAULT 0,
+        `id_cliente` INT DEFAULT NULL,
+        `metodo_pago` VARCHAR(50) DEFAULT 'Efectivo',
+        `sucursal` VARCHAR(50) DEFAULT 'Norte',
+        `raw_data` LONGTEXT DEFAULT NULL
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;");
     $ensureColumns('ventas', [
         'ticket_number' => "VARCHAR(100) DEFAULT ''",
         'id_producto' => "INT DEFAULT NULL",
         'descripcion' => "VARCHAR(255) DEFAULT ''",
         'fecha' => "DATETIME DEFAULT CURRENT_TIMESTAMP",
-        'cantidad' => "DECIMAL(10,2) DEFAULT 1",
-        'total' => "DECIMAL(10,2) DEFAULT 0",
-        'total_utilidad' => "DECIMAL(10,2) DEFAULT 0",
+        'cantidad' => "DECIMAL(12,3) DEFAULT 1",
+        'total' => "DECIMAL(12,2) DEFAULT 0",
+        'total_utilidad' => "DECIMAL(12,2) DEFAULT 0",
         'id_cliente' => "INT DEFAULT NULL",
         'metodo_pago' => "VARCHAR(50) DEFAULT 'Efectivo'",
         'sucursal' => "VARCHAR(50) DEFAULT 'Norte'",
         'raw_data' => "LONGTEXT DEFAULT NULL"
     ]);
 
-    // G. TABLA MOVIMIENTOS_INVENTARIO (KARDEX)
-    $db->query("CREATE TABLE IF NOT EXISTS movimientos_inventario (
-        id VARCHAR(100) PRIMARY KEY,
-        product_id VARCHAR(100) NOT NULL,
-        product_name VARCHAR(255) DEFAULT '',
-        type VARCHAR(50) DEFAULT 'AJUSTE',
-        quantity DECIMAL(10,2) DEFAULT 0,
-        previous_stock DECIMAL(10,2) DEFAULT 0,
-        new_stock DECIMAL(10,2) DEFAULT 0,
-        date DATETIME DEFAULT CURRENT_TIMESTAMP,
-        user_name VARCHAR(100) DEFAULT 'Admin',
-        notes TEXT DEFAULT NULL,
-        sucursal VARCHAR(50) DEFAULT 'Norte',
-        raw_data LONGTEXT DEFAULT NULL
+    // H. TABLA MOVIMIENTOS_INVENTARIO (KARDEX)
+    $db->query("CREATE TABLE IF NOT EXISTS `movimientos_inventario` (
+        `id` VARCHAR(100) PRIMARY KEY,
+        `product_id` VARCHAR(100) NOT NULL,
+        `product_name` VARCHAR(255) DEFAULT '',
+        `type` VARCHAR(50) DEFAULT 'AJUSTE',
+        `quantity` DECIMAL(12,3) DEFAULT 0,
+        `previous_stock` DECIMAL(12,3) DEFAULT 0,
+        `new_stock` DECIMAL(12,3) DEFAULT 0,
+        `date` DATETIME DEFAULT CURRENT_TIMESTAMP,
+        `user_name` VARCHAR(100) DEFAULT 'Admin',
+        `notes` TEXT DEFAULT NULL,
+        `sucursal` VARCHAR(50) DEFAULT 'Norte',
+        `raw_data` LONGTEXT DEFAULT NULL
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;");
 
-    // H. TABLA SESIONES_CAJA
-    $db->query("CREATE TABLE IF NOT EXISTS sesiones_caja (
-        id VARCHAR(100) PRIMARY KEY,
-        start_time DATETIME DEFAULT CURRENT_TIMESTAMP,
-        end_time DATETIME DEFAULT NULL,
-        opened_by VARCHAR(100) DEFAULT 'Admin',
-        initial_cash DECIMAL(10,2) DEFAULT 0,
-        final_cash DECIMAL(10,2) DEFAULT NULL,
-        status VARCHAR(50) DEFAULT 'Abierta',
-        sales_total DECIMAL(10,2) DEFAULT 0,
-        expenses_total DECIMAL(10,2) DEFAULT 0,
-        expected_final_cash DECIMAL(10,2) DEFAULT 0,
-        sucursal VARCHAR(50) DEFAULT 'Norte',
-        raw_data LONGTEXT DEFAULT NULL
+    // I. TABLA SESIONES_CAJA
+    $db->query("CREATE TABLE IF NOT EXISTS `sesiones_caja` (
+        `id` VARCHAR(100) PRIMARY KEY,
+        `start_time` DATETIME DEFAULT CURRENT_TIMESTAMP,
+        `end_time` DATETIME DEFAULT NULL,
+        `opened_by` VARCHAR(100) DEFAULT 'Admin',
+        `initial_cash` DECIMAL(12,2) DEFAULT 0,
+        `final_cash` DECIMAL(12,2) DEFAULT NULL,
+        `status` VARCHAR(50) DEFAULT 'Abierta',
+        `sales_total` DECIMAL(12,2) DEFAULT 0,
+        `expenses_total` DECIMAL(12,2) DEFAULT 0,
+        `expected_final_cash` DECIMAL(12,2) DEFAULT 0,
+        `sucursal` VARCHAR(50) DEFAULT 'Norte',
+        `raw_data` LONGTEXT DEFAULT NULL
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;");
 
-    // I. TABLA GASTOS_CAJA
-    $db->query("CREATE TABLE IF NOT EXISTS gastos_caja (
-        id VARCHAR(100) PRIMARY KEY,
-        description VARCHAR(255) NOT NULL,
-        amount DECIMAL(10,2) DEFAULT 0,
-        category VARCHAR(100) DEFAULT 'General',
-        date DATETIME DEFAULT CURRENT_TIMESTAMP,
-        user_name VARCHAR(100) DEFAULT 'Admin',
-        sucursal VARCHAR(50) DEFAULT 'Norte',
-        raw_data LONGTEXT DEFAULT NULL
+    // J. TABLA GASTOS_CAJA
+    $db->query("CREATE TABLE IF NOT EXISTS `gastos_caja` (
+        `id` VARCHAR(100) PRIMARY KEY,
+        `description` VARCHAR(255) NOT NULL,
+        `amount` DECIMAL(12,2) DEFAULT 0,
+        `category` VARCHAR(100) DEFAULT 'General',
+        `date` DATETIME DEFAULT CURRENT_TIMESTAMP,
+        `user_name` VARCHAR(100) DEFAULT 'Admin',
+        `sucursal` VARCHAR(50) DEFAULT 'Norte',
+        `raw_data` LONGTEXT DEFAULT NULL
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;");
 
-    // J. TABLA ORDENES_COMPRA
-    $db->query("CREATE TABLE IF NOT EXISTS ordenes_compra (
-        id VARCHAR(100) PRIMARY KEY,
-        supplier_id VARCHAR(100) DEFAULT NULL,
-        supplier_name VARCHAR(255) DEFAULT '',
-        total DECIMAL(10,2) DEFAULT 0,
-        status VARCHAR(50) DEFAULT 'Pendiente',
-        date VARCHAR(50) DEFAULT '',
-        received_date VARCHAR(50) DEFAULT NULL,
-        payment_status VARCHAR(50) DEFAULT 'Pendiente',
-        sucursal VARCHAR(50) DEFAULT 'Norte',
-        raw_data LONGTEXT DEFAULT NULL
+    // K. TABLA ORDENES_COMPRA
+    $db->query("CREATE TABLE IF NOT EXISTS `ordenes_compra` (
+        `id` VARCHAR(100) PRIMARY KEY,
+        `supplier_id` VARCHAR(100) DEFAULT NULL,
+        `supplier_name` VARCHAR(255) DEFAULT '',
+        `total` DECIMAL(12,2) DEFAULT 0,
+        `status` VARCHAR(50) DEFAULT 'Pendiente',
+        `date` VARCHAR(50) DEFAULT '',
+        `received_date` VARCHAR(50) DEFAULT NULL,
+        `payment_status` VARCHAR(50) DEFAULT 'Pendiente',
+        `sucursal` VARCHAR(50) DEFAULT 'Norte',
+        `raw_data` LONGTEXT DEFAULT NULL
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;");
 
-    // K. TABLA ROLES_PERMISOS
-    $db->query("CREATE TABLE IF NOT EXISTS roles_permisos (
-        id INT AUTO_INCREMENT PRIMARY KEY,
-        rol VARCHAR(50) NOT NULL UNIQUE,
-        pos TINYINT(1) DEFAULT 1,
-        inventory TINYINT(1) DEFAULT 0,
-        customers TINYINT(1) DEFAULT 0,
-        purchases TINYINT(1) DEFAULT 0,
-        reports TINYINT(1) DEFAULT 0,
-        security TINYINT(1) DEFAULT 0,
-        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+    // L. TABLA CUENTAS_BANCARIAS
+    $db->query("CREATE TABLE IF NOT EXISTS `cuentas_bancarias` (
+        `id` VARCHAR(100) PRIMARY KEY,
+        `bank_name` VARCHAR(100) NOT NULL,
+        `account_number` VARCHAR(100) DEFAULT '',
+        `type` VARCHAR(50) DEFAULT 'Cheques',
+        `balance` DECIMAL(14,2) DEFAULT 0,
+        `initial_balance` DECIMAL(14,2) DEFAULT 0,
+        `currency` VARCHAR(10) DEFAULT 'MXN',
+        `status` VARCHAR(50) DEFAULT 'Activo',
+        `branch` VARCHAR(50) DEFAULT 'Norte',
+        `raw_data` LONGTEXT DEFAULT NULL
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;");
 
-    // L. TABLA MAZAL_APP_STATE
-    $db->query("CREATE TABLE IF NOT EXISTS mazal_app_state (
-        id INT PRIMARY KEY,
-        branch VARCHAR(50) NOT NULL,
-        json_data LONGTEXT NOT NULL,
-        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+    // M. TABLA MOVIMIENTOS_BANCARIOS
+    $db->query("CREATE TABLE IF NOT EXISTS `movimientos_bancarios` (
+        `id` VARCHAR(100) PRIMARY KEY,
+        `bank_account_id` VARCHAR(100) NOT NULL,
+        `type` VARCHAR(50) NOT NULL,
+        `amount` DECIMAL(14,2) NOT NULL DEFAULT 0,
+        `date` DATETIME DEFAULT CURRENT_TIMESTAMP,
+        `description` VARCHAR(255) DEFAULT '',
+        `category` VARCHAR(100) DEFAULT 'General',
+        `reference` VARCHAR(100) DEFAULT '',
+        `user_name` VARCHAR(100) DEFAULT 'Admin',
+        `raw_data` LONGTEXT DEFAULT NULL
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;");
 
-    // M. ASEGURAR ADMINISTRADOR GENERAL MAESTRO (solo si no existe)
-    $db->query("INSERT INTO usuarios (usuario, nombrecompleto, password, rol) 
-                SELECT 'admin', 'Administrador General', 'admin030114', 'administrador' 
-                WHERE NOT EXISTS (SELECT 1 FROM usuarios WHERE usuario = 'admin');");
+    // N. TABLA PRESUPUESTOS
+    $db->query("CREATE TABLE IF NOT EXISTS `presupuestos` (
+        `id` VARCHAR(100) PRIMARY KEY,
+        `branch` VARCHAR(50) DEFAULT 'Norte',
+        `department` VARCHAR(100) DEFAULT 'General',
+        `category` VARCHAR(100) DEFAULT 'Operativo',
+        `amount` DECIMAL(14,2) DEFAULT 0,
+        `month` INT DEFAULT 1,
+        `year` INT DEFAULT 2026,
+        `notes` TEXT DEFAULT NULL,
+        `raw_data` LONGTEXT DEFAULT NULL
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;");
+
+    // O. TABLA CENTROS_COSTOS
+    $db->query("CREATE TABLE IF NOT EXISTS `centros_costos` (
+        `id` VARCHAR(100) PRIMARY KEY,
+        `code` VARCHAR(50) NOT NULL,
+        `name` VARCHAR(255) NOT NULL,
+        `description` VARCHAR(255) DEFAULT '',
+        `department` VARCHAR(100) DEFAULT 'Operaciones',
+        `status` VARCHAR(50) DEFAULT 'Activo',
+        `raw_data` LONGTEXT DEFAULT NULL
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;");
+
+    // P. TABLA VEHICULOS
+    $db->query("CREATE TABLE IF NOT EXISTS `vehiculos` (
+        `id` VARCHAR(100) PRIMARY KEY,
+        `plates` VARCHAR(50) NOT NULL,
+        `model` VARCHAR(100) DEFAULT '',
+        `brand` VARCHAR(100) DEFAULT '',
+        `driver` VARCHAR(100) DEFAULT '',
+        `mileage` DECIMAL(12,1) DEFAULT 0,
+        `insurance_expiry` VARCHAR(50) DEFAULT '',
+        `status` VARCHAR(50) DEFAULT 'Activo',
+        `raw_data` LONGTEXT DEFAULT NULL
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;");
+
+    // Q. TABLA AUDITORIA
+    $db->query("CREATE TABLE IF NOT EXISTS `auditoria` (
+        `id` VARCHAR(100) PRIMARY KEY,
+        `user_name` VARCHAR(100) DEFAULT 'Admin',
+        `role` VARCHAR(50) DEFAULT 'Administrador',
+        `action` VARCHAR(100) NOT NULL,
+        `details` TEXT DEFAULT NULL,
+        `timestamp` DATETIME DEFAULT CURRENT_TIMESTAMP,
+        `ip` VARCHAR(50) DEFAULT '127.0.0.1',
+        `branch` VARCHAR(50) DEFAULT 'Norte'
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;");
+
+    // R. TABLA SUCURSALES
+    $db->query("CREATE TABLE IF NOT EXISTS `sucursales` (
+        `id` VARCHAR(100) PRIMARY KEY,
+        `name` VARCHAR(100) NOT NULL,
+        `code` VARCHAR(50) NOT NULL,
+        `address` VARCHAR(255) DEFAULT '',
+        `phone` VARCHAR(50) DEFAULT '',
+        `manager` VARCHAR(100) DEFAULT 'Administrador',
+        `status` VARCHAR(50) DEFAULT 'Activo',
+        `is_central` TINYINT(1) DEFAULT 0
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;");
+
+    // S. TABLA INVENTARIO_SUCURSAL
+    $db->query("CREATE TABLE IF NOT EXISTS `inventario_sucursal` (
+        `id` VARCHAR(100) PRIMARY KEY,
+        `product_id` VARCHAR(100) NOT NULL,
+        `product_name` VARCHAR(255) DEFAULT '',
+        `code` VARCHAR(100) DEFAULT '',
+        `barcode` VARCHAR(100) DEFAULT '',
+        `sucursal` VARCHAR(50) NOT NULL,
+        `stock` DECIMAL(12,3) DEFAULT 0,
+        `stock_min` DECIMAL(12,3) DEFAULT 0,
+        `stock_max` DECIMAL(12,3) DEFAULT 100,
+        `cost` DECIMAL(12,2) DEFAULT 0,
+        `price_min` DECIMAL(12,2) DEFAULT 0,
+        `raw_data` LONGTEXT DEFAULT NULL,
+        `updated_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;");
+
+    // T. LOGÍSTICA & DISTRIBUCIÓN
+    $db->query("CREATE TABLE IF NOT EXISTS `transferencias` (
+        `id` VARCHAR(100) PRIMARY KEY,
+        `code` VARCHAR(50) NOT NULL,
+        `date` DATETIME DEFAULT CURRENT_TIMESTAMP,
+        `user` VARCHAR(100) DEFAULT 'Admin',
+        `source_branch` VARCHAR(50) DEFAULT 'Norte',
+        `destination_branch` VARCHAR(50) DEFAULT 'Sur',
+        `status` VARCHAR(50) DEFAULT 'Completada',
+        `notes` TEXT DEFAULT NULL,
+        `raw_data` LONGTEXT DEFAULT NULL
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;");
+
+    $db->query("CREATE TABLE IF NOT EXISTS `solicitudes_reabastecimiento` (
+        `id` VARCHAR(100) PRIMARY KEY,
+        `code` VARCHAR(50) NOT NULL,
+        `branch` VARCHAR(50) NOT NULL,
+        `request_date` DATETIME DEFAULT CURRENT_TIMESTAMP,
+        `requested_by` VARCHAR(100) DEFAULT 'Admin',
+        `status` VARCHAR(50) DEFAULT 'Pendiente',
+        `notes` TEXT DEFAULT NULL,
+        `raw_data` LONGTEXT DEFAULT NULL
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;");
+
+    $db->query("CREATE TABLE IF NOT EXISTS `distribuciones` (
+        `id` VARCHAR(100) PRIMARY KEY,
+        `code` VARCHAR(50) NOT NULL,
+        `date` DATETIME DEFAULT CURRENT_TIMESTAMP,
+        `user` VARCHAR(100) DEFAULT 'Admin',
+        `total_items` INT DEFAULT 0,
+        `total_units` DECIMAL(12,3) DEFAULT 0,
+        `status` VARCHAR(50) DEFAULT 'Completada',
+        `notes` TEXT DEFAULT NULL,
+        `raw_data` LONGTEXT DEFAULT NULL
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;");
+
+    // U. TABLA ROLES_PERMISOS
+    $db->query("CREATE TABLE IF NOT EXISTS `roles_permisos` (
+        `id` INT AUTO_INCREMENT PRIMARY KEY,
+        `rol` VARCHAR(50) NOT NULL UNIQUE,
+        `pos` TINYINT(1) DEFAULT 1,
+        `inventory` TINYINT(1) DEFAULT 0,
+        `customers` TINYINT(1) DEFAULT 0,
+        `purchases` TINYINT(1) DEFAULT 0,
+        `reports` TINYINT(1) DEFAULT 0,
+        `security` TINYINT(1) DEFAULT 0,
+        `updated_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;");
+
+    // V. TABLA MAZAL_APP_STATE
+    $db->query("CREATE TABLE IF NOT EXISTS `mazal_app_state` (
+        `id` INT PRIMARY KEY,
+        `branch` VARCHAR(50) NOT NULL,
+        `json_data` LONGTEXT NOT NULL,
+        `updated_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;");
+
+    // W. ASEGURAR ADMINISTRADOR GENERAL MAESTRO
+    $db->query("INSERT INTO `usuarios` (`usuario`, `nombrecompleto`, `password`, `rol`, `status`) 
+                SELECT 'admin', 'Administrador General', 'admin030114', 'administrador', 'Activo' 
+                WHERE NOT EXISTS (SELECT 1 FROM `usuarios` WHERE `usuario` = 'admin');");
+
+    // X. ASEGURAR SUCURSALES BASE
+    $db->query("INSERT INTO `sucursales` (`id`, `name`, `code`, `address`, `manager`, `status`, `is_central`)
+                SELECT 'SUC_NORTE', 'Norte', 'SUC-01', 'Blvd. Industrial #450, Norte', 'Administrador', 'Activo', 1
+                WHERE NOT EXISTS (SELECT 1 FROM `sucursales` WHERE `id` = 'SUC_NORTE');");
+    $db->query("INSERT INTO `sucursales` (`id`, `name`, `code`, `address`, `manager`, `status`, `is_central`)
+                SELECT 'SUC_SUR', 'Sur', 'SUC-02', 'Calz. de las Luces #78, Sur', 'Administrador', 'Activo', 0
+                WHERE NOT EXISTS (SELECT 1 FROM `sucursales` WHERE `id` = 'SUC_SUR');");
 }
 
 // Ejecutar auto-migración garantizada en cada arranque
@@ -362,7 +534,9 @@ autoMigrateSchema($mysqli, $dbname);
 
 $action = isset($_GET['action']) ? $_GET['action'] : (isset($_POST['action']) ? $_POST['action'] : (isset($postData['action']) ? $postData['action'] : ''));
 
+// ------------------------------------------------------------------------------
 // 0. LOGIN & AUTENTICACIÓN (Server-Side)
+// ------------------------------------------------------------------------------
 if ($action === 'login' && $_SERVER['REQUEST_METHOD'] === 'POST') {
     $userIn = isset($postData['username']) ? trim($postData['username']) : (isset($postData['usuario']) ? trim($postData['usuario']) : '');
     $passIn = isset($postData['password']) ? trim($postData['password']) : '';
@@ -372,7 +546,7 @@ if ($action === 'login' && $_SERVER['REQUEST_METHOD'] === 'POST') {
         exit;
     }
 
-    $stmt = $mysqli->prepare("SELECT id, usuario, nombrecompleto, password, rol FROM usuarios WHERE usuario = ?");
+    $stmt = $mysqli->prepare("SELECT id, usuario, nombrecompleto, password, rol, status FROM usuarios WHERE usuario = ?");
     $stmt->bind_param("s", $userIn);
     $stmt->execute();
     $res = $stmt->get_result();
@@ -390,6 +564,11 @@ if ($action === 'login' && $_SERVER['REQUEST_METHOD'] === 'POST') {
         }
 
         if ($isValid) {
+            // Actualizar último login
+            $now = date("Y-m-d H:i:s");
+            $uId = $row['id'];
+            $mysqli->query("UPDATE usuarios SET last_login = '{$now}' WHERE id = {$uId}");
+
             echo json_encode([
                 "success" => true,
                 "message" => "Acceso autorizado.",
@@ -410,32 +589,26 @@ if ($action === 'login' && $_SERVER['REQUEST_METHOD'] === 'POST') {
     exit;
 }
 
+// ------------------------------------------------------------------------------
 // 1. PING & HEALTH CHECK
+// ------------------------------------------------------------------------------
 if ($action === 'ping') {
-    $resProds = $mysqli->query("SELECT count(*) as total FROM productos");
-    $totalProds = ($resProds && $row = $resProds->fetch_assoc()) ? (int)$row['total'] : 0;
-
-    $resVentas = $mysqli->query("SELECT count(*) as total FROM ventas");
-    $totalVentas = ($resVentas && $row = $resVentas->fetch_assoc()) ? (int)$row['total'] : 0;
-
-    $resUsers = $mysqli->query("SELECT count(*) as total FROM usuarios");
-    $totalUsers = ($resUsers && $rowU = $resUsers->fetch_assoc()) ? (int)$rowU['total'] : 0;
-
-    $resCust = $mysqli->query("SELECT count(*) as total FROM clientes");
-    $totalCust = ($resCust && $rowC = $resCust->fetch_assoc()) ? (int)$rowC['total'] : 0;
-
-    $resProv = $mysqli->query("SELECT count(*) as total FROM proveedor");
-    $totalProv = ($resProv && $rowP = $resProv->fetch_assoc()) ? (int)$rowP['total'] : 0;
+    $count = function($tbl) use ($mysqli) {
+        $r = $mysqli->query("SELECT count(*) as t FROM `{$tbl}`");
+        return ($r && $row = $r->fetch_assoc()) ? (int)$row['t'] : 0;
+    };
 
     echo json_encode([
         "success" => true,
         "branch" => $branch,
         "database" => $dbname,
-        "total_productos" => $totalProds,
-        "total_ventas" => $totalVentas,
-        "total_usuarios" => $totalUsers,
-        "total_clientes" => $totalCust,
-        "total_proveedores" => $totalProv,
+        "total_productos" => $count('productos'),
+        "total_ventas" => $count('ventas'),
+        "total_usuarios" => $count('usuarios'),
+        "total_clientes" => $count('clientes'),
+        "total_proveedores" => $count('proveedor'),
+        "total_bancos" => $count('cuentas_bancarias'),
+        "total_gastos" => $count('gastos_caja'),
         "server" => "Apache / XAMPP",
         "status" => "online",
         "timestamp" => date("Y-m-d H:i:s")
@@ -443,7 +616,9 @@ if ($action === 'ping') {
     exit;
 }
 
+// ------------------------------------------------------------------------------
 // 2. OBTENER PERMISOS
+// ------------------------------------------------------------------------------
 if ($action === 'get_permissions') {
     $res = $mysqli->query("SELECT * FROM roles_permisos");
     $permissions = [];
@@ -452,7 +627,7 @@ if ($action === 'get_permissions') {
         "Administrador" => ["pos" => true, "inventory" => true, "customers" => true, "purchases" => true, "reports" => true, "security" => true],
         "Gerente" => ["pos" => true, "inventory" => true, "customers" => true, "purchases" => true, "reports" => true, "security" => false],
         "Cajero" => ["pos" => true, "inventory" => false, "customers" => true, "purchases" => false, "reports" => false, "security" => false],
-        "Almacenista" => ["pos" => false, "inventory" => true, "customers" => false, "purchases" => false, "reports" => false, "security" => false],
+        "Almacenista" => ["pos" => false, "inventory" => true, "customers" => false, "purchases" => true, "reports" => false, "security" => false],
         "Compras" => ["pos" => false, "inventory" => true, "customers" => false, "purchases" => true, "reports" => false, "security" => false],
         "Contabilidad" => ["pos" => false, "inventory" => false, "customers" => true, "purchases" => true, "reports" => true, "security" => false],
     ];
@@ -493,7 +668,9 @@ if ($action === 'get_permissions') {
     exit;
 }
 
+// ------------------------------------------------------------------------------
 // 3. GUARDAR PERMISOS
+// ------------------------------------------------------------------------------
 if ($action === 'save_permissions' && $_SERVER['REQUEST_METHOD'] === 'POST') {
     if (!$postData || !isset($postData['permissions'])) {
         echo json_encode(["success" => false, "error" => "Datos de permisos no proporcionados."]);
@@ -532,7 +709,9 @@ if ($action === 'save_permissions' && $_SERVER['REQUEST_METHOD'] === 'POST') {
     exit;
 }
 
-// 4. GUARDAR ESTADO COMPLETO EN SQL
+// ------------------------------------------------------------------------------
+// 4. GUARDAR ESTADO COMPLETO EN SQL (mazal_app_state + Sincronización Nativa)
+// ------------------------------------------------------------------------------
 if ($action === 'save_state' && $_SERVER['REQUEST_METHOD'] === 'POST') {
     $id = 1;
     if ($branch === 'Sur') $id = 2;
@@ -544,7 +723,7 @@ if ($action === 'save_state' && $_SERVER['REQUEST_METHOD'] === 'POST') {
     $stmt->bind_param("iss", $id, $branch, $rawInput);
     $stmt->execute();
 
-    // 4.2 Sincronizar clientes con la tabla nativa de MySQL
+    // 4.2 Sincronizar clientes
     if ($postData && isset($postData['customers']) && is_array($postData['customers'])) {
         foreach ($postData['customers'] as $c) {
             $rawId = isset($c['id']) ? (string)$c['id'] : '';
@@ -556,23 +735,26 @@ if ($action === 'save_state' && $_SERVER['REQUEST_METHOD'] === 'POST') {
             $cDir = isset($c['address']) ? trim($c['address']) : (isset($c['direccion']) ? trim($c['direccion']) : '');
             $cRfc = isset($c['rfc']) ? trim($c['rfc']) : '';
             $cLim = isset($c['creditLimit']) ? (float)$c['creditLimit'] : 0;
+            $cDias = isset($c['creditDays']) ? (int)$c['creditDays'] : 30;
+            $cNotas = isset($c['notes']) ? trim($c['notes']) : '';
+            $cStat = isset($c['status']) ? trim($c['status']) : 'Activo';
             $cRaw = json_encode($c);
 
             if (!empty($cName)) {
                 if ($cId > 0) {
-                    $stmtC = $mysqli->prepare("INSERT INTO clientes (id_cliente, nombre_c, tel, cant_ade, email, direccion, rfc, limite_credito, raw_data) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE nombre_c=VALUES(nombre_c), tel=VALUES(tel), cant_ade=VALUES(cant_ade), email=VALUES(email), direccion=VALUES(direccion), rfc=VALUES(rfc), limite_credito=VALUES(limite_credito), raw_data=VALUES(raw_data)");
-                    $stmtC->bind_param("issdsssds", $cId, $cName, $cTel, $cDebt, $cEmail, $cDir, $cRfc, $cLim, $cRaw);
+                    $stmtC = $mysqli->prepare("INSERT INTO clientes (id_cliente, nombre_c, tel, cant_ade, email, direccion, rfc, limite_credito, dias_credito, notas, status, raw_data) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE nombre_c=VALUES(nombre_c), tel=VALUES(tel), cant_ade=VALUES(cant_ade), email=VALUES(email), direccion=VALUES(direccion), rfc=VALUES(rfc), limite_credito=VALUES(limite_credito), dias_credito=VALUES(dias_credito), notas=VALUES(notas), status=VALUES(status), raw_data=VALUES(raw_data)");
+                    $stmtC->bind_param("issdsssdisss", $cId, $cName, $cTel, $cDebt, $cEmail, $cDir, $cRfc, $cLim, $cDias, $cNotas, $cStat, $cRaw);
                     $stmtC->execute();
                 } else {
-                    $stmtC = $mysqli->prepare("INSERT INTO clientes (nombre_c, tel, cant_ade, email, direccion, rfc, limite_credito, raw_data) VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
-                    $stmtC->bind_param("ssdsssds", $cName, $cTel, $cDebt, $cEmail, $cDir, $cRfc, $cLim, $cRaw);
+                    $stmtC = $mysqli->prepare("INSERT INTO clientes (nombre_c, tel, cant_ade, email, direccion, rfc, limite_credito, dias_credito, notas, status, raw_data) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+                    $stmtC->bind_param("ssdsssdisss", $cName, $cTel, $cDebt, $cEmail, $cDir, $cRfc, $cLim, $cDias, $cNotas, $cStat, $cRaw);
                     $stmtC->execute();
                 }
             }
         }
     }
 
-    // 4.3 Sincronizar proveedores con la tabla nativa de MySQL
+    // 4.3 Sincronizar proveedores
     if ($postData && isset($postData['suppliers']) && is_array($postData['suppliers'])) {
         foreach ($postData['suppliers'] as $s) {
             $rawId = isset($s['id']) ? (string)$s['id'] : '';
@@ -581,23 +763,27 @@ if ($action === 'save_state' && $_SERVER['REQUEST_METHOD'] === 'POST') {
             $sTel = isset($s['phone']) ? trim($s['phone']) : (isset($s['tel']) ? trim($s['tel']) : '');
             $sEmpresa = isset($s['company']) ? trim($s['company']) : (isset($s['empresa']) ? trim($s['empresa']) : $sName);
             $sAdeudo = isset($s['outstandingBalance']) ? (float)$s['outstandingBalance'] : (isset($s['adeudo']) ? (float)$s['adeudo'] : 0);
+            $sEmail = isset($s['email']) ? trim($s['email']) : '';
+            $sDir = isset($s['address']) ? trim($s['address']) : (isset($s['direccion']) ? trim($s['direccion']) : '');
+            $sRfc = isset($s['rfc']) ? trim($s['rfc']) : '';
+            $sContacto = isset($s['contact']) ? trim($s['contact']) : (isset($s['contacto']) ? trim($s['contacto']) : '');
             $sRaw = json_encode($s);
 
             if (!empty($sName)) {
                 if ($sId > 0) {
-                    $stmtS = $mysqli->prepare("INSERT INTO proveedor (id, nombre, tel, empresa, adeudo, raw_data) VALUES (?, ?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE nombre=VALUES(nombre), tel=VALUES(tel), empresa=VALUES(empresa), adeudo=VALUES(adeudo), raw_data=VALUES(raw_data)");
-                    $stmtS->bind_param("isssds", $sId, $sName, $sTel, $sEmpresa, $sAdeudo, $sRaw);
+                    $stmtS = $mysqli->prepare("INSERT INTO proveedor (id, nombre, tel, empresa, adeudo, email, direccion, rfc, contacto, raw_data) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE nombre=VALUES(nombre), tel=VALUES(tel), empresa=VALUES(empresa), adeudo=VALUES(adeudo), email=VALUES(email), direccion=VALUES(direccion), rfc=VALUES(rfc), contacto=VALUES(contacto), raw_data=VALUES(raw_data)");
+                    $stmtS->bind_param("isssdsssss", $sId, $sName, $sTel, $sEmpresa, $sAdeudo, $sEmail, $sDir, $sRfc, $sContacto, $sRaw);
                     $stmtS->execute();
                 } else {
-                    $stmtS = $mysqli->prepare("INSERT INTO proveedor (nombre, tel, empresa, adeudo, raw_data) VALUES (?, ?, ?, ?, ?)");
-                    $stmtS->bind_param("sssds", $sName, $sTel, $sEmpresa, $sAdeudo, $sRaw);
+                    $stmtS = $mysqli->prepare("INSERT INTO proveedor (nombre, tel, empresa, adeudo, email, direccion, rfc, contacto, raw_data) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)");
+                    $stmtS->bind_param("sssdsssss", $sName, $sTel, $sEmpresa, $sAdeudo, $sEmail, $sDir, $sRfc, $sContacto, $sRaw);
                     $stmtS->execute();
                 }
             }
         }
     }
 
-    // 4.4 Sincronizar productos y precios con la tabla nativa de MySQL
+    // 4.4 Sincronizar productos y precios
     if ($postData && isset($postData['products']) && is_array($postData['products'])) {
         foreach ($postData['products'] as $p) {
             $rawId = isset($p['id']) ? (string)$p['id'] : '';
@@ -606,26 +792,35 @@ if ($action === 'save_state' && $_SERVER['REQUEST_METHOD'] === 'POST') {
             $pName = isset($p['name']) ? trim($p['name']) : (isset($p['nom_p']) ? trim($p['nom_p']) : '');
             $pDes = isset($p['subcategory']) ? trim($p['subcategory']) : (isset($p['des']) ? trim($p['des']) : 'entero');
             $pCant = isset($p['stock']) ? (float)$p['stock'] : (isset($p['cant']) ? (float)$p['cant'] : 0);
+            $pCat = isset($p['category']) ? trim($p['category']) : (isset($p['categoria']) ? trim($p['categoria']) : 'General');
+            $pMarca = isset($p['brand']) ? trim($p['brand']) : (isset($p['marca']) ? trim($p['marca']) : 'MAZAL');
+            $pUnidad = isset($p['unit']) ? trim($p['unit']) : (isset($p['unidad']) ? trim($p['unidad']) : 'pz');
+            $pStkMin = isset($p['stockMin']) ? (float)$p['stockMin'] : 5;
+            $pStkMax = isset($p['stockMax']) ? (float)$p['stockMax'] : 100;
+            $pUbic = isset($p['location']) ? trim($p['location']) : 'Bodega Principal';
+            $pImg = isset($p['imageUrl']) ? trim($p['imageUrl']) : (isset($p['imagen']) ? trim($p['imagen']) : '');
+            $pProv = isset($p['supplierId']) ? trim($p['supplierId']) : (isset($p['proveedor_id']) ? trim($p['proveedor_id']) : 'PROV_01');
+            $pSucursal = isset($p['sucursal']) ? trim($p['sucursal']) : $branch;
 
-            $pMayoreo = isset($p['priceMax']) ? round((float)$p['priceMax'], 2) : (isset($p['mayoreo']) ? round((float)$p['mayoreo'], 2) : 0);
-            $pMedio = isset($p['priceMed']) ? round((float)$p['priceMed'], 2) : (isset($p['medio']) ? round((float)$p['medio'], 2) : 0);
-            $pMenudeo = isset($p['priceMin']) ? round((float)$p['priceMin'], 2) : (isset($p['menudeo']) ? round((float)$p['menudeo'], 2) : 0);
-            $pUnitario = isset($p['cost']) ? strval(round((float)$p['cost'], 2)) : (isset($p['unitario']) ? strval(round((float)$p['unitario'], 2)) : '0');
+            $pMayoreo = isset($p['priceMax']) ? round((float)$p['priceMax'], 2) : 0;
+            $pMedio = isset($p['priceMed']) ? round((float)$p['priceMed'], 2) : 0;
+            $pMenudeo = isset($p['priceMin']) ? round((float)$p['priceMin'], 2) : 0;
+            $pUnitario = isset($p['cost']) ? strval(round((float)$p['cost'], 2)) : '0';
             $pEspecial = isset($p['priceSpecial']) ? round((float)$p['priceSpecial'], 2) : 0;
             $pRaw = json_encode($p);
 
             if (!empty($pName)) {
                 if ($pId > 0) {
-                    $stmtP = $mysqli->prepare("INSERT INTO productos (id, clave, nom_p, des, cant, raw_data) VALUES (?, ?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE clave=VALUES(clave), nom_p=VALUES(nom_p), des=VALUES(des), cant=VALUES(cant), raw_data=VALUES(raw_data)");
-                    $stmtP->bind_param("isssds", $pId, $pClave, $pName, $pDes, $pCant, $pRaw);
+                    $stmtP = $mysqli->prepare("INSERT INTO productos (id, clave, nom_p, des, cant, categoria, marca, unidad, stock_min, stock_max, ubicacion, imagen, proveedor_id, sucursal, raw_data) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE clave=VALUES(clave), nom_p=VALUES(nom_p), des=VALUES(des), cant=VALUES(cant), categoria=VALUES(categoria), marca=VALUES(marca), unidad=VALUES(unidad), stock_min=VALUES(stock_min), stock_max=VALUES(stock_max), ubicacion=VALUES(ubicacion), imagen=VALUES(imagen), proveedor_id=VALUES(proveedor_id), sucursal=VALUES(sucursal), raw_data=VALUES(raw_data)");
+                    $stmtP->bind_param("isssddsssssssss", $pId, $pClave, $pName, $pDes, $pCant, $pCat, $pMarca, $pUnidad, $pStkMin, $pStkMax, $pUbic, $pImg, $pProv, $pSucursal, $pRaw);
                     $stmtP->execute();
 
                     $stmtPr = $mysqli->prepare("INSERT INTO precios (id_producto, mayoreo, medio, menudeo, Unitario, precio_especial) VALUES (?, ?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE mayoreo=VALUES(mayoreo), medio=VALUES(medio), menudeo=VALUES(menudeo), Unitario=VALUES(Unitario), precio_especial=VALUES(precio_especial)");
                     $stmtPr->bind_param("idddsd", $pId, $pMayoreo, $pMedio, $pMenudeo, $pUnitario, $pEspecial);
                     $stmtPr->execute();
                 } else {
-                    $stmtP = $mysqli->prepare("INSERT INTO productos (clave, nom_p, des, cant, raw_data) VALUES (?, ?, ?, ?, ?)");
-                    $stmtP->bind_param("sssds", $pClave, $pName, $pDes, $pCant, $pRaw);
+                    $stmtP = $mysqli->prepare("INSERT INTO productos (clave, nom_p, des, cant, categoria, marca, unidad, stock_min, stock_max, ubicacion, imagen, proveedor_id, sucursal, raw_data) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+                    $stmtP->bind_param("sssddsssssssss", $pClave, $pName, $pDes, $pCant, $pCat, $pMarca, $pUnidad, $pStkMin, $pStkMax, $pUbic, $pImg, $pProv, $pSucursal, $pRaw);
                     $stmtP->execute();
                     $newProdId = $mysqli->insert_id;
                     if ($newProdId > 0) {
@@ -638,7 +833,7 @@ if ($action === 'save_state' && $_SERVER['REQUEST_METHOD'] === 'POST') {
         }
     }
 
-    // 4.5 Sincronizar ventas con la tabla nativa de MySQL
+    // 4.5 Sincronizar ventas
     if ($postData && isset($postData['sales']) && is_array($postData['sales'])) {
         foreach ($postData['sales'] as $v) {
             $rawId = isset($v['id']) ? (string)$v['id'] : '';
@@ -678,7 +873,9 @@ if ($action === 'save_state' && $_SERVER['REQUEST_METHOD'] === 'POST') {
     exit;
 }
 
+// ------------------------------------------------------------------------------
 // 5. CARGAR ESTADO DESDE SQL
+// ------------------------------------------------------------------------------
 if ($action === 'get_state') {
     $id = 1;
     if ($branch === 'Sur') $id = 2;
@@ -709,39 +906,33 @@ if ($action === 'get_state') {
     exit;
 }
 
+// ------------------------------------------------------------------------------
 // 6. CARGAR TABLAS NATIVAS DE MYSQL
+// ------------------------------------------------------------------------------
 if ($action === 'get_native_tables') {
-    $usuarios = [];
-    $resU = $mysqli->query("SELECT id, usuario, nombrecompleto, password, rol FROM usuarios ORDER BY id ASC");
-    if ($resU) {
-        while ($row = $resU->fetch_assoc()) {
-            $usuarios[] = $row;
+    $fetchRows = function($sql) use ($mysqli) {
+        $rows = [];
+        $r = $mysqli->query($sql);
+        if ($r) {
+            while ($row = $r->fetch_assoc()) {
+                $rows[] = $row;
+            }
         }
-    }
+        return $rows;
+    };
 
-    $clientes = [];
-    $resC = $mysqli->query("SELECT id_cliente, nombre_c, tel, ROUND(cant_ade, 2) as cant_ade, email, direccion, rfc, limite_credito, dias_credito, notas, status, raw_data FROM clientes");
-    if ($resC) {
-        while ($row = $resC->fetch_assoc()) {
-            $clientes[] = $row;
-        }
-    }
-
-    $proveedores = [];
-    $resProv = $mysqli->query("SELECT id, nombre, tel, empresa, ROUND(adeudo, 2) as adeudo, email, direccion, rfc, contacto, raw_data FROM proveedor");
-    if ($resProv) {
-        while ($row = $resProv->fetch_assoc()) {
-            $proveedores[] = $row;
-        }
-    }
+    $usuarios = $fetchRows("SELECT id, usuario, nombrecompleto, password, rol, status, last_login FROM usuarios ORDER BY id ASC");
+    $clientes = $fetchRows("SELECT id_cliente, nombre_c, tel, ROUND(cant_ade, 2) as cant_ade, email, direccion, rfc, limite_credito, dias_credito, notas, status, raw_data FROM clientes");
+    $proveedores = $fetchRows("SELECT id, nombre, tel, empresa, ROUND(adeudo, 2) as adeudo, email, direccion, rfc, contacto, raw_data FROM proveedor");
+    $abonos = $fetchRows("SELECT * FROM abonos_credito ORDER BY date DESC LIMIT 300");
 
     $productos = [];
     $resP = $mysqli->query("
-        SELECT p.id, p.clave, p.nom_p, p.des, p.cant, p.categoria, p.marca, p.unidad, p.stock_min, p.stock_max, p.ubicacion, p.imagen, p.proveedor_id, p.raw_data,
+        SELECT p.id, p.clave, p.nom_p, p.des, p.cant, p.categoria, p.marca, p.unidad, p.stock_min, p.stock_max, p.ubicacion, p.imagen, p.proveedor_id, p.sucursal, p.raw_data,
                ROUND(COALESCE(pr.mayoreo, 0), 2) as mayoreo,
                ROUND(COALESCE(pr.medio, 0), 2) as medio,
                ROUND(COALESCE(pr.menudeo, 0), 2) as menudeo,
-               ROUND(COALESCE(CAST(pr.Unitario AS DECIMAL(10,2)), 0), 2) as unitario,
+               ROUND(COALESCE(CAST(pr.Unitario AS DECIMAL(12,2)), 0), 2) as unitario,
                ROUND(COALESCE(pr.precio_especial, 0), 2) as precio_especial
         FROM productos p
         LEFT JOIN precios pr ON p.id = pr.id_producto
@@ -764,6 +955,7 @@ if ($action === 'get_native_tables') {
                 "ubicacion" => $row['ubicacion'] ?: 'Bodega Principal',
                 "imagen" => $row['imagen'] ?: '',
                 "proveedor_id" => $row['proveedor_id'] ?: 'PROV_01',
+                "sucursal" => $row['sucursal'] ?: 'Norte',
                 "mayoreo" => round((float)$row['mayoreo'], 2),
                 "medio" => round((float)$row['medio'], 2),
                 "menudeo" => round((float)$row['menudeo'], 2),
@@ -774,37 +966,21 @@ if ($action === 'get_native_tables') {
         }
     }
 
-    $movements = [];
-    $resM = $mysqli->query("SELECT * FROM movimientos_inventario ORDER BY date DESC LIMIT 300");
-    if ($resM) {
-        while ($row = $resM->fetch_assoc()) {
-            $movements[] = $row;
-        }
-    }
-
-    $cashSessions = [];
-    $resCS = $mysqli->query("SELECT * FROM sesiones_caja ORDER BY start_time DESC LIMIT 50");
-    if ($resCS) {
-        while ($row = $resCS->fetch_assoc()) {
-            $cashSessions[] = $row;
-        }
-    }
-
-    $expenses = [];
-    $resE = $mysqli->query("SELECT * FROM gastos_caja ORDER BY date DESC LIMIT 100");
-    if ($resE) {
-        while ($row = $resE->fetch_assoc()) {
-            $expenses[] = $row;
-        }
-    }
-
-    $purchaseOrders = [];
-    $resPO = $mysqli->query("SELECT * FROM ordenes_compra ORDER BY date DESC LIMIT 100");
-    if ($resPO) {
-        while ($row = $resPO->fetch_assoc()) {
-            $purchaseOrders[] = $row;
-        }
-    }
+    $movements = $fetchRows("SELECT * FROM movimientos_inventario ORDER BY date DESC LIMIT 300");
+    $cashSessions = $fetchRows("SELECT * FROM sesiones_caja ORDER BY start_time DESC LIMIT 50");
+    $expenses = $fetchRows("SELECT * FROM gastos_caja ORDER BY date DESC LIMIT 100");
+    $purchaseOrders = $fetchRows("SELECT * FROM ordenes_compra ORDER BY date DESC LIMIT 100");
+    $bankAccounts = $fetchRows("SELECT * FROM cuentas_bancarias ORDER BY id ASC");
+    $bankMovements = $fetchRows("SELECT * FROM movimientos_bancarios ORDER BY date DESC LIMIT 200");
+    $budgets = $fetchRows("SELECT * FROM presupuestos ORDER BY id ASC");
+    $costCenters = $fetchRows("SELECT * FROM centros_costos ORDER BY id ASC");
+    $vehicles = $fetchRows("SELECT * FROM vehiculos ORDER BY id ASC");
+    $auditLogs = $fetchRows("SELECT * FROM auditoria ORDER BY timestamp DESC LIMIT 200");
+    $branches = $fetchRows("SELECT * FROM sucursales ORDER BY id ASC");
+    $branchInventory = $fetchRows("SELECT * FROM inventario_sucursal ORDER BY id ASC");
+    $transfers = $fetchRows("SELECT * FROM transferencias ORDER BY date DESC LIMIT 100");
+    $replenishments = $fetchRows("SELECT * FROM solicitudes_reabastecimiento ORDER BY request_date DESC LIMIT 100");
+    $distributions = $fetchRows("SELECT * FROM distribuciones ORDER BY date DESC LIMIT 100");
 
     $totalVentas = 0;
     $resV = $mysqli->query("SELECT count(*) as total FROM ventas");
@@ -818,12 +994,24 @@ if ($action === 'get_native_tables') {
         "database" => $dbname,
         "usuarios" => $usuarios,
         "clientes" => $clientes,
+        "abonos_credito" => $abonos,
         "proveedores" => $proveedores,
         "productos" => $productos,
         "movimientos" => $movements,
         "sesiones_caja" => $cashSessions,
         "gastos" => $expenses,
         "ordenes_compra" => $purchaseOrders,
+        "cuentas_bancarias" => $bankAccounts,
+        "movimientos_bancarios" => $bankMovements,
+        "presupuestos" => $budgets,
+        "centros_costos" => $costCenters,
+        "vehiculos" => $vehicles,
+        "auditoria" => $auditLogs,
+        "sucursales" => $branches,
+        "inventario_sucursal" => $branchInventory,
+        "transferencias" => $transfers,
+        "solicitudes_reabastecimiento" => $replenishments,
+        "distribuciones" => $distributions,
         "stats" => [
             "total_productos" => count($productos),
             "total_ventas" => $totalVentas,
@@ -836,7 +1024,9 @@ if ($action === 'get_native_tables') {
     exit;
 }
 
+// ------------------------------------------------------------------------------
 // 7. CARGAR HISTORIAL DE VENTAS
+// ------------------------------------------------------------------------------
 if ($action === 'get_historical_sales') {
     $ventas = [];
     $resV = $mysqli->query("
@@ -866,7 +1056,9 @@ if ($action === 'get_historical_sales') {
     exit;
 }
 
+// ------------------------------------------------------------------------------
 // 8. GUARDAR / EDITAR PRODUCTO (CRUD: Create / Update)
+// ------------------------------------------------------------------------------
 if ($action === 'save_product' && $_SERVER['REQUEST_METHOD'] === 'POST') {
     $rawId = isset($postData['id']) ? (string)$postData['id'] : '';
     $prodId = (int)preg_replace('/[^0-9]/', '', $rawId);
@@ -877,17 +1069,18 @@ if ($action === 'save_product' && $_SERVER['REQUEST_METHOD'] === 'POST') {
     $cat    = isset($postData['category']) ? trim($postData['category']) : (isset($postData['categoria']) ? trim($postData['categoria']) : 'General');
     $marca  = isset($postData['brand']) ? trim($postData['brand']) : (isset($postData['marca']) ? trim($postData['marca']) : 'MAZAL');
     $unidad = isset($postData['unit']) ? trim($postData['unit']) : (isset($postData['unidad']) ? trim($postData['unidad']) : 'pz');
-    $stkMin = isset($postData['stockMin']) ? (float)$postData['stockMin'] : (isset($postData['stock_min']) ? (float)$postData['stock_min'] : 5);
-    $stkMax = isset($postData['stockMax']) ? (float)$postData['stockMax'] : (isset($postData['stock_max']) ? (float)$postData['stock_max'] : 100);
-    $ubic   = isset($postData['location']) ? trim($postData['location']) : (isset($postData['ubicacion']) ? trim($postData['ubicacion']) : 'Bodega Principal');
+    $stkMin = isset($postData['stockMin']) ? (float)$postData['stockMin'] : 5;
+    $stkMax = isset($postData['stockMax']) ? (float)$postData['stockMax'] : 100;
+    $ubic   = isset($postData['location']) ? trim($postData['location']) : 'Bodega Principal';
     $img    = isset($postData['imageUrl']) ? trim($postData['imageUrl']) : (isset($postData['imagen']) ? trim($postData['imagen']) : '');
     $provId = isset($postData['supplierId']) ? trim($postData['supplierId']) : (isset($postData['proveedor_id']) ? trim($postData['proveedor_id']) : 'PROV_01');
+    $suc    = isset($postData['sucursal']) ? trim($postData['sucursal']) : $branch;
     $pRaw   = json_encode($postData);
 
-    $mayoreo  = isset($postData['priceMax']) ? round((float)$postData['priceMax'], 2) : (isset($postData['mayoreo']) ? round((float)$postData['mayoreo'], 2) : 0);
-    $medio    = isset($postData['priceMed']) ? round((float)$postData['priceMed'], 2) : (isset($postData['medio']) ? round((float)$postData['medio'], 2) : 0);
-    $menudeo  = isset($postData['priceMin']) ? round((float)$postData['priceMin'], 2) : (isset($postData['menudeo']) ? round((float)$postData['menudeo'], 2) : 0);
-    $unitario = isset($postData['cost']) ? strval(round((float)$postData['cost'], 2)) : (isset($postData['unitario']) ? strval(round((float)$postData['unitario'], 2)) : '0');
+    $mayoreo  = isset($postData['priceMax']) ? round((float)$postData['priceMax'], 2) : 0;
+    $medio    = isset($postData['priceMed']) ? round((float)$postData['priceMed'], 2) : 0;
+    $menudeo  = isset($postData['priceMin']) ? round((float)$postData['priceMin'], 2) : 0;
+    $unitario = isset($postData['cost']) ? strval(round((float)$postData['cost'], 2)) : '0';
     $especial = isset($postData['priceSpecial']) ? round((float)$postData['priceSpecial'], 2) : 0;
 
     $existingId = 0;
@@ -911,8 +1104,8 @@ if ($action === 'save_product' && $_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 
     if ($existingId > 0) {
-        $stmtP = $mysqli->prepare("UPDATE productos SET clave = ?, nom_p = ?, des = ?, cant = ?, categoria = ?, marca = ?, unidad = ?, stock_min = ?, stock_max = ?, ubicacion = ?, imagen = ?, proveedor_id = ?, raw_data = ? WHERE id = ?");
-        $stmtP->bind_param("sssddssssssssi", $clave, $nom_p, $des, $cant, $cat, $marca, $unidad, $stkMin, $stkMax, $ubic, $img, $provId, $pRaw, $existingId);
+        $stmtP = $mysqli->prepare("UPDATE productos SET clave = ?, nom_p = ?, des = ?, cant = ?, categoria = ?, marca = ?, unidad = ?, stock_min = ?, stock_max = ?, ubicacion = ?, imagen = ?, proveedor_id = ?, sucursal = ?, raw_data = ? WHERE id = ?");
+        $stmtP->bind_param("sssddsssssssssi", $clave, $nom_p, $des, $cant, $cat, $marca, $unidad, $stkMin, $stkMax, $ubic, $img, $provId, $suc, $pRaw, $existingId);
         $stmtP->execute();
 
         $stmtPr = $mysqli->prepare("INSERT INTO precios (id_producto, mayoreo, medio, menudeo, Unitario, precio_especial) VALUES (?, ?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE mayoreo=VALUES(mayoreo), medio=VALUES(medio), menudeo=VALUES(menudeo), Unitario=VALUES(Unitario), precio_especial=VALUES(precio_especial)");
@@ -920,8 +1113,8 @@ if ($action === 'save_product' && $_SERVER['REQUEST_METHOD'] === 'POST') {
         $stmtPr->execute();
         $prodId = $existingId;
     } else {
-        $stmtP = $mysqli->prepare("INSERT INTO productos (clave, nom_p, des, cant, categoria, marca, unidad, stock_min, stock_max, ubicacion, imagen, proveedor_id, raw_data) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
-        $stmtP->bind_param("sssddssssssss", $clave, $nom_p, $des, $cant, $cat, $marca, $unidad, $stkMin, $stkMax, $ubic, $img, $provId, $pRaw);
+        $stmtP = $mysqli->prepare("INSERT INTO productos (clave, nom_p, des, cant, categoria, marca, unidad, stock_min, stock_max, ubicacion, imagen, proveedor_id, sucursal, raw_data) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+        $stmtP->bind_param("sssddsssssssss", $clave, $nom_p, $des, $cant, $cat, $marca, $unidad, $stkMin, $stkMax, $ubic, $img, $provId, $suc, $pRaw);
         $stmtP->execute();
         $prodId = $mysqli->insert_id;
 
@@ -942,7 +1135,9 @@ if ($action === 'save_product' && $_SERVER['REQUEST_METHOD'] === 'POST') {
     exit;
 }
 
+// ------------------------------------------------------------------------------
 // 9. ELIMINAR PRODUCTO (CRUD: Delete)
+// ------------------------------------------------------------------------------
 if ($action === 'delete_product' && $_SERVER['REQUEST_METHOD'] === 'POST') {
     $rawId = isset($postData['id']) ? (string)$postData['id'] : (isset($_GET['id']) ? (string)$_GET['id'] : '');
     $pId = (int)preg_replace('/[^0-9]/', '', $rawId);
@@ -963,7 +1158,9 @@ if ($action === 'delete_product' && $_SERVER['REQUEST_METHOD'] === 'POST') {
     exit;
 }
 
+// ------------------------------------------------------------------------------
 // 10. ACTUALIZAR STOCK
+// ------------------------------------------------------------------------------
 if ($action === 'update_stock' && $_SERVER['REQUEST_METHOD'] === 'POST') {
     $rawId = isset($postData['id']) ? (string)$postData['id'] : (isset($_GET['id']) ? (string)$_GET['id'] : '');
     $prodId = (int)preg_replace('/[^0-9]/', '', $rawId);
@@ -986,7 +1183,9 @@ if ($action === 'update_stock' && $_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 }
 
+// ------------------------------------------------------------------------------
 // 11. GUARDAR CLIENTE (CRUD: Create / Update)
+// ------------------------------------------------------------------------------
 if ($action === 'save_customer' && $_SERVER['REQUEST_METHOD'] === 'POST') {
     $rawId = isset($postData['id']) ? (string)$postData['id'] : (isset($postData['id_cliente']) ? (string)$postData['id_cliente'] : '');
     $cId = (int)preg_replace('/[^0-9]/', '', $rawId);
@@ -997,8 +1196,8 @@ if ($action === 'save_customer' && $_SERVER['REQUEST_METHOD'] === 'POST') {
     $cDir = isset($postData['address']) ? trim($postData['address']) : (isset($postData['direccion']) ? trim($postData['direccion']) : '');
     $cRfc = isset($postData['rfc']) ? trim($postData['rfc']) : '';
     $cLim = isset($postData['creditLimit']) ? (float)$postData['creditLimit'] : (isset($postData['limite_credito']) ? (float)$postData['limite_credito'] : 0);
-    $cDias = isset($postData['creditDays']) ? (int)$postData['creditDays'] : (isset($postData['dias_credito']) ? (int)$postData['dias_credito'] : 30);
-    $cNotas = isset($postData['notes']) ? trim($postData['notes']) : (isset($postData['notas']) ? trim($postData['notas']) : '');
+    $cDias = isset($postData['creditDays']) ? (int)$postData['creditDays'] : 30;
+    $cNotas = isset($postData['notes']) ? trim($postData['notes']) : '';
     $cStatus = isset($postData['status']) ? trim($postData['status']) : 'Activo';
     $cRaw = json_encode($postData);
 
@@ -1028,7 +1227,9 @@ if ($action === 'save_customer' && $_SERVER['REQUEST_METHOD'] === 'POST') {
     exit;
 }
 
+// ------------------------------------------------------------------------------
 // 12. ELIMINAR CLIENTE (CRUD: Delete)
+// ------------------------------------------------------------------------------
 if ($action === 'delete_customer' && $_SERVER['REQUEST_METHOD'] === 'POST') {
     $rawId = isset($postData['id']) ? (string)$postData['id'] : (isset($postData['id_cliente']) ? (string)$postData['id_cliente'] : '');
     $cId = (int)preg_replace('/[^0-9]/', '', $rawId);
@@ -1056,7 +1257,9 @@ if ($action === 'delete_customer' && $_SERVER['REQUEST_METHOD'] === 'POST') {
     exit;
 }
 
+// ------------------------------------------------------------------------------
 // 13. GUARDAR PROVEEDOR (CRUD: Create / Update)
+// ------------------------------------------------------------------------------
 if ($action === 'save_supplier' && $_SERVER['REQUEST_METHOD'] === 'POST') {
     $rawId = isset($postData['id']) ? (string)$postData['id'] : '';
     $sId = (int)preg_replace('/[^0-9]/', '', $rawId);
@@ -1096,7 +1299,9 @@ if ($action === 'save_supplier' && $_SERVER['REQUEST_METHOD'] === 'POST') {
     exit;
 }
 
+// ------------------------------------------------------------------------------
 // 14. ELIMINAR PROVEEDOR (CRUD: Delete)
+// ------------------------------------------------------------------------------
 if ($action === 'delete_supplier' && $_SERVER['REQUEST_METHOD'] === 'POST') {
     $rawId = isset($postData['id']) ? (string)$postData['id'] : '';
     $sId = (int)preg_replace('/[^0-9]/', '', $rawId);
@@ -1118,7 +1323,9 @@ if ($action === 'delete_supplier' && $_SERVER['REQUEST_METHOD'] === 'POST') {
     exit;
 }
 
+// ------------------------------------------------------------------------------
 // 15. GUARDAR VENTA DIRECTA (CRUD: Create / Update)
+// ------------------------------------------------------------------------------
 if ($action === 'save_sale' && $_SERVER['REQUEST_METHOD'] === 'POST') {
     $rawId = isset($postData['id']) ? (string)$postData['id'] : '';
     $vId = (int)preg_replace('/[^0-9]/', '', $rawId);
@@ -1157,7 +1364,9 @@ if ($action === 'save_sale' && $_SERVER['REQUEST_METHOD'] === 'POST') {
     exit;
 }
 
+// ------------------------------------------------------------------------------
 // 16. ELIMINAR VENTA (CRUD: Delete)
+// ------------------------------------------------------------------------------
 if ($action === 'delete_sale' && $_SERVER['REQUEST_METHOD'] === 'POST') {
     $rawId = isset($postData['id']) ? (string)$postData['id'] : '';
     $vId = (int)preg_replace('/[^0-9]/', '', $rawId);
@@ -1179,7 +1388,9 @@ if ($action === 'delete_sale' && $_SERVER['REQUEST_METHOD'] === 'POST') {
     exit;
 }
 
-// 17. GUARDAR MOVIMIENTO DE INVENTARIO (KARDEX: Create / Update)
+// ------------------------------------------------------------------------------
+// 17. GUARDAR MOVIMIENTO DE INVENTARIO (KARDEX)
+// ------------------------------------------------------------------------------
 if ($action === 'save_movement' && $_SERVER['REQUEST_METHOD'] === 'POST') {
     $mId = isset($postData['id']) ? trim($postData['id']) : "MOV_" . time();
     $prodId = isset($postData['productId']) ? trim($postData['productId']) : (isset($postData['product_id']) ? trim($postData['product_id']) : '');
@@ -1208,7 +1419,9 @@ if ($action === 'save_movement' && $_SERVER['REQUEST_METHOD'] === 'POST') {
     exit;
 }
 
-// 18. GUARDAR SESIÓN DE CAJA (CRUD: Create / Update)
+// ------------------------------------------------------------------------------
+// 18. GUARDAR SESIÓN DE CAJA
+// ------------------------------------------------------------------------------
 if ($action === 'save_cash_session' && $_SERVER['REQUEST_METHOD'] === 'POST') {
     $csId = isset($postData['id']) ? trim($postData['id']) : "SESS_" . time();
     $sTime = isset($postData['startTime']) ? trim($postData['startTime']) : (isset($postData['start_time']) ? trim($postData['start_time']) : date("Y-m-d H:i:s"));
@@ -1237,7 +1450,9 @@ if ($action === 'save_cash_session' && $_SERVER['REQUEST_METHOD'] === 'POST') {
     exit;
 }
 
-// 19. GUARDAR GASTO DE CAJA (CRUD: Create / Update)
+// ------------------------------------------------------------------------------
+// 19. GUARDAR GASTO DE CAJA
+// ------------------------------------------------------------------------------
 if ($action === 'save_expense' && $_SERVER['REQUEST_METHOD'] === 'POST') {
     $eId = isset($postData['id']) ? trim($postData['id']) : "EXP_" . time();
     $eDesc = isset($postData['description']) ? trim($postData['description']) : "Gasto";
@@ -1262,7 +1477,9 @@ if ($action === 'save_expense' && $_SERVER['REQUEST_METHOD'] === 'POST') {
     exit;
 }
 
-// 20. ELIMINAR GASTO DE CAJA (CRUD: Delete)
+// ------------------------------------------------------------------------------
+// 20. ELIMINAR GASTO DE CAJA
+// ------------------------------------------------------------------------------
 if ($action === 'delete_expense' && $_SERVER['REQUEST_METHOD'] === 'POST') {
     $eId = isset($postData['id']) ? trim($postData['id']) : '';
 
@@ -1283,7 +1500,9 @@ if ($action === 'delete_expense' && $_SERVER['REQUEST_METHOD'] === 'POST') {
     exit;
 }
 
-// 21. GUARDAR ORDEN DE COMPRA (CRUD: Create / Update)
+// ------------------------------------------------------------------------------
+// 21. GUARDAR ORDEN DE COMPRA
+// ------------------------------------------------------------------------------
 if ($action === 'save_purchase_order' && $_SERVER['REQUEST_METHOD'] === 'POST') {
     $poId = isset($postData['id']) ? trim($postData['id']) : "PO_" . time();
     $suppId = isset($postData['supplierId']) ? trim($postData['supplierId']) : (isset($postData['supplier_id']) ? trim($postData['supplier_id']) : '');
@@ -1310,7 +1529,9 @@ if ($action === 'save_purchase_order' && $_SERVER['REQUEST_METHOD'] === 'POST') 
     exit;
 }
 
-// 22. ELIMINAR ORDEN DE COMPRA (CRUD: Delete)
+// ------------------------------------------------------------------------------
+// 22. ELIMINAR ORDEN DE COMPRA
+// ------------------------------------------------------------------------------
 if ($action === 'delete_purchase_order' && $_SERVER['REQUEST_METHOD'] === 'POST') {
     $poId = isset($postData['id']) ? trim($postData['id']) : '';
 
@@ -1331,7 +1552,9 @@ if ($action === 'delete_purchase_order' && $_SERVER['REQUEST_METHOD'] === 'POST'
     exit;
 }
 
-// 23. GUARDAR / EDITAR USUARIO (CRUD: Create / Update)
+// ------------------------------------------------------------------------------
+// 23. GUARDAR / EDITAR USUARIO
+// ------------------------------------------------------------------------------
 if ($action === 'save_user' && $_SERVER['REQUEST_METHOD'] === 'POST') {
     $usuario = isset($postData['username']) ? trim($postData['username']) : (isset($postData['usuario']) ? trim($postData['usuario']) : '');
     $nombre  = isset($postData['name']) ? trim($postData['name']) : (isset($postData['nombrecompleto']) ? trim($postData['nombrecompleto']) : $usuario);
@@ -1382,7 +1605,9 @@ if ($action === 'save_user' && $_SERVER['REQUEST_METHOD'] === 'POST') {
     exit;
 }
 
-// 24. ELIMINAR USUARIO (CRUD: Delete)
+// ------------------------------------------------------------------------------
+// 24. ELIMINAR USUARIO
+// ------------------------------------------------------------------------------
 if ($action === 'delete_user' && $_SERVER['REQUEST_METHOD'] === 'POST') {
     $usuario = isset($postData['username']) ? trim($postData['username']) : (isset($postData['usuario']) ? trim($postData['usuario']) : '');
     
@@ -1406,12 +1631,101 @@ if ($action === 'delete_user' && $_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 }
 
+// ------------------------------------------------------------------------------
+// 25. GUARDAR CUENTA BANCARIA
+// ------------------------------------------------------------------------------
+if ($action === 'save_bank_account' && $_SERVER['REQUEST_METHOD'] === 'POST') {
+    $id = isset($postData['id']) ? trim($postData['id']) : "ACC-" . time();
+    $bName = isset($postData['bankName']) ? trim($postData['bankName']) : "Banco";
+    $accNum = isset($postData['accountNumber']) ? trim($postData['accountNumber']) : "";
+    $type = isset($postData['type']) ? trim($postData['type']) : "Cheques";
+    $balance = isset($postData['balance']) ? (float)$postData['balance'] : 0;
+    $initBal = isset($postData['initialBalance']) ? (float)$postData['initialBalance'] : $balance;
+    $curr = isset($postData['currency']) ? trim($postData['currency']) : "MXN";
+    $stat = isset($postData['status']) ? trim($postData['status']) : "Activo";
+    $bBranch = isset($postData['branch']) ? trim($postData['branch']) : $branch;
+    $raw = json_encode($postData);
+
+    $stmt = $mysqli->prepare("INSERT INTO cuentas_bancarias (id, bank_name, account_number, type, balance, initial_balance, currency, status, branch, raw_data) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE bank_name=VALUES(bank_name), account_number=VALUES(account_number), type=VALUES(type), balance=VALUES(balance), initial_balance=VALUES(initial_balance), currency=VALUES(currency), status=VALUES(status), branch=VALUES(branch), raw_data=VALUES(raw_data)");
+    $stmt->bind_param("ssssddssss", $id, $bName, $accNum, $type, $balance, $initBal, $curr, $stat, $bBranch, $raw);
+    $stmt->execute();
+
+    echo json_encode(["success" => true, "message" => "Cuenta bancaria guardada.", "id" => $id]);
+    exit;
+}
+
+// ------------------------------------------------------------------------------
+// 26. GUARDAR MOVIMIENTO BANCARIO
+// ------------------------------------------------------------------------------
+if ($action === 'save_bank_movement' && $_SERVER['REQUEST_METHOD'] === 'POST') {
+    $id = isset($postData['id']) ? trim($postData['id']) : "BM-" . time();
+    $accId = isset($postData['bankAccountId']) ? trim($postData['bankAccountId']) : "";
+    $type = isset($postData['type']) ? trim($postData['type']) : "Depósito";
+    $amount = isset($postData['amount']) ? (float)$postData['amount'] : 0;
+    $date = isset($postData['date']) ? trim($postData['date']) : date("Y-m-d H:i:s");
+    $desc = isset($postData['description']) ? trim($postData['description']) : "";
+    $cat = isset($postData['category']) ? trim($postData['category']) : "General";
+    $ref = isset($postData['reference']) ? trim($postData['reference']) : "";
+    $user = isset($postData['user']) ? trim($postData['user']) : "Admin";
+    $raw = json_encode($postData);
+
+    $stmt = $mysqli->prepare("INSERT INTO movimientos_bancarios (id, bank_account_id, type, amount, date, description, category, reference, user_name, raw_data) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE bank_account_id=VALUES(bank_account_id), type=VALUES(type), amount=VALUES(amount), date=VALUES(date), description=VALUES(description), category=VALUES(category), reference=VALUES(reference), user_name=VALUES(user_name), raw_data=VALUES(raw_data)");
+    $stmt->bind_param("sssdssssss", $id, $accId, $type, $amount, $date, $desc, $cat, $ref, $user, $raw);
+    $stmt->execute();
+
+    echo json_encode(["success" => true, "message" => "Movimiento bancario guardado.", "id" => $id]);
+    exit;
+}
+
+// ------------------------------------------------------------------------------
+// 27. GUARDAR ABONO DE CRÉDITO
+// ------------------------------------------------------------------------------
+if ($action === 'save_credit_payment' && $_SERVER['REQUEST_METHOD'] === 'POST') {
+    $id = isset($postData['id']) ? trim($postData['id']) : "PAY-" . time();
+    $custId = isset($postData['customerId']) ? trim($postData['customerId']) : "";
+    $amount = isset($postData['amount']) ? (float)$postData['amount'] : 0;
+    $date = isset($postData['date']) ? trim($postData['date']) : date("Y-m-d H:i:s");
+    $method = isset($postData['paymentMethod']) ? trim($postData['paymentMethod']) : "Efectivo";
+    $notes = isset($postData['notes']) ? trim($postData['notes']) : "";
+    $user = isset($postData['user']) ? trim($postData['user']) : "Admin";
+    $suc = isset($postData['sucursal']) ? trim($postData['sucursal']) : $branch;
+    $raw = json_encode($postData);
+
+    $stmt = $mysqli->prepare("INSERT INTO abonos_credito (id, customer_id, amount, date, payment_method, notes, user_name, sucursal, raw_data) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE amount=VALUES(amount), date=VALUES(date), payment_method=VALUES(payment_method), notes=VALUES(notes), user_name=VALUES(user_name), sucursal=VALUES(sucursal), raw_data=VALUES(raw_data)");
+    $stmt->bind_param("ssdssssss", $id, $custId, $amount, $date, $method, $notes, $user, $suc, $raw);
+    $stmt->execute();
+
+    echo json_encode(["success" => true, "message" => "Abono guardado en MySQL.", "id" => $id]);
+    exit;
+}
+
+// ------------------------------------------------------------------------------
+// 28. GUARDAR LOG DE AUDITORÍA
+// ------------------------------------------------------------------------------
+if ($action === 'save_audit_log' && $_SERVER['REQUEST_METHOD'] === 'POST') {
+    $id = isset($postData['id']) ? trim($postData['id']) : "AUD-" . time();
+    $uName = isset($postData['user']) ? trim($postData['user']) : "Admin";
+    $uRole = isset($postData['role']) ? trim($postData['role']) : "Administrador";
+    $act = isset($postData['action']) ? trim($postData['action']) : "Operación";
+    $det = isset($postData['details']) ? trim($postData['details']) : "";
+    $ts = isset($postData['timestamp']) ? trim($postData['timestamp']) : date("Y-m-d H:i:s");
+    $ip = isset($postData['ip']) ? trim($postData['ip']) : ($_SERVER['REMOTE_ADDR'] ?? '127.0.0.1');
+    $suc = isset($postData['branch']) ? trim($postData['branch']) : $branch;
+
+    $stmt = $mysqli->prepare("INSERT INTO auditoria (id, user_name, role, action, details, timestamp, ip, branch) VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
+    $stmt->bind_param("ssssssss", $id, $uName, $uRole, $act, $det, $ts, $ip, $suc);
+    $stmt->execute();
+
+    echo json_encode(["success" => true, "id" => $id]);
+    exit;
+}
+
 // Default response
 echo json_encode([
     "success" => true,
     "system" => "Mazal POS & ERP Backend Multi-Sucursal",
     "branch" => $branch,
     "database" => $dbname,
-    "message" => "Servidor Apache / XAMPP activo y listo para operar sin internet."
+    "message" => "Servidor Apache / XAMPP activo y listo para operar 100% en localhost."
 ]);
 ?>

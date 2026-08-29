@@ -22,6 +22,9 @@ const metaEnv = (import.meta as any).env || {};
 const HARDCODED_SUPABASE_URL = "https://omyrorntudpnpimevtya.supabase.co";
 const HARDCODED_SUPABASE_ANON_KEY = "sb_publishable_ShCmXvsdnLdzhGJgDYIfsw_a4CN3jJl";
 
+// Constante para controlar el modo de operación: true = 100% Localhost MySQL / XAMPP (Pausa la lógica online sin eliminarla)
+export const PAUSE_ONLINE_SYNC: boolean = true;
+
 export let SUPABASE_URL: string =
   windowConfig.supabaseUrl ||
   storedConfig?.supabaseUrl ||
@@ -35,6 +38,7 @@ export let SUPABASE_ANON_KEY: string =
   HARDCODED_SUPABASE_ANON_KEY;
 
 export function checkIsConfigured(url: string, key: string): boolean {
+  if (PAUSE_ONLINE_SYNC) return false;
   return Boolean(
     url &&
     key &&
@@ -100,6 +104,9 @@ export function onSupabaseConfigChange(listener: (configured: boolean) => void) 
  * Asegura que Supabase esté configurado consultando /api/config en runtime si es necesario.
  */
 export async function ensureSupabaseConfigured(): Promise<boolean> {
+  if (PAUSE_ONLINE_SYNC) {
+    return false;
+  }
   if (isSupabaseConfigured && checkIsConfigured(SUPABASE_URL, SUPABASE_ANON_KEY)) {
     return true;
   }
