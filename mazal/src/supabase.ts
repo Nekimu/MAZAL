@@ -61,6 +61,16 @@ function createSafeDummyClient(): SupabaseClient {
     }
   } as unknown as SupabaseClient;
 }
+function createSupabaseInstance(url: string, key: string): SupabaseClient {
+  if (url && key) {
+    try {
+      return createClient(url, key);
+    } catch (e) {
+      return createSafeDummyClient();
+    }
+  }
+  return createSafeDummyClient();
+}
 
 // Create the safe Supabase client instance (inactivo)
 export let supabase: SupabaseClient = createSafeDummyClient();

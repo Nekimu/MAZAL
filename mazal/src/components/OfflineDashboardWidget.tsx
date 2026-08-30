@@ -46,12 +46,12 @@ export const OfflineDashboardWidget: React.FC = () => {
       if (cloudRes.success) {
         setSyncFeedback({
           success: true,
-          message: cloudRes.message || "Sincronizado con Supabase Cloud exitosamente."
+          message: (cloudRes as any).message || "Sincronizado con Supabase Cloud exitosamente."
         });
       } else {
         setSyncFeedback({
           success: false,
-          message: cloudRes.error || "Aviso al sincronizar con la nube."
+          message: (cloudRes as any).error || "Aviso al sincronizar con la nube."
         });
       }
     } catch (err: any) {

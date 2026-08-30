@@ -27,6 +27,7 @@ import {
   Clock, 
   UserCheck, 
   Eye, 
+  Edit2,
   Lock,
   Unlock,
   Check,

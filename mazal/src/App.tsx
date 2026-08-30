@@ -207,8 +207,8 @@ export default function App() {
           result: {
             success: true,
             message: "Todos los registros locales se han guardado y sincronizado con Supabase Cloud exitosamente.",
-            syncedTables: cloudRes.syncedTables || [],
-            totalRecords: cloudRes.totalRecords || 0,
+            syncedTables: (cloudRes as any).syncedTables || [],
+            totalRecords: (cloudRes as any).totalRecords || 0,
             pendingSynced: queueRes.syncedCount || 0
           }
         });
@@ -219,7 +219,7 @@ export default function App() {
           result: {
             success: false,
             message: "Ocurrió un problema al sincronizar con Supabase Cloud.",
-            error: cloudRes.error || "No se pudo completar la transferencia a la base de datos en la nube."
+            error: (cloudRes as any).error || "No se pudo completar la transferencia a la base de datos en la nube."
           }
         });
       }

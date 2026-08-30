@@ -71,7 +71,8 @@ export function formatTicketDateTime(dateStr?: string): string {
 export function calculateTotalArticles(items: Sale["items"], dbProducts: Product[] = []): number {
   return (items || []).reduce((acc, item) => {
     const prod = (dbProducts || []).find(p => p.id === item.productId);
-    const isW = isWeighed(prod) || (item.unit && ['kg', 'g', 'l', 'ml'].includes(String(item.unit).toLowerCase()));
+    const itemUnit = (item as any).unit || (item as any).displayUnit;
+    const isW = isWeighed(prod) || (itemUnit && ['kg', 'g', 'l', 'ml'].includes(String(itemUnit).toLowerCase()));
     if (isW) {
       return acc + 1; // Weighted items count as 1 weighed line item
     }
@@ -85,8 +86,9 @@ export function calculateTotalArticles(items: Sale["items"], dbProducts: Product
  */
 export function formatItemQuantityLine(item: Sale["items"][0], dbProducts: Product[] = []): string {
   const prod = (dbProducts || []).find(p => p.id === item.productId || (p.code && p.code === item.productId));
-  const isW = isWeighed(prod) || (item.unit && ['kg', 'g', 'l', 'ml'].includes(String(item.unit).toLowerCase())) || (item.displayUnit && ['kg', 'g', 'l', 'ml'].includes(String(item.displayUnit).toLowerCase()));
-  const unitLabel = getUnitLabel(prod) || (item.unit?.toLowerCase() === 'kg' ? 'Kg' : (item.unit || 'pz'));
+  const itemUnit = (item as any).unit || (item as any).displayUnit;
+  const isW = isWeighed(prod) || (itemUnit && ['kg', 'g', 'l', 'ml'].includes(String(itemUnit).toLowerCase()));
+  const unitLabel = getUnitLabel(prod) || (String(itemUnit || '').toLowerCase() === 'kg' ? 'Kg' : (itemUnit || 'pz'));
 
   let rawQty = Number(item.quantity) || 0;
   let unitPrice = Number(item.unitPrice) || 0;

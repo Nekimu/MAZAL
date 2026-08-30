@@ -440,7 +440,7 @@ export const OfflineSyncPanelModal: React.FC<Props> = ({ isOpen, onClose }) => {
                       if (res.success) {
                         setSyncMessage("Información sincronizada con la nube exitosamente.");
                       } else {
-                        setSyncMessage("Aviso: " + (res.error || "Error al sincronizar con la nube"));
+                        setSyncMessage("Aviso: " + ((res as any).error || "Error al sincronizar con la nube"));
                       }
                       setIsSyncingManual(false);
                       setTimeout(() => setSyncMessage(null), 6000);

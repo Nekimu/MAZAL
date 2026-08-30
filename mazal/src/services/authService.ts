@@ -127,7 +127,7 @@ export async function authenticateStaff(
         if (rawRole.includes("admin")) role = UserRole.ADMIN;
         else if (rawRole.includes("gerente") || rawRole.includes("manager")) role = UserRole.MANAGER;
         else if (rawRole.includes("almacen") || rawRole.includes("warehouse")) role = UserRole.WAREHOUSE;
-        else if (rawRole.includes("compras") || rawRole.includes("purchas")) role = UserRole.PURCHASER;
+        else if (rawRole.includes("compras") || rawRole.includes("purchas")) role = UserRole.PURCHASING;
         else if (rawRole.includes("conta") || rawRole.includes("account")) role = UserRole.ACCOUNTANT;
         else if (rawRole.includes("vendedor") || rawRole.includes("cajero")) role = UserRole.CASHIER;
 
