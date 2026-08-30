@@ -6,9 +6,24 @@
 Options -Indexes
 
 # 2. Bloquear acceso a archivos sensibles y de configuración
-<FilesMatch "\.(sql|env|log|md|bat|ps1|sh|json|lock|mjs|bak|dump|config)$">
-    Require all denied
+# Bloquear extensiones sensibles; para .json se bloquea todo excepto manifest.json
+<FilesMatch "\.(sql|env|log|md|bat|ps1|sh|lock|mjs|bak|dump|config)$">
+    <RequireAll>
+        Require all denied
+    </RequireAll>
 </FilesMatch>
+
+# Bloquear archivos .json que no sean manifest.json
+<FilesMatch "^(?!manifest\.json$).*\.json$">
+    <RequireAll>
+        Require all denied
+    </RequireAll>
+</FilesMatch>
+
+# Permitir explícitamente manifest.json
+<Files "manifest.json">
+    Require all granted
+</Files>
 
 # Bloquear explícitamente archivos clave
 <Files "config.php">

@@ -534,10 +534,28 @@ export const callLocalApi = async (queryString: string, options?: RequestInit): 
     `/api.php?${queryString}`
   ];
 
+  // Inyectar Authorization Bearer token automáticamente si existe en sessionStorage
+  let authToken: string | null = null;
+  try {
+    if (typeof sessionStorage !== "undefined") {
+      authToken = sessionStorage.getItem("mazal_auth_token");
+    }
+  } catch (e) {}
+
+  const mergedHeaders = new Headers(options?.headers || {});
+  if (authToken && !mergedHeaders.has("Authorization")) {
+    mergedHeaders.set("Authorization", `Bearer ${authToken}`);
+  }
+
+  const mergedOptions: RequestInit = {
+    ...options,
+    headers: mergedHeaders
+  };
+
   for (const url of candidateUrls) {
     try {
       const res = await fetch(url, {
-        ...options,
+        ...mergedOptions,
         signal: options?.signal || AbortSignal.timeout(4000)
       });
       if (res.ok) return res;

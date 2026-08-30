@@ -168,8 +168,12 @@ export async function authenticateStaff(
     if (response && response.ok) {
       const data = await response.json();
       if (data.success && data.user) {
+        if (data.token) {
+          setAuthToken(data.token);
+        }
         return {
           success: true,
+          token: data.token,
           user: {
             id: String(data.user.id),
             username: data.user.username,

@@ -187,6 +187,191 @@ function recordAuditLog($db, $userName, $role, $actionName, $details, $branch = 
     }
 }
 
+// ------------------------------------------------------------------------------
+// SISTEMA DE SESIONES Y TOKENS SEGUROS (Bearer Auth & Rate Limiting)
+// ------------------------------------------------------------------------------
+function generateAuthToken($db, $userId, $username, $role, $branch = 'Norte', $hoursValid = 24) {
+    try {
+        $token = bin2hex(random_bytes(32)); // 64 caracteres criptográficamente seguros
+        $tokenHash = hash('sha256', $token);
+        $expiresAt = date('Y-m-d H:i:s', time() + ($hoursValid * 3600));
+        $ip = $_SERVER['REMOTE_ADDR'] ?? '127.0.0.1';
+        $ua = sanitizeString($_SERVER['HTTP_USER_AGENT'] ?? 'App', 255);
+
+        // Limpiar tokens revocados o expirados viejos
+        @$db->query("DELETE FROM `auth_tokens` WHERE `expires_at` < NOW() OR `revoked` = 1");
+
+        $stmt = $db->prepare("INSERT INTO `auth_tokens` (`token_hash`, `user_id`, `username`, `role`, `branch`, `ip_address`, `user_agent`, `expires_at`, `created_at`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW())");
+        if ($stmt) {
+            $stmt->bind_param("sissssss", $tokenHash, $userId, $username, $role, $branch, $ip, $ua, $expiresAt);
+            $stmt->execute();
+            $stmt->close();
+            return $token;
+        }
+    } catch (Throwable $e) {
+        error_log("MAZAL Auth Token Error: " . $e->getMessage());
+    }
+    return null;
+}
+
+function revokeAuthToken($db, $token) {
+    if (empty($token)) return false;
+    $tokenHash = hash('sha256', trim($token));
+    $stmt = $db->prepare("UPDATE `auth_tokens` SET `revoked` = 1 WHERE `token_hash` = ?");
+    if ($stmt) {
+        $stmt->bind_param("s", $tokenHash);
+        $stmt->execute();
+        $stmt->close();
+        return true;
+    }
+    return false;
+}
+
+function getBearerToken() {
+    $headers = null;
+    if (isset($_SERVER['Authorization'])) {
+        $headers = trim($_SERVER['Authorization']);
+    } else if (isset($_SERVER['HTTP_AUTHORIZATION'])) {
+        $headers = trim($_SERVER['HTTP_AUTHORIZATION']);
+    } else if (function_exists('apache_request_headers')) {
+        $requestHeaders = apache_request_headers();
+        $requestHeaders = array_combine(array_map('ucwords', array_keys($requestHeaders)), array_values($requestHeaders));
+        if (isset($requestHeaders['Authorization'])) {
+            $headers = trim($requestHeaders['Authorization']);
+        }
+    }
+    
+    if (!empty($headers)) {
+        if (preg_match('/Bearer\s(\S+)/i', $headers, $matches)) {
+            return $matches[1];
+        }
+    }
+
+    // Fallback secundario seguro por parámetro de consulta o cuerpo si el header fue omitido por proxy
+    if (isset($_GET['token']) && !empty($_GET['token'])) {
+        return sanitizeString($_GET['token'], 128);
+    }
+    if (isset($_POST['token']) && !empty($_POST['token'])) {
+        return sanitizeString($_POST['token'], 128);
+    }
+    return null;
+}
+
+function validateAuthToken($db, $requiredRoles = []) {
+    $token = getBearerToken();
+    if (empty($token)) {
+        return null;
+    }
+
+    $tokenHash = hash('sha256', trim($token));
+    $stmt = $db->prepare("SELECT t.id, t.user_id, t.username, t.role, t.branch, t.expires_at, u.status 
+                          FROM `auth_tokens` t 
+                          JOIN `usuarios` u ON t.user_id = u.id 
+                          WHERE t.token_hash = ? AND t.revoked = 0 AND t.expires_at > NOW() 
+                          LIMIT 1");
+    if (!$stmt) {
+        return null;
+    }
+
+    $stmt->bind_param("s", $tokenHash);
+    $stmt->execute();
+    $res = $stmt->get_result();
+    $session = $res ? $res->fetch_assoc() : null;
+    $stmt->close();
+
+    if (!$session) {
+        return null;
+    }
+
+    if (isset($session['status']) && $session['status'] === 'Inactivo') {
+        return null;
+    }
+
+    // Validar restricción de roles si se especificaron roles requeridos
+    if (!empty($requiredRoles)) {
+        $userRole = strtolower($session['role'] ?? '');
+        $allowed = array_map('strtolower', $requiredRoles);
+        if (!in_array($userRole, $allowed, true) && !in_array('administrador', [$userRole], true) && !in_array('admin', [$userRole], true)) {
+            return false; // Autenticado pero no autorizado (403)
+        }
+    }
+
+    // Actualizar timestamp de última actividad
+    @$db->query("UPDATE `auth_tokens` SET `last_activity` = NOW() WHERE `id` = " . (int)$session['id']);
+
+    return $session;
+}
+
+function requireAuth($db, $actionName = 'operación', $requiredRoles = []) {
+    $session = validateAuthToken($db, $requiredRoles);
+    if ($session === false) {
+        http_response_code(403);
+        echo json_encode([
+            "success" => false,
+            "error" => "No tienes permisos suficientes para realizar esta acción ({$actionName}).",
+            "code" => "FORBIDDEN"
+        ]);
+        exit;
+    }
+
+    if ($session === null) {
+        http_response_code(401);
+        echo json_encode([
+            "success" => false,
+            "error" => "Sesión requerida o token inválido/expirado para {$actionName}.",
+            "code" => "UNAUTHORIZED"
+        ]);
+        exit;
+    }
+
+    return $session;
+}
+
+// Rate Limiting para Login y Endpoints Sensibles
+function checkRateLimit($db, $ip, $action = 'login', $maxAttempts = 7, $windowMinutes = 15) {
+    try {
+        // Limpiar registros antiguos
+        @$db->query("DELETE FROM `login_attempts` WHERE `timestamp` < DATE_SUB(NOW(), INTERVAL {$windowMinutes} MINUTE)");
+
+        $stmt = $db->prepare("SELECT COUNT(*) as attempts FROM `login_attempts` WHERE `ip` = ? AND `action` = ? AND `timestamp` > DATE_SUB(NOW(), INTERVAL {$windowMinutes} MINUTE)");
+        if ($stmt) {
+            $stmt->bind_param("ss", $ip, $action);
+            $stmt->execute();
+            $res = $stmt->get_result();
+            $row = $res ? $res->fetch_assoc() : null;
+            $stmt->close();
+
+            if ($row && (int)$row['attempts'] >= $maxAttempts) {
+                return false;
+            }
+        }
+    } catch (Throwable $e) {}
+    return true;
+}
+
+function recordRateLimitAttempt($db, $ip, $user = '', $action = 'login') {
+    try {
+        $stmt = $db->prepare("INSERT INTO `login_attempts` (`ip`, `username`, `action`, `timestamp`) VALUES (?, ?, ?, NOW())");
+        if ($stmt) {
+            $cleanUser = sanitizeString($user, 100);
+            $stmt->bind_param("sss", $ip, $cleanUser, $action);
+            $stmt->execute();
+            $stmt->close();
+        }
+    } catch (Throwable $e) {}
+}
+
+function resetRateLimitAttempts($db, $ip, $action = 'login') {
+    try {
+        $stmt = $db->prepare("DELETE FROM `login_attempts` WHERE `ip` = ? AND `action` = ?");
+        if ($stmt) {
+            $stmt->bind_param("ss", $ip, $action);
+            $stmt->execute();
+            $stmt->close();
+        }
+    } catch (Throwable $e) {}
+}
+
 // Configuración de Servidor MySQL desde config.php o variables de entorno
 $servername = $config['db_host'] ?? getenv('DB_HOST') ?: "127.0.0.1";
 $username   = $config['db_user'] ?? getenv('DB_USER') ?: "root";
@@ -693,7 +878,36 @@ function autoMigrateSchema($db, $targetDb) {
         `updated_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;");
 
-    // W. ASEGURAR ADMINISTRADOR GENERAL BASE
+    // W. TABLA AUTH_TOKENS (Sesiones y Control de Acceso Criptográfico)
+    $db->query("CREATE TABLE IF NOT EXISTS `auth_tokens` (
+        `id` INT AUTO_INCREMENT PRIMARY KEY,
+        `token_hash` VARCHAR(64) NOT NULL UNIQUE,
+        `user_id` INT NOT NULL,
+        `username` VARCHAR(100) NOT NULL,
+        `role` VARCHAR(50) NOT NULL DEFAULT 'vendedor',
+        `branch` VARCHAR(50) NOT NULL DEFAULT 'Norte',
+        `ip_address` VARCHAR(50) DEFAULT '127.0.0.1',
+        `user_agent` VARCHAR(255) DEFAULT '',
+        `revoked` TINYINT(1) DEFAULT 0,
+        `expires_at` DATETIME NOT NULL,
+        `last_activity` DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        `created_at` DATETIME DEFAULT CURRENT_TIMESTAMP,
+        INDEX (`token_hash`),
+        INDEX (`user_id`),
+        INDEX (`expires_at`)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;");
+
+    // X. TABLA LOGIN_ATTEMPTS (Rate Limiting y Protección contra Ataques de Fuerza Bruta)
+    $db->query("CREATE TABLE IF NOT EXISTS `login_attempts` (
+        `id` INT AUTO_INCREMENT PRIMARY KEY,
+        `ip` VARCHAR(50) NOT NULL,
+        `username` VARCHAR(100) DEFAULT '',
+        `action` VARCHAR(50) DEFAULT 'login',
+        `timestamp` DATETIME DEFAULT CURRENT_TIMESTAMP,
+        INDEX (`ip`, `action`, `timestamp`)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;");
+
+    // Y. ASEGURAR ADMINISTRADOR GENERAL BASE
     $resAdmin = $db->query("SELECT id, password FROM `usuarios` WHERE `usuario` = 'admin'");
     if ($resAdmin && $resAdmin->num_rows === 0) {
         $tempPass = bin2hex(random_bytes(6)); // contraseña temporal legible
@@ -722,9 +936,22 @@ autoMigrateSchema($mysqli, $dbname);
 $action = isset($_GET['action']) ? $_GET['action'] : (isset($_POST['action']) ? $_POST['action'] : (isset($postData['action']) ? $postData['action'] : ''));
 
 // ------------------------------------------------------------------------------
-// 0. LOGIN & AUTENTICACIÓN (Server-Side)
+// 0. LOGIN & AUTENTICACIÓN (Server-Side con Rate Limiting y Emisión de Token)
 // ------------------------------------------------------------------------------
 if ($action === 'login' && $_SERVER['REQUEST_METHOD'] === 'POST') {
+    $clientIp = $_SERVER['REMOTE_ADDR'] ?? '127.0.0.1';
+
+    // 0.1 Rate Limiting: Máximo 7 intentos fallidos cada 15 minutos por IP
+    if (!checkRateLimit($mysqli, $clientIp, 'login', 7, 15)) {
+        http_response_code(429);
+        echo json_encode([
+            "success" => false,
+            "error" => "Demasiados intentos fallidos de inicio de sesión. Por favor espera 15 minutos.",
+            "code" => "RATE_LIMITED"
+        ]);
+        exit;
+    }
+
     $userIn = sanitizeString($postData['username'] ?? ($postData['usuario'] ?? ($_POST['username'] ?? '')), 100);
     $passIn = (string)($postData['password'] ?? ($_POST['password'] ?? ''));
 
@@ -749,6 +976,15 @@ if ($action === 'login' && $_SERVER['REQUEST_METHOD'] === 'POST') {
     $shouldRehash = false;
 
     if ($row) {
+        if ($row['status'] === 'Inactivo') {
+            http_response_code(403);
+            echo json_encode([
+                "success" => false,
+                "error" => "Esta cuenta de usuario se encuentra inactiva. Contacta al Administrador."
+            ]);
+            exit;
+        }
+
         $storedPass = $row['password'];
 
         // 1. Formato Bcrypt (ya migrado)
@@ -780,10 +1016,15 @@ if ($action === 'login' && $_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 
     if (!$isValid) {
+        recordRateLimitAttempt($mysqli, $clientIp, $userIn, 'login');
         recordAuditLog($mysqli, $userIn, 'Desconocido', 'LOGIN_FALLIDO', "Intento fallido para @{$userIn}", $branch);
+        http_response_code(401);
         echo json_encode(["success" => false, "error" => "Credenciales incorrectas."]);
         exit;
     }
+
+    // Login exitoso: Resetear contador de intentos fallidos
+    resetRateLimitAttempts($mysqli, $clientIp, 'login');
 
     $now = date("Y-m-d H:i:s");
     $uId = (int)$row['id'];
@@ -791,19 +1032,40 @@ if ($action === 'login' && $_SERVER['REQUEST_METHOD'] === 'POST') {
 
     $userRole = $row['rol'] ?: 'vendedor';
     $userName = $row['usuario'];
+
+    // Emitir Token de Sesión Criptográficamente Seguro
+    $authToken = generateAuthToken($mysqli, $uId, $userName, $userRole, $branch, 24);
+
     recordAuditLog($mysqli, $userName, $userRole, 'LOGIN_EXITOSO', "Inicio de sesión autorizado para @{$userName}", $branch);
 
     echo json_encode([
         "success" => true,
         "message" => "Acceso autorizado.",
+        "token" => $authToken,
         "user" => [
             "id" => (string)$row['id'],
             "username" => $row['usuario'],
             "name" => $row['nombrecompleto'] ?: $row['usuario'],
             "role" => $userRole,
+            "status" => $row['status'] ?: 'Activo',
             "branch" => $branch,
             "database" => $dbname
         ]
+    ]);
+    exit;
+}
+
+// ------------------------------------------------------------------------------
+// 0.1 LOGOUT / REVOCAR TOKEN
+// ------------------------------------------------------------------------------
+if ($action === 'logout') {
+    $token = getBearerToken();
+    if ($token) {
+        revokeAuthToken($mysqli, $token);
+    }
+    echo json_encode([
+        "success" => true,
+        "message" => "Sesión cerrada correctamente."
     ]);
     exit;
 }
@@ -900,6 +1162,8 @@ if ($action === 'get_permissions') {
 // 3. GUARDAR PERMISOS
 // ------------------------------------------------------------------------------
 if ($action === 'save_permissions' && $_SERVER['REQUEST_METHOD'] === 'POST') {
+    $session = requireAuth($mysqli, 'guardar permisos', ['administrador']);
+
     if (!$postData || !isset($postData['permissions'])) {
         echo json_encode(["success" => false, "error" => "Datos de permisos no proporcionados."]);
         exit;
@@ -929,7 +1193,7 @@ if ($action === 'save_permissions' && $_SERVER['REQUEST_METHOD'] === 'POST') {
     }
     $stmt->close();
 
-    recordAuditLog($mysqli, 'Admin', 'Administrador', 'ACTUALIZAR_PERMISOS', 'Matriz de permisos de roles modificada en el sistema', $branch);
+    recordAuditLog($mysqli, $session['username'] ?? 'Admin', $session['role'] ?? 'Administrador', 'ACTUALIZAR_PERMISOS', 'Matriz de permisos de roles modificada en el sistema', $branch);
 
     echo json_encode([
         "success" => true,
@@ -945,6 +1209,8 @@ if ($action === 'save_permissions' && $_SERVER['REQUEST_METHOD'] === 'POST') {
 // 4. GUARDAR ESTADO COMPLETO EN SQL (mazal_app_state + Sincronización Nativa)
 // ------------------------------------------------------------------------------
 if ($action === 'save_state' && $_SERVER['REQUEST_METHOD'] === 'POST') {
+    $session = requireAuth($mysqli, 'sincronización de estado');
+
     $id = 1;
     if ($branch === 'Sur') $id = 2;
     if ($branch === 'Centro') $id = 3;
@@ -1357,6 +1623,8 @@ if ($action === 'get_historical_sales') {
 // 8. GUARDAR / EDITAR PRODUCTO (CRUD: Create / Update)
 // ------------------------------------------------------------------------------
 if ($action === 'save_product' && $_SERVER['REQUEST_METHOD'] === 'POST') {
+    $session = requireAuth($mysqli, 'guardar producto', ['administrador', 'gerente', 'almacenista']);
+
     $rawId = isset($postData['id']) ? (string)$postData['id'] : '';
     $prodId = sanitizeInt($rawId);
     $clave  = sanitizeString($postData['code'] ?? ($postData['clave'] ?? ''), 100);
@@ -1458,6 +1726,8 @@ if ($action === 'save_product' && $_SERVER['REQUEST_METHOD'] === 'POST') {
 // 9. ELIMINAR PRODUCTO (CRUD: Delete)
 // ------------------------------------------------------------------------------
 if ($action === 'delete_product' && $_SERVER['REQUEST_METHOD'] === 'POST') {
+    $session = requireAuth($mysqli, 'eliminar producto', ['administrador', 'gerente']);
+
     $rawId = isset($postData['id']) ? (string)$postData['id'] : (isset($_GET['id']) ? (string)$_GET['id'] : '');
     $pId = sanitizeInt($rawId);
 
@@ -1475,11 +1745,10 @@ if ($action === 'delete_product' && $_SERVER['REQUEST_METHOD'] === 'POST') {
             $stmtDelProd->bind_param("i", $pId);
             $stmtDelProd->execute();
             $stmtDelProd->close();
-            $deleted = true;
         }
 
         if ($deleted) {
-            recordAuditLog($mysqli, 'Admin', 'Administrador', 'ELIMINAR_PRODUCTO', "Producto ID #{$pId} eliminado de la base de datos", $branch);
+            recordAuditLog($mysqli, $session['username'] ?? 'Admin', $session['role'] ?? 'Administrador', 'ELIMINAR_PRODUCTO', "Producto ID #{$pId} eliminado de la base de datos", $branch);
         }
     }
 
@@ -1496,6 +1765,8 @@ if ($action === 'delete_product' && $_SERVER['REQUEST_METHOD'] === 'POST') {
 // 10. ACTUALIZAR STOCK
 // ------------------------------------------------------------------------------
 if ($action === 'update_stock' && $_SERVER['REQUEST_METHOD'] === 'POST') {
+    $session = requireAuth($mysqli, 'actualizar inventario', ['administrador', 'gerente', 'almacenista']);
+
     $rawId = isset($postData['id']) ? (string)$postData['id'] : (isset($_GET['id']) ? (string)$_GET['id'] : '');
     $prodId = sanitizeInt($rawId);
     $newStock = sanitizeFloat($postData['stock'] ?? ($postData['cant'] ?? 0));
@@ -1524,6 +1795,8 @@ if ($action === 'update_stock' && $_SERVER['REQUEST_METHOD'] === 'POST') {
 // 11. GUARDAR CLIENTE (CRUD: Create / Update)
 // ------------------------------------------------------------------------------
 if ($action === 'save_customer' && $_SERVER['REQUEST_METHOD'] === 'POST') {
+    $session = requireAuth($mysqli, 'guardar cliente');
+
     $rawId = isset($postData['id']) ? (string)$postData['id'] : (isset($postData['id_cliente']) ? (string)$postData['id_cliente'] : '');
     $cId = sanitizeInt($rawId);
     $cName = sanitizeString($postData['name'] ?? ($postData['nombre_c'] ?? ''), 255);
@@ -1576,6 +1849,8 @@ if ($action === 'save_customer' && $_SERVER['REQUEST_METHOD'] === 'POST') {
 // 12. ELIMINAR CLIENTE (CRUD: Delete)
 // ------------------------------------------------------------------------------
 if ($action === 'delete_customer' && $_SERVER['REQUEST_METHOD'] === 'POST') {
+    $session = requireAuth($mysqli, 'eliminar cliente', ['administrador', 'gerente']);
+
     $rawId = isset($postData['id']) ? (string)$postData['id'] : (isset($postData['id_cliente']) ? (string)$postData['id_cliente'] : '');
     $cId = sanitizeInt($rawId);
     $cName = sanitizeString($postData['name'] ?? '', 255);
@@ -1600,7 +1875,7 @@ if ($action === 'delete_customer' && $_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 
     if ($deleted) {
-        recordAuditLog($mysqli, 'Admin', 'Administrador', 'ELIMINAR_CLIENTE', "Cliente ID #{$cId} ({$cName}) eliminado", $branch);
+        recordAuditLog($mysqli, $session['username'] ?? 'Admin', $session['role'] ?? 'Administrador', 'ELIMINAR_CLIENTE', "Cliente ID #{$cId} ({$cName}) eliminado", $branch);
     }
 
     echo json_encode([
@@ -1616,6 +1891,8 @@ if ($action === 'delete_customer' && $_SERVER['REQUEST_METHOD'] === 'POST') {
 // 13. GUARDAR PROVEEDOR (CRUD: Create / Update)
 // ------------------------------------------------------------------------------
 if ($action === 'save_supplier' && $_SERVER['REQUEST_METHOD'] === 'POST') {
+    $session = requireAuth($mysqli, 'guardar proveedor', ['administrador', 'gerente', 'compras']);
+
     $rawId = isset($postData['id']) ? (string)$postData['id'] : '';
     $sId = sanitizeInt($rawId);
     $sName = sanitizeString($postData['name'] ?? ($postData['nombre'] ?? ''), 255);
@@ -1666,6 +1943,8 @@ if ($action === 'save_supplier' && $_SERVER['REQUEST_METHOD'] === 'POST') {
 // 14. ELIMINAR PROVEEDOR (CRUD: Delete)
 // ------------------------------------------------------------------------------
 if ($action === 'delete_supplier' && $_SERVER['REQUEST_METHOD'] === 'POST') {
+    $session = requireAuth($mysqli, 'eliminar proveedor', ['administrador', 'gerente']);
+
     $rawId = isset($postData['id']) ? (string)$postData['id'] : '';
     $sId = sanitizeInt($rawId);
 
@@ -1680,7 +1959,7 @@ if ($action === 'delete_supplier' && $_SERVER['REQUEST_METHOD'] === 'POST') {
         }
 
         if ($deleted) {
-            recordAuditLog($mysqli, 'Admin', 'Administrador', 'ELIMINAR_PROVEEDOR', "Proveedor ID #{$sId} eliminado", $branch);
+            recordAuditLog($mysqli, $session['username'] ?? 'Admin', $session['role'] ?? 'Administrador', 'ELIMINAR_PROVEEDOR', "Proveedor ID #{$sId} eliminado", $branch);
         }
     }
 
@@ -1697,6 +1976,8 @@ if ($action === 'delete_supplier' && $_SERVER['REQUEST_METHOD'] === 'POST') {
 // 15. GUARDAR VENTA DIRECTA (CRUD: Create / Update)
 // ------------------------------------------------------------------------------
 if ($action === 'save_sale' && $_SERVER['REQUEST_METHOD'] === 'POST') {
+    $session = requireAuth($mysqli, 'registrar venta');
+
     $rawId = isset($postData['id']) ? (string)$postData['id'] : '';
     $vId = (int)preg_replace('/[^0-9]/', '', $rawId);
     $vTicket = isset($postData['ticketNumber']) ? trim($postData['ticketNumber']) : (isset($postData['ticket_number']) ? trim($postData['ticket_number']) : "TICK-" . time());
@@ -1746,6 +2027,8 @@ if ($action === 'save_sale' && $_SERVER['REQUEST_METHOD'] === 'POST') {
 // 16. ELIMINAR VENTA (CRUD: Delete)
 // ------------------------------------------------------------------------------
 if ($action === 'delete_sale' && $_SERVER['REQUEST_METHOD'] === 'POST') {
+    $session = requireAuth($mysqli, 'eliminar venta', ['administrador', 'gerente']);
+
     $rawId = isset($postData['id']) ? (string)$postData['id'] : '';
     $vId = (int)preg_replace('/[^0-9]/', '', $rawId);
 
@@ -1757,6 +2040,10 @@ if ($action === 'delete_sale' && $_SERVER['REQUEST_METHOD'] === 'POST') {
             $stmt->execute();
             $stmt->close();
             $deleted = true;
+        }
+
+        if ($deleted) {
+            recordAuditLog($mysqli, $session['username'] ?? 'Admin', $session['role'] ?? 'Administrador', 'ELIMINAR_VENTA', "Venta #{$vId} cancelada/eliminada", $branch);
         }
     }
 
@@ -1773,6 +2060,8 @@ if ($action === 'delete_sale' && $_SERVER['REQUEST_METHOD'] === 'POST') {
 // 17. GUARDAR MOVIMIENTO DE INVENTARIO (KARDEX)
 // ------------------------------------------------------------------------------
 if ($action === 'save_movement' && $_SERVER['REQUEST_METHOD'] === 'POST') {
+    $session = requireAuth($mysqli, 'movimiento de inventario');
+
     $mId = isset($postData['id']) ? trim($postData['id']) : "MOV_" . time();
     $prodId = isset($postData['productId']) ? trim($postData['productId']) : (isset($postData['product_id']) ? trim($postData['product_id']) : '');
     $prodName = isset($postData['productName']) ? trim($postData['productName']) : (isset($postData['product_name']) ? trim($postData['product_name']) : '');
@@ -1781,7 +2070,7 @@ if ($action === 'save_movement' && $_SERVER['REQUEST_METHOD'] === 'POST') {
     $prevStock = isset($postData['previousStock']) ? (float)$postData['previousStock'] : (isset($postData['previous_stock']) ? (float)$postData['previous_stock'] : 0);
     $newStock = isset($postData['newStock']) ? (float)$postData['newStock'] : (isset($postData['new_stock']) ? (float)$postData['new_stock'] : 0);
     $mDate = isset($postData['date']) ? trim($postData['date']) : date("Y-m-d H:i:s");
-    $mUser = isset($postData['user']) ? trim($postData['user']) : (isset($postData['user_name']) ? trim($postData['user_name']) : 'Admin');
+    $mUser = isset($postData['user']) ? trim($postData['user']) : (isset($postData['user_name']) ? trim($postData['user_name']) : ($session['username'] ?? 'Admin'));
     $mNotes = isset($postData['notes']) ? trim($postData['notes']) : '';
     $mSucursal = isset($postData['sucursal']) ? trim($postData['sucursal']) : $branch;
     $mRaw = json_encode($postData);
@@ -1809,10 +2098,12 @@ if ($action === 'save_movement' && $_SERVER['REQUEST_METHOD'] === 'POST') {
 // 18. GUARDAR SESIÓN DE CAJA
 // ------------------------------------------------------------------------------
 if ($action === 'save_cash_session' && $_SERVER['REQUEST_METHOD'] === 'POST') {
+    $session = requireAuth($mysqli, 'guardar sesión de caja');
+
     $csId = isset($postData['id']) ? trim($postData['id']) : "SESS_" . time();
     $sTime = isset($postData['startTime']) ? trim($postData['startTime']) : (isset($postData['start_time']) ? trim($postData['start_time']) : date("Y-m-d H:i:s"));
     $eTime = isset($postData['endTime']) ? trim($postData['endTime']) : (isset($postData['end_time']) ? trim($postData['end_time']) : null);
-    $openedBy = isset($postData['openedBy']) ? trim($postData['openedBy']) : (isset($postData['opened_by']) ? trim($postData['opened_by']) : 'Admin');
+    $openedBy = isset($postData['openedBy']) ? trim($postData['openedBy']) : (isset($postData['opened_by']) ? trim($postData['opened_by']) : ($session['username'] ?? 'Admin'));
     $initCash = isset($postData['initialCash']) ? (float)$postData['initialCash'] : (isset($postData['initial_cash']) ? (float)$postData['initial_cash'] : 0);
     $finalCash = isset($postData['finalCash']) ? (float)$postData['finalCash'] : (isset($postData['final_cash']) ? (float)$postData['final_cash'] : null);
     $csStatus = isset($postData['status']) ? trim($postData['status']) : 'Abierta';
@@ -1845,12 +2136,14 @@ if ($action === 'save_cash_session' && $_SERVER['REQUEST_METHOD'] === 'POST') {
 // 19. GUARDAR GASTO DE CAJA
 // ------------------------------------------------------------------------------
 if ($action === 'save_expense' && $_SERVER['REQUEST_METHOD'] === 'POST') {
+    $session = requireAuth($mysqli, 'registrar gasto');
+
     $eId = isset($postData['id']) ? trim($postData['id']) : "EXP_" . time();
     $eDesc = isset($postData['description']) ? trim($postData['description']) : "Gasto";
     $eAmount = isset($postData['amount']) ? (float)$postData['amount'] : 0;
     $eCat = isset($postData['category']) ? trim($postData['category']) : "General";
     $eDate = isset($postData['date']) ? trim($postData['date']) : date("Y-m-d H:i:s");
-    $eUser = isset($postData['user']) ? trim($postData['user']) : (isset($postData['user_name']) ? trim($postData['user_name']) : "Admin");
+    $eUser = isset($postData['user']) ? trim($postData['user']) : (isset($postData['user_name']) ? trim($postData['user_name']) : ($session['username'] ?? "Admin"));
     $eSucursal = isset($postData['sucursal']) ? trim($postData['sucursal']) : $branch;
     $eRaw = json_encode($postData);
 
@@ -1877,6 +2170,8 @@ if ($action === 'save_expense' && $_SERVER['REQUEST_METHOD'] === 'POST') {
 // 20. ELIMINAR GASTO DE CAJA
 // ------------------------------------------------------------------------------
 if ($action === 'delete_expense' && $_SERVER['REQUEST_METHOD'] === 'POST') {
+    $session = requireAuth($mysqli, 'eliminar gasto', ['administrador', 'gerente']);
+
     $eId = isset($postData['id']) ? trim($postData['id']) : '';
 
     $deleted = false;
@@ -1887,6 +2182,10 @@ if ($action === 'delete_expense' && $_SERVER['REQUEST_METHOD'] === 'POST') {
             $stmt->execute();
             $stmt->close();
             $deleted = true;
+        }
+
+        if ($deleted) {
+            recordAuditLog($mysqli, $session['username'] ?? 'Admin', $session['role'] ?? 'Administrador', 'ELIMINAR_GASTO', "Gasto ID #{$eId} eliminado", $branch);
         }
     }
 
@@ -1903,6 +2202,8 @@ if ($action === 'delete_expense' && $_SERVER['REQUEST_METHOD'] === 'POST') {
 // 21. GUARDAR ORDEN DE COMPRA
 // ------------------------------------------------------------------------------
 if ($action === 'save_purchase_order' && $_SERVER['REQUEST_METHOD'] === 'POST') {
+    $session = requireAuth($mysqli, 'guardar orden de compra', ['administrador', 'gerente', 'compras']);
+
     $poId = isset($postData['id']) ? trim($postData['id']) : "PO_" . time();
     $suppId = isset($postData['supplierId']) ? trim($postData['supplierId']) : (isset($postData['supplier_id']) ? trim($postData['supplier_id']) : '');
     $suppName = isset($postData['supplierName']) ? trim($postData['supplierName']) : (isset($postData['supplier_name']) ? trim($postData['supplier_name']) : '');
@@ -1937,6 +2238,8 @@ if ($action === 'save_purchase_order' && $_SERVER['REQUEST_METHOD'] === 'POST') 
 // 22. ELIMINAR ORDEN DE COMPRA
 // ------------------------------------------------------------------------------
 if ($action === 'delete_purchase_order' && $_SERVER['REQUEST_METHOD'] === 'POST') {
+    $session = requireAuth($mysqli, 'eliminar orden de compra', ['administrador', 'gerente', 'compras']);
+
     $poId = isset($postData['id']) ? trim($postData['id']) : '';
 
     $deleted = false;
@@ -1947,6 +2250,10 @@ if ($action === 'delete_purchase_order' && $_SERVER['REQUEST_METHOD'] === 'POST'
             $stmt->execute();
             $stmt->close();
             $deleted = true;
+        }
+
+        if ($deleted) {
+            recordAuditLog($mysqli, $session['username'] ?? 'Admin', $session['role'] ?? 'Administrador', 'ELIMINAR_ORDEN_COMPRA', "Orden de compra ID #{$poId} eliminada", $branch);
         }
     }
 
@@ -1963,6 +2270,8 @@ if ($action === 'delete_purchase_order' && $_SERVER['REQUEST_METHOD'] === 'POST'
 // 23. GUARDAR / EDITAR USUARIO
 // ------------------------------------------------------------------------------
 if ($action === 'save_user' && $_SERVER['REQUEST_METHOD'] === 'POST') {
+    $session = requireAuth($mysqli, 'gestión de usuarios', ['administrador']);
+
     $usuario = sanitizeString($postData['username'] ?? ($postData['usuario'] ?? ''), 100);
     $nombre  = sanitizeString($postData['name'] ?? ($postData['nombrecompleto'] ?? $usuario), 255);
     $pass    = (string)($postData['password'] ?? '');
@@ -2009,7 +2318,7 @@ if ($action === 'save_user' && $_SERVER['REQUEST_METHOD'] === 'POST') {
                         $stmtUp->close();
                     }
                 }
-                recordAuditLog($mysqli, 'Admin', 'Administrador', 'MODIFICAR_USUARIO', "Usuario @{$usuario} actualizado (Rol: {$rol})", $branch);
+                recordAuditLog($mysqli, $session['username'] ?? 'Admin', $session['role'] ?? 'Administrador', 'MODIFICAR_USUARIO', "Usuario @{$usuario} actualizado (Rol: {$rol})", $branch);
             } else {
                 if (empty($pass)) {
                     echo json_encode(["success" => false, "error" => "La contraseña es obligatoria para nuevos usuarios."]);
@@ -2023,7 +2332,7 @@ if ($action === 'save_user' && $_SERVER['REQUEST_METHOD'] === 'POST') {
                     $userId = (int)$mysqli->insert_id;
                     $stmtIns->close();
                 }
-                recordAuditLog($mysqli, 'Admin', 'Administrador', 'CREAR_USUARIO', "Nuevo usuario @{$usuario} registrado (Rol: {$rol})", $branch);
+                recordAuditLog($mysqli, $session['username'] ?? 'Admin', $session['role'] ?? 'Administrador', 'CREAR_USUARIO', "Nuevo usuario @{$usuario} registrado (Rol: {$rol})", $branch);
             }
             $stmtCheck->close();
         }
@@ -2046,6 +2355,8 @@ if ($action === 'save_user' && $_SERVER['REQUEST_METHOD'] === 'POST') {
 // 24. ELIMINAR USUARIO
 // ------------------------------------------------------------------------------
 if ($action === 'delete_user' && $_SERVER['REQUEST_METHOD'] === 'POST') {
+    $session = requireAuth($mysqli, 'eliminar usuario', ['administrador']);
+
     $usuario = sanitizeString($postData['username'] ?? ($postData['usuario'] ?? ''), 100);
     
     if (strtolower($usuario) === 'admin') {
@@ -2061,7 +2372,7 @@ if ($action === 'delete_user' && $_SERVER['REQUEST_METHOD'] === 'POST') {
             $stmtDel->close();
         }
 
-        recordAuditLog($mysqli, 'Admin', 'Administrador', 'ELIMINAR_USUARIO', "Usuario @{$usuario} eliminado del sistema", $branch);
+        recordAuditLog($mysqli, $session['username'] ?? 'Admin', $session['role'] ?? 'Administrador', 'ELIMINAR_USUARIO', "Usuario @{$usuario} eliminado del sistema", $branch);
 
         echo json_encode([
             "success" => true,
@@ -2077,6 +2388,8 @@ if ($action === 'delete_user' && $_SERVER['REQUEST_METHOD'] === 'POST') {
 // 25. GUARDAR CUENTA BANCARIA
 // ------------------------------------------------------------------------------
 if ($action === 'save_bank_account' && $_SERVER['REQUEST_METHOD'] === 'POST') {
+    $session = requireAuth($mysqli, 'gestión de cuentas bancarias', ['administrador', 'gerente', 'contabilidad']);
+
     $id = sanitizeString($postData['id'] ?? ("ACC-" . time()), 50);
     $bName = sanitizeString($postData['bankName'] ?? "Banco", 100);
     $accNum = sanitizeString($postData['accountNumber'] ?? "", 100);
@@ -2105,6 +2418,8 @@ if ($action === 'save_bank_account' && $_SERVER['REQUEST_METHOD'] === 'POST') {
 // 26. GUARDAR MOVIMIENTO BANCARIO
 // ------------------------------------------------------------------------------
 if ($action === 'save_bank_movement' && $_SERVER['REQUEST_METHOD'] === 'POST') {
+    $session = requireAuth($mysqli, 'gestión de movimientos bancarios', ['administrador', 'gerente', 'contabilidad']);
+
     $id = sanitizeString($postData['id'] ?? ("BM-" . time()), 50);
     $accId = sanitizeString($postData['bankAccountId'] ?? "", 50);
     $type = sanitizeString($postData['type'] ?? "Depósito", 50);
@@ -2113,7 +2428,7 @@ if ($action === 'save_bank_movement' && $_SERVER['REQUEST_METHOD'] === 'POST') {
     $desc = sanitizeString($postData['description'] ?? "", 255);
     $cat = sanitizeString($postData['category'] ?? "General", 100);
     $ref = sanitizeString($postData['reference'] ?? "", 100);
-    $user = sanitizeString($postData['user'] ?? "Admin", 100);
+    $user = sanitizeString($postData['user'] ?? ($session['username'] ?? "Admin"), 100);
     $raw = json_encode($postData);
 
     try {
@@ -2133,13 +2448,15 @@ if ($action === 'save_bank_movement' && $_SERVER['REQUEST_METHOD'] === 'POST') {
 // 27. GUARDAR ABONO DE CRÉDITO
 // ------------------------------------------------------------------------------
 if ($action === 'save_credit_payment' && $_SERVER['REQUEST_METHOD'] === 'POST') {
+    $session = requireAuth($mysqli, 'registrar abono');
+
     $id = sanitizeString($postData['id'] ?? ("PAY-" . time()), 50);
     $custId = sanitizeString($postData['customerId'] ?? "", 50);
     $amount = sanitizeFloat($postData['amount'] ?? 0);
     $date = sanitizeString($postData['date'] ?? date("Y-m-d H:i:s"), 50);
     $method = sanitizeString($postData['paymentMethod'] ?? "Efectivo", 50);
     $notes = sanitizeString($postData['notes'] ?? "", 500);
-    $user = sanitizeString($postData['user'] ?? "Admin", 100);
+    $user = sanitizeString($postData['user'] ?? ($session['username'] ?? "Admin"), 100);
     $suc = sanitizeString($postData['sucursal'] ?? $branch, 50);
     $raw = json_encode($postData);
 
@@ -2160,9 +2477,11 @@ if ($action === 'save_credit_payment' && $_SERVER['REQUEST_METHOD'] === 'POST') 
 // 28. GUARDAR LOG DE AUDITORÍA
 // ------------------------------------------------------------------------------
 if ($action === 'save_audit_log' && $_SERVER['REQUEST_METHOD'] === 'POST') {
+    $session = requireAuth($mysqli, 'registrar auditoría');
+
     $id = sanitizeString($postData['id'] ?? ("AUD-" . time()), 50);
-    $uName = sanitizeString($postData['user'] ?? "Admin", 100);
-    $uRole = sanitizeString($postData['role'] ?? "Administrador", 50);
+    $uName = sanitizeString($postData['user'] ?? ($session['username'] ?? "Admin"), 100);
+    $uRole = sanitizeString($postData['role'] ?? ($session['role'] ?? "Administrador"), 50);
     $act = sanitizeString($postData['action'] ?? "Operación", 100);
     $det = sanitizeString($postData['details'] ?? "", 1000);
     $ts = sanitizeString($postData['timestamp'] ?? date("Y-m-d H:i:s"), 50);
