@@ -44,6 +44,11 @@ import {
   logAction, 
   registerMovement,
   subscribeToDb,
+  saveSaleToMySQL,
+  saveProductToMySQL,
+  updateStockInMySQL,
+  saveCustomerToMySQL,
+  saveCashSessionToMySQL,
   saveSaleToSupabase,
   saveProductToSupabase,
   saveCustomerToSupabase,
@@ -650,17 +655,20 @@ export default function POSModule({
         const previousStock = Number(prod.stock) || 0;
         const newStock = Math.max(0, previousStock - totalSoldForProd);
         
-        // Register movement
-        registerMovement(
-          prod.id,
-          prod.name,
-          MovementType.EXIT_SALE,
-          totalSoldForProd,
+        // Push movement to memory
+        if (!Array.isArray(database.movements)) database.movements = [];
+        database.movements.unshift({
+          id: "MOV_" + Math.random().toString(36).substring(2, 9).toUpperCase(),
+          productId: prod.id,
+          productName: prod.name,
+          type: MovementType.EXIT_SALE,
+          quantity: totalSoldForProd,
           previousStock,
           newStock,
-          currentUser.name,
-          `Venta ticket POS`
-        );
+          date: saleDate,
+          user: currentUser.name,
+          notes: `Venta ticket ${nextTicketNum}`
+        });
         
         return { ...prod, stock: newStock };
       }
@@ -679,7 +687,7 @@ export default function POSModule({
       });
     }
 
-    // 3. Register transaction with date-time folio (omitting seconds: YYYYMMDD-HHmm)
+    // 3. Register transaction
     const now = new Date();
     const Y = now.getFullYear();
     const M = String(now.getMonth() + 1).padStart(2, '0');
@@ -729,24 +737,25 @@ export default function POSModule({
 
     const currentBranch = activeBranch || "Norte";
 
-    // Direct Supabase Cloud saving
-    saveSaleToSupabase(newSale, currentBranch).catch((err) => {
-      console.warn("Aviso al guardar venta en Supabase:", err);
+    // 4. Save directly in local MySQL
+    saveSaleToMySQL(newSale, currentBranch).catch((err) => {
+      console.warn("Aviso al guardar venta en MySQL:", err);
     });
 
-    // Update stock for purchased products in Supabase
+    // Update stock in local MySQL
     cart.forEach((item) => {
       const prod = updatedProducts.find((p: Product) => p.id === item.product.id);
       if (prod) {
-        saveProductToSupabase(prod, currentBranch).catch(() => {});
+        updateStockInMySQL(prod.id, prod.stock, currentBranch).catch(() => {});
+        saveProductToMySQL(prod, currentBranch).catch(() => {});
       }
     });
 
-    // If credit, update customer in Supabase
+    // If credit, update customer in local MySQL
     if (paymentMethod === PaymentMethod.CREDIT && selectedCustomer) {
       const custObj = updatedCustomers.find((c: Customer) => c.id === selectedCustomer.id);
       if (custObj) {
-        saveCustomerToSupabase(custObj).catch(() => {});
+        saveCustomerToMySQL(custObj, currentBranch).catch(() => {});
       }
     }
 
@@ -755,11 +764,12 @@ export default function POSModule({
       const activeSess = database.cashSessions.find((s: any) => s.status === "Abierta");
       if (activeSess) {
         activeSess.salesTotal = (activeSess.salesTotal || 0) + total;
-        saveCashSessionToSupabase(activeSess, currentBranch).catch(() => {});
+        saveCashSessionToMySQL(activeSess, currentBranch).catch(() => {});
       }
     }
 
-    saveDatabase(database);
+    // Save full in-memory state
+    saveDatabase(database).catch(() => {});
     
     // Log action
     logAction(
@@ -767,9 +777,9 @@ export default function POSModule({
       currentUser.role,
       "Venta Registrada",
       `Generó ticket ${nextTicketNum} por $${total.toFixed(2)} MXN (${paymentMethod})`
-    );
+    ).catch(() => {});
 
-    // Show receipt & clear cart
+    // SHOW RECEIPT MODAL IMMEDIATELY & CLEAR CART
     setLastCompletedSale(newSale);
     setShowReceipt(true);
     setCart([]);
@@ -1598,10 +1608,26 @@ export default function POSModule({
                     </div>
                     {(() => {
                       const prod = db.products.find((p) => p.id === item.productId);
-                      const unitStr = prod?.unit || "pza(s)";
+                      const isW = isWeighed(prod) || (item.displayUnit && ['kg', 'g', 'l', 'ml'].includes(String(item.displayUnit).toLowerCase()));
+                      const unitLabel = getUnitLabel(prod) || (item.displayUnit === 'g' ? 'Kg' : (item.displayUnit || 'pz'));
+                      
+                      let qtyStr = `${item.quantity} ${unitLabel}`;
+                      if (isW) {
+                        if (item.displayUnit === 'g' || (item.quantity < 1 && unitLabel === 'Kg')) {
+                          qtyStr = `${kgToGrams(item.quantity)} g`;
+                        } else if (item.displayUnit === 'ml' || (item.quantity < 1 && unitLabel === 'L')) {
+                          qtyStr = `${literToMl(item.quantity)} ml`;
+                        } else {
+                          qtyStr = `${item.quantity.toFixed(3)} ${unitLabel}`;
+                        }
+                        qtyStr = `${qtyStr} x $${formatPrice(item.unitPrice)}/${unitLabel}`;
+                      } else {
+                        qtyStr = `${item.quantity} ${unitLabel} x $${formatPrice(item.unitPrice)}`;
+                      }
+
                       return (
                         <div className="flex justify-between text-gray-500 text-[10.5px] pl-1">
-                          <span>{item.quantity} {unitStr} x ${formatPrice(item.unitPrice)}</span>
+                          <span>{qtyStr}</span>
                           <span className="font-bold text-gray-800">${formatPrice(item.totalPrice)}</span>
                         </div>
                       );
@@ -1614,7 +1640,7 @@ export default function POSModule({
               <div className="py-3 text-[11.5px] space-y-1.5 border-b border-dashed border-gray-400">
                 <div className="flex justify-between text-gray-600">
                   <span>TOTAL DE ARTÍCULOS:</span>
-                  <span className="font-bold">{lastCompletedSale.items.reduce((sum, item) => sum + (item.quantity || 1), 0)}</span>
+                  <span className="font-bold">{calculateTotalArticles(lastCompletedSale.items, db.products)}</span>
                 </div>
                 <div className="flex justify-between text-sm font-black text-black pt-1.5 border-t border-dotted border-gray-300">
                   <span>TOTAL A PAGAR:</span>

@@ -549,6 +549,21 @@ export const callLocalApi = async (queryString: string, options?: RequestInit): 
   throw new Error(`No se pudo contactar el backend PHP en localhost para: ${queryString}`);
 };
 
+export const persistToLocalMySQL = async (db: any, branchParam?: string): Promise<boolean> => {
+  try {
+    const branch = branchParam || activeBranch || "Norte";
+    const res = await callLocalApi(`action=save_state&branch=${encodeURIComponent(branch)}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(db)
+    });
+    const data = await res.json();
+    return Boolean(data.success);
+  } catch (e) {
+    return false;
+  }
+};
+
 export const saveProductToMySQL = async (product: any, branchParam?: string): Promise<boolean> => {
   try {
     const branch = branchParam || activeBranch || "Norte";
