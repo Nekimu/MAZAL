@@ -129,7 +129,7 @@ export function getThermalTicketHTML(sale: Sale, branchName?: string, dbProducts
   }).join("");
 
   return `
-    <div class="thermal-ticket-wrapper" style="width: 42mm; max-width: 42mm; margin: 0; padding: 0 0.5mm 2mm 0.5mm; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, monospace, sans-serif; font-size: 7.5px; color: #000000; background: #ffffff; line-height: 1.15; box-sizing: border-box;">
+    <div class="thermal-ticket-wrapper" style="width: 42mm; max-width: 42mm; margin: 0; padding: 0.5mm 1mm 2mm 3.2mm; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, monospace, sans-serif; font-size: 7.5px; color: #000000; background: #ffffff; line-height: 1.15; box-sizing: border-box;">
       
       <!-- HEADER -->
       <div style="text-align: center; border-bottom: 1px dashed #000; padding-bottom: 3px; margin-bottom: 3px; width: 100%; box-sizing: border-box;">
@@ -244,8 +244,6 @@ export function printThermalTicket(sale: Sale, branchName?: string, dbProducts: 
           }
           *, *:before, *:after {
             box-sizing: border-box !important;
-            margin: 0 !important;
-            padding: 0 !important;
           }
           html, body {
             width: 42mm !important;
@@ -262,8 +260,9 @@ export function printThermalTicket(sale: Sale, branchName?: string, dbProducts: 
             width: 42mm !important;
             max-width: 42mm !important;
             margin: 0 !important;
-            padding: 0 0.5mm 2mm 0.5mm !important;
+            padding: 0.5mm 1mm 2mm 3.2mm !important;
             box-sizing: border-box !important;
+            overflow: hidden !important;
           }
           @media print {
             html, body {
@@ -276,7 +275,9 @@ export function printThermalTicket(sale: Sale, branchName?: string, dbProducts: 
               width: 42mm !important;
               max-width: 42mm !important;
               margin: 0 !important;
-              padding: 0 0.5mm 2mm 0.5mm !important;
+              padding: 0.5mm 1mm 2mm 3.2mm !important;
+              box-sizing: border-box !important;
+              overflow: hidden !important;
             }
           }
         </style>
