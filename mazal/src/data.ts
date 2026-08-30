@@ -336,12 +336,26 @@ export function normalizeProduct(p: any): Product {
   const tipoVenta = p.tipoVenta || (unit === ProductUnit.KILO ? "peso" : unit === ProductUnit.LITER ? "volumen" : "pieza");
   const gramajeBase = Number(p.gramajeBase ?? (unit === ProductUnit.KILO ? 1000 : 0));
 
-  const priceMin = parseFloat((Number(p.priceMin ?? p.precioMenudeo ?? 0)).toFixed(4));
-  const priceMed = parseFloat((Number(p.priceMed ?? p.precioMedioMayoreo ?? 0)).toFixed(4));
-  const priceMax = parseFloat((Number(p.priceMax ?? p.precioMayoreo ?? 0)).toFixed(4));
-  const priceSpecial = parseFloat((Number(p.priceSpecial ?? p.precioEspecial ?? 0)).toFixed(4));
-  const cost = parseFloat((Number(p.cost ?? p.costo ?? 0)).toFixed(4));
-  const stock = Number(p.stock ?? p.stockDisponible ?? 0);
+  let priceMin = parseFloat((Number(p.priceMin ?? p.precioMenudeo ?? p.menudeo ?? 0)).toFixed(4));
+  let priceMed = parseFloat((Number(p.priceMed ?? p.precioMedioMayoreo ?? p.medio ?? priceMin)).toFixed(4));
+  let priceMax = parseFloat((Number(p.priceMax ?? p.precioMayoreo ?? p.mayoreo ?? priceMin)).toFixed(4));
+  let priceSpecial = parseFloat((Number(p.priceSpecial ?? p.precioEspecial ?? p.precio_especial ?? 0)).toFixed(4));
+  let cost = parseFloat((Number(p.cost ?? p.costo ?? p.unitario ?? 0)).toFixed(4));
+  let stock = Number(p.stock ?? p.stockDisponible ?? p.cant ?? 0);
+
+  // Normalización automática para productos a granel / mixto con precio legacy por gramo (< 1.0)
+  if (isBulk || unit === ProductUnit.KILO) {
+    if (priceMin > 0 && priceMin < 1.0) {
+      priceMin = parseFloat((priceMin * 1000).toFixed(2));
+      priceMed = priceMed > 0 && priceMed < 1.0 ? parseFloat((priceMed * 1000).toFixed(2)) : (priceMed > 0 ? priceMed : priceMin);
+      priceMax = priceMax > 0 && priceMax < 1.0 ? parseFloat((priceMax * 1000).toFixed(2)) : (priceMax > 0 ? priceMax : priceMin);
+      priceSpecial = priceSpecial > 0 && priceSpecial < 1.0 ? parseFloat((priceSpecial * 1000).toFixed(2)) : priceSpecial;
+      cost = cost > 0 && cost < 1.0 ? parseFloat((cost * 1000).toFixed(2)) : cost;
+    }
+    if (stock > 1000 && !p.isNormalizedStock) {
+      stock = parseFloat((stock / 1000).toFixed(3));
+    }
+  }
 
   return {
     ...p,
@@ -1439,9 +1453,9 @@ export const syncWithLocalMySQL = async (branchParam?: string): Promise<{ succes
           subcategory: des,
           unit,
           cost: unitario,
-          priceMin: mayoreo,
+          priceMin: menudeo,
           priceMed: medio,
-          priceMax: menudeo,
+          priceMax: mayoreo,
           priceSpecial: mayoreo > 0 ? parseFloat((mayoreo * 0.95).toFixed(2)) : 0,
           stock: cant,
           stockMin: 5,

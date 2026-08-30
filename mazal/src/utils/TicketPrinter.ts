@@ -71,11 +71,12 @@ export function formatTicketDateTime(dateStr?: string): string {
 export function calculateTotalArticles(items: Sale["items"], dbProducts: Product[] = []): number {
   return (items || []).reduce((acc, item) => {
     const prod = (dbProducts || []).find(p => p.id === item.productId);
-    const isW = isWeighed(prod);
+    const isW = isWeighed(prod) || (item.unit && ['kg', 'g', 'l', 'ml'].includes(String(item.unit).toLowerCase()));
     if (isW) {
       return acc + 1; // Weighted items count as 1 weighed line item
     }
-    return acc + (item.quantity || 1);
+    const qty = Number(item.quantity) || 1;
+    return acc + (qty >= 50 ? 1 : qty);
   }, 0);
 }
 
@@ -84,21 +85,31 @@ export function calculateTotalArticles(items: Sale["items"], dbProducts: Product
  */
 export function formatItemQuantityLine(item: Sale["items"][0], dbProducts: Product[] = []): string {
   const prod = (dbProducts || []).find(p => p.id === item.productId);
-  const isW = isWeighed(prod);
-  const unitLabel = getUnitLabel(prod);
+  const isW = isWeighed(prod) || (item.unit && ['kg', 'g', 'l', 'ml'].includes(String(item.unit).toLowerCase()));
+  const unitLabel = getUnitLabel(prod) || (item.unit?.toLowerCase() === 'kg' ? 'Kg' : (item.unit || 'pz'));
+
+  let rawQty = Number(item.quantity) || 0;
+  // Si la cantidad es >= 50 y es producto por peso, verificar si se guardó en gramos en versiones previas
+  if (isW && rawQty >= 50 && (item.unitPrice || 0) > 0) {
+    const pricePerKg = Number(item.unitPrice) || 1;
+    const totalP = Number(item.totalPrice) || 0;
+    if (Math.abs(totalP - (rawQty * pricePerKg / 1000)) < 0.1 || totalP <= (rawQty * pricePerKg / 500)) {
+      rawQty = rawQty / 1000;
+    }
+  }
 
   let qtyFormatted = "";
   if (isW) {
-    if (item.displayUnit === "g" || (!item.displayUnit && item.quantity < 1 && unitLabel === "Kg")) {
-      qtyFormatted = `${kgToGrams(item.quantity)} g`;
-    } else if (item.displayUnit === "ml" || (!item.displayUnit && item.quantity < 1 && unitLabel === "L")) {
-      qtyFormatted = `${literToMl(item.quantity)} ml`;
+    if (item.displayUnit === "g" || (!item.displayUnit && rawQty < 1 && unitLabel === "Kg")) {
+      qtyFormatted = `${kgToGrams(rawQty)} g`;
+    } else if (item.displayUnit === "ml" || (!item.displayUnit && rawQty < 1 && unitLabel === "L")) {
+      qtyFormatted = `${literToMl(rawQty)} ml`;
     } else {
-      qtyFormatted = `${(item.quantity || 0).toFixed(3)} ${unitLabel}`;
+      qtyFormatted = `${rawQty.toFixed(3)} ${unitLabel}`;
     }
     return `${qtyFormatted} x $${formatPrice(item.unitPrice)}/${unitLabel}`;
   } else {
-    qtyFormatted = `${item.quantity || 1} ${unitLabel || "pz"}`;
+    qtyFormatted = `${rawQty} ${unitLabel || "pz"}`;
     return `${qtyFormatted} x $${formatPrice(item.unitPrice)}`;
   }
 }

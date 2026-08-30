@@ -170,7 +170,7 @@ export default function ReceiptsModule({ currentUser }: ReceiptsModuleProps) {
               <tbody className="divide-y divide-gray-150/40 dark:divide-slate-800/65">
                 {filteredSales.map((sale) => {
                   const isSelected = selectedSale?.id === sale.id;
-                  const itemQuantityTotal = sale.items.reduce((sum, item) => sum + item.quantity, 0);
+                  const totalArticles = calculateTotalArticles(sale.items, db.products);
 
                   return (
                     <tr
@@ -202,9 +202,9 @@ export default function ReceiptsModule({ currentUser }: ReceiptsModuleProps) {
                         </div>
                       </td>
                       <td className="p-3 font-mono text-slate-600 dark:text-slate-350 font-bold">
-                        {itemQuantityTotal} pzas
+                        {totalArticles} {totalArticles === 1 ? "artículo" : "artículos"}
                         <span className="text-[10px] text-gray-400 block font-normal font-sans">
-                          ({sale.items.length} prod)
+                          ({sale.items.length} {sale.items.length === 1 ? "prod" : "prods"})
                         </span>
                       </td>
                       <td className="p-3">
@@ -321,20 +321,29 @@ export default function ReceiptsModule({ currentUser }: ReceiptsModuleProps) {
 
                   {selectedSale.items.map((item, idx) => {
                     const prod = db.products.find((p: any) => p.id === item.productId);
-                    const isW = isWeighed(prod);
-                    const unitLabel = getUnitLabel(prod);
+                    const isW = isWeighed(prod) || (item.unit && ['kg', 'g', 'l', 'ml'].includes(String(item.unit).toLowerCase()));
+                    const unitLabel = getUnitLabel(prod) || (item.unit?.toLowerCase() === 'kg' ? 'Kg' : (item.unit || 'pza'));
+
+                    let rawQty = Number(item.quantity) || 0;
+                    if (isW && rawQty >= 50 && (item.unitPrice || 0) > 0) {
+                      const pricePerKg = Number(item.unitPrice) || 1;
+                      const totalP = Number(item.totalPrice) || 0;
+                      if (Math.abs(totalP - (rawQty * pricePerKg / 1000)) < 0.1 || totalP <= (rawQty * pricePerKg / 500)) {
+                        rawQty = rawQty / 1000;
+                      }
+                    }
 
                     let qtyFormatted = "";
                     if (isW) {
-                      if (item.displayUnit === "g" || (!item.displayUnit && item.quantity < 1 && unitLabel === "Kg")) {
-                        qtyFormatted = `${kgToGrams(item.quantity)} g`;
-                      } else if (item.displayUnit === "ml" || (!item.displayUnit && item.quantity < 1 && unitLabel === "L")) {
-                        qtyFormatted = `${literToMl(item.quantity)} ml`;
+                      if (item.displayUnit === "g" || (!item.displayUnit && rawQty < 1 && unitLabel === "Kg")) {
+                        qtyFormatted = `${kgToGrams(rawQty)} g`;
+                      } else if (item.displayUnit === "ml" || (!item.displayUnit && rawQty < 1 && unitLabel === "L")) {
+                        qtyFormatted = `${literToMl(rawQty)} ml`;
                       } else {
-                        qtyFormatted = `${item.quantity.toFixed(3)} ${unitLabel}`;
+                        qtyFormatted = `${rawQty.toFixed(3)} ${unitLabel}`;
                       }
                     } else {
-                      qtyFormatted = `${item.quantity} ${unitLabel || "pza"}`;
+                      qtyFormatted = `${rawQty} ${unitLabel || "pza"}`;
                     }
 
                     return (
