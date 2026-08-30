@@ -1,6 +1,20 @@
 <?php
 error_reporting(0);
 ini_set('display_errors', '0');
+mysqli_report(MYSQLI_REPORT_OFF);
+
+// Ensure unhandled exceptions return a clean JSON response instead of a raw 500 error
+set_exception_handler(function($e) {
+    http_response_code(200);
+    header("Content-Type: application/json; charset=UTF-8");
+    echo json_encode([
+        "success" => false,
+        "error" => "Error interno backend: " . $e->getMessage(),
+        "file" => basename($e->getFile()),
+        "line" => $e->getLine()
+    ]);
+    exit;
+});
 /**
  * ==============================================================================
  * MAZAL POS & ERP - BACKEND API MYSQL / APACHE (XAMPP LOCALHOST)
@@ -75,9 +89,10 @@ if ($requestedDb && in_array($requestedDb, ['mazal_bd', 'mazal_bd1'])) {
 $rawMysqli = @new mysqli($servername, $username, $password);
 
 if ($rawMysqli && !$rawMysqli->connect_errno) {
+    @$rawMysqli->query("SET GLOBAL max_allowed_packet = 67108864;");
     // Crear bases de datos automáticamente si no existen
-    $rawMysqli->query("CREATE DATABASE IF NOT EXISTS `mazal_bd` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;");
-    $rawMysqli->query("CREATE DATABASE IF NOT EXISTS `mazal_bd1` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;");
+    @$rawMysqli->query("CREATE DATABASE IF NOT EXISTS `mazal_bd` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;");
+    @$rawMysqli->query("CREATE DATABASE IF NOT EXISTS `mazal_bd1` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;");
 }
 
 $mysqli = @new mysqli($servername, $username, $password, $dbname);
@@ -101,6 +116,9 @@ if ($mysqli->connect_errno) {
 }
 
 $mysqli->set_charset("utf8mb4");
+@$mysqli->query("SET GLOBAL max_allowed_packet = 67108864;");
+@$mysqli->query("SET SESSION max_allowed_packet = 67108864;");
+@$mysqli->query("SET sql_mode = '';");
 
 // 2. FUNCIÓN DE AUTO-PROVISIÓN Y AUTO-MIGRACIÓN DE ESQUEMA (SELF-HEALING SCHEMA)
 function autoMigrateSchema($db, $targetDb) {
@@ -738,148 +756,195 @@ if ($action === 'save_state' && $_SERVER['REQUEST_METHOD'] === 'POST') {
     if ($branch === 'Bodega') $id = 4;
 
     // 4.1 Guardar JSON completo en tabla mazal_app_state
-    $stmt = $mysqli->prepare("INSERT INTO mazal_app_state (id, branch, json_data) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE branch=VALUES(branch), json_data=VALUES(json_data)");
-    $stmt->bind_param("iss", $id, $branch, $rawInput);
-    $stmt->execute();
+    try {
+        if (!empty($rawInput)) {
+            $stmt = $mysqli->prepare("INSERT INTO mazal_app_state (id, branch, json_data) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE branch=VALUES(branch), json_data=VALUES(json_data)");
+            if ($stmt) {
+                $stmt->bind_param("iss", $id, $branch, $rawInput);
+                $stmt->execute();
+                $stmt->close();
+            }
+        }
+    } catch (Throwable $e) {
+        error_log("Aviso al guardar mazal_app_state: " . $e->getMessage());
+    }
 
     // 4.2 Sincronizar clientes
     if ($postData && isset($postData['customers']) && is_array($postData['customers'])) {
-        foreach ($postData['customers'] as $c) {
-            $rawId = isset($c['id']) ? (string)$c['id'] : '';
-            $cId = (int)preg_replace('/[^0-9]/', '', $rawId);
-            $cName = isset($c['name']) ? trim($c['name']) : (isset($c['nombre_c']) ? trim($c['nombre_c']) : '');
-            $cTel = isset($c['phone']) ? trim($c['phone']) : (isset($c['tel']) ? trim($c['tel']) : '');
-            $cDebt = isset($c['creditUsed']) ? (float)$c['creditUsed'] : (isset($c['cant_ade']) ? (float)$c['cant_ade'] : 0);
-            $cEmail = isset($c['email']) ? trim($c['email']) : '';
-            $cDir = isset($c['address']) ? trim($c['address']) : (isset($c['direccion']) ? trim($c['direccion']) : '');
-            $cRfc = isset($c['rfc']) ? trim($c['rfc']) : '';
-            $cLim = isset($c['creditLimit']) ? (float)$c['creditLimit'] : 0;
-            $cDias = isset($c['creditDays']) ? (int)$c['creditDays'] : 30;
-            $cNotas = isset($c['notes']) ? trim($c['notes']) : '';
-            $cStat = isset($c['status']) ? trim($c['status']) : 'Activo';
-            $cRaw = json_encode($c);
+        try {
+            foreach ($postData['customers'] as $c) {
+                $rawId = isset($c['id']) ? (string)$c['id'] : '';
+                $cId = (int)preg_replace('/[^0-9]/', '', $rawId);
+                $cName = isset($c['name']) ? trim($c['name']) : (isset($c['nombre_c']) ? trim($c['nombre_c']) : '');
+                $cTel = isset($c['phone']) ? trim($c['phone']) : (isset($c['tel']) ? trim($c['tel']) : '');
+                $cDebt = isset($c['creditUsed']) ? (float)$c['creditUsed'] : (isset($c['cant_ade']) ? (float)$c['cant_ade'] : 0);
+                $cEmail = isset($c['email']) ? trim($c['email']) : '';
+                $cDir = isset($c['address']) ? trim($c['address']) : (isset($c['direccion']) ? trim($c['direccion']) : '');
+                $cRfc = isset($c['rfc']) ? trim($c['rfc']) : '';
+                $cLim = isset($c['creditLimit']) ? (float)$c['creditLimit'] : 0;
+                $cDias = isset($c['creditDays']) ? (int)$c['creditDays'] : 30;
+                $cNotas = isset($c['notes']) ? trim($c['notes']) : '';
+                $cStat = isset($c['status']) ? trim($c['status']) : 'Activo';
+                $cRaw = json_encode($c);
 
-            if (!empty($cName)) {
-                if ($cId > 0) {
-                    $stmtC = $mysqli->prepare("INSERT INTO clientes (id_cliente, nombre_c, tel, cant_ade, email, direccion, rfc, limite_credito, dias_credito, notas, status, raw_data) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE nombre_c=VALUES(nombre_c), tel=VALUES(tel), cant_ade=VALUES(cant_ade), email=VALUES(email), direccion=VALUES(direccion), rfc=VALUES(rfc), limite_credito=VALUES(limite_credito), dias_credito=VALUES(dias_credito), notas=VALUES(notas), status=VALUES(status), raw_data=VALUES(raw_data)");
-                    $stmtC->bind_param("issdsssdisss", $cId, $cName, $cTel, $cDebt, $cEmail, $cDir, $cRfc, $cLim, $cDias, $cNotas, $cStat, $cRaw);
-                    $stmtC->execute();
-                } else {
-                    $stmtC = $mysqli->prepare("INSERT INTO clientes (nombre_c, tel, cant_ade, email, direccion, rfc, limite_credito, dias_credito, notas, status, raw_data) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
-                    $stmtC->bind_param("ssdsssdisss", $cName, $cTel, $cDebt, $cEmail, $cDir, $cRfc, $cLim, $cDias, $cNotas, $cStat, $cRaw);
-                    $stmtC->execute();
+                if (!empty($cName)) {
+                    if ($cId > 0) {
+                        $stmtC = $mysqli->prepare("INSERT INTO clientes (id_cliente, nombre_c, tel, cant_ade, email, direccion, rfc, limite_credito, dias_credito, notas, status, raw_data) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE nombre_c=VALUES(nombre_c), tel=VALUES(tel), cant_ade=VALUES(cant_ade), email=VALUES(email), direccion=VALUES(direccion), rfc=VALUES(rfc), limite_credito=VALUES(limite_credito), dias_credito=VALUES(dias_credito), notas=VALUES(notas), status=VALUES(status), raw_data=VALUES(raw_data)");
+                        if ($stmtC) {
+                            $stmtC->bind_param("issdsssdisss", $cId, $cName, $cTel, $cDebt, $cEmail, $cDir, $cRfc, $cLim, $cDias, $cNotas, $cStat, $cRaw);
+                            $stmtC->execute();
+                            $stmtC->close();
+                        }
+                    } else {
+                        $stmtC = $mysqli->prepare("INSERT INTO clientes (nombre_c, tel, cant_ade, email, direccion, rfc, limite_credito, dias_credito, notas, status, raw_data) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+                        if ($stmtC) {
+                            $stmtC->bind_param("ssdsssdisss", $cName, $cTel, $cDebt, $cEmail, $cDir, $cRfc, $cLim, $cDias, $cNotas, $cStat, $cRaw);
+                            $stmtC->execute();
+                            $stmtC->close();
+                        }
+                    }
                 }
             }
-        }
+        } catch (Throwable $e) {}
     }
 
     // 4.3 Sincronizar proveedores
     if ($postData && isset($postData['suppliers']) && is_array($postData['suppliers'])) {
-        foreach ($postData['suppliers'] as $s) {
-            $rawId = isset($s['id']) ? (string)$s['id'] : '';
-            $sId = (int)preg_replace('/[^0-9]/', '', $rawId);
-            $sName = isset($s['name']) ? trim($s['name']) : (isset($s['nombre']) ? trim($s['nombre']) : '');
-            $sTel = isset($s['phone']) ? trim($s['phone']) : (isset($s['tel']) ? trim($s['tel']) : '');
-            $sEmpresa = isset($s['company']) ? trim($s['company']) : (isset($s['empresa']) ? trim($s['empresa']) : $sName);
-            $sAdeudo = isset($s['outstandingBalance']) ? (float)$s['outstandingBalance'] : (isset($s['adeudo']) ? (float)$s['adeudo'] : 0);
-            $sEmail = isset($s['email']) ? trim($s['email']) : '';
-            $sDir = isset($s['address']) ? trim($s['address']) : (isset($s['direccion']) ? trim($s['direccion']) : '');
-            $sRfc = isset($s['rfc']) ? trim($s['rfc']) : '';
-            $sContacto = isset($s['contact']) ? trim($s['contact']) : (isset($s['contacto']) ? trim($s['contacto']) : '');
-            $sRaw = json_encode($s);
+        try {
+            foreach ($postData['suppliers'] as $s) {
+                $rawId = isset($s['id']) ? (string)$s['id'] : '';
+                $sId = (int)preg_replace('/[^0-9]/', '', $rawId);
+                $sName = isset($s['name']) ? trim($s['name']) : (isset($s['nombre']) ? trim($s['nombre']) : '');
+                $sTel = isset($s['phone']) ? trim($s['phone']) : (isset($s['tel']) ? trim($s['tel']) : '');
+                $sEmpresa = isset($s['company']) ? trim($s['company']) : (isset($s['empresa']) ? trim($s['empresa']) : $sName);
+                $sAdeudo = isset($s['outstandingBalance']) ? (float)$s['outstandingBalance'] : (isset($s['adeudo']) ? (float)$s['adeudo'] : 0);
+                $sEmail = isset($s['email']) ? trim($s['email']) : '';
+                $sDir = isset($s['address']) ? trim($s['address']) : (isset($s['direccion']) ? trim($s['direccion']) : '');
+                $sRfc = isset($s['rfc']) ? trim($s['rfc']) : '';
+                $sContacto = isset($s['contact']) ? trim($s['contact']) : (isset($s['contacto']) ? trim($s['contacto']) : '');
+                $sRaw = json_encode($s);
 
-            if (!empty($sName)) {
-                if ($sId > 0) {
-                    $stmtS = $mysqli->prepare("INSERT INTO proveedor (id, nombre, tel, empresa, adeudo, email, direccion, rfc, contacto, raw_data) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE nombre=VALUES(nombre), tel=VALUES(tel), empresa=VALUES(empresa), adeudo=VALUES(adeudo), email=VALUES(email), direccion=VALUES(direccion), rfc=VALUES(rfc), contacto=VALUES(contacto), raw_data=VALUES(raw_data)");
-                    $stmtS->bind_param("isssdsssss", $sId, $sName, $sTel, $sEmpresa, $sAdeudo, $sEmail, $sDir, $sRfc, $sContacto, $sRaw);
-                    $stmtS->execute();
-                } else {
-                    $stmtS = $mysqli->prepare("INSERT INTO proveedor (nombre, tel, empresa, adeudo, email, direccion, rfc, contacto, raw_data) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)");
-                    $stmtS->bind_param("sssdsssss", $sName, $sTel, $sEmpresa, $sAdeudo, $sEmail, $sDir, $sRfc, $sContacto, $sRaw);
-                    $stmtS->execute();
+                if (!empty($sName)) {
+                    if ($sId > 0) {
+                        $stmtS = $mysqli->prepare("INSERT INTO proveedor (id, nombre, tel, empresa, adeudo, email, direccion, rfc, contacto, raw_data) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE nombre=VALUES(nombre), tel=VALUES(tel), empresa=VALUES(empresa), adeudo=VALUES(adeudo), email=VALUES(email), direccion=VALUES(direccion), rfc=VALUES(rfc), contacto=VALUES(contacto), raw_data=VALUES(raw_data)");
+                        if ($stmtS) {
+                            $stmtS->bind_param("isssdsssss", $sId, $sName, $sTel, $sEmpresa, $sAdeudo, $sEmail, $sDir, $sRfc, $sContacto, $sRaw);
+                            $stmtS->execute();
+                            $stmtS->close();
+                        }
+                    } else {
+                        $stmtS = $mysqli->prepare("INSERT INTO proveedor (nombre, tel, empresa, adeudo, email, direccion, rfc, contacto, raw_data) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)");
+                        if ($stmtS) {
+                            $stmtS->bind_param("sssdsssss", $sName, $sTel, $sEmpresa, $sAdeudo, $sEmail, $sDir, $sRfc, $sContacto, $sRaw);
+                            $stmtS->execute();
+                            $stmtS->close();
+                        }
+                    }
                 }
             }
-        }
+        } catch (Throwable $e) {}
     }
 
     // 4.4 Sincronizar productos y precios
     if ($postData && isset($postData['products']) && is_array($postData['products'])) {
-        foreach ($postData['products'] as $p) {
-            $rawId = isset($p['id']) ? (string)$p['id'] : '';
-            $pId = (int)preg_replace('/[^0-9]/', '', $rawId);
-            $pClave = isset($p['code']) ? trim($p['code']) : (isset($p['clave']) ? trim($p['clave']) : '');
-            $pName = isset($p['name']) ? trim($p['name']) : (isset($p['nom_p']) ? trim($p['nom_p']) : '');
-            $pDes = isset($p['subcategory']) ? trim($p['subcategory']) : (isset($p['des']) ? trim($p['des']) : 'entero');
-            $pCant = isset($p['stock']) ? (float)$p['stock'] : (isset($p['cant']) ? (float)$p['cant'] : 0);
-            $pCat = isset($p['category']) ? trim($p['category']) : (isset($p['categoria']) ? trim($p['categoria']) : 'General');
-            $pMarca = isset($p['brand']) ? trim($p['brand']) : (isset($p['marca']) ? trim($p['marca']) : 'MAZAL');
-            $pUnidad = isset($p['unit']) ? trim($p['unit']) : (isset($p['unidad']) ? trim($p['unidad']) : 'pz');
-            $pStkMin = isset($p['stockMin']) ? (float)$p['stockMin'] : 5;
-            $pStkMax = isset($p['stockMax']) ? (float)$p['stockMax'] : 100;
-            $pUbic = isset($p['location']) ? trim($p['location']) : 'Bodega Principal';
-            $pImg = isset($p['imageUrl']) ? trim($p['imageUrl']) : (isset($p['imagen']) ? trim($p['imagen']) : '');
-            $pProv = isset($p['supplierId']) ? trim($p['supplierId']) : (isset($p['proveedor_id']) ? trim($p['proveedor_id']) : 'PROV_01');
-            $pSucursal = isset($p['sucursal']) ? trim($p['sucursal']) : $branch;
+        try {
+            foreach ($postData['products'] as $p) {
+                $rawId = isset($p['id']) ? (string)$p['id'] : '';
+                $pId = (int)preg_replace('/[^0-9]/', '', $rawId);
+                $pClave = isset($p['code']) ? trim($p['code']) : (isset($p['clave']) ? trim($p['clave']) : '');
+                $pName = isset($p['name']) ? trim($p['name']) : (isset($p['nom_p']) ? trim($p['nom_p']) : '');
+                $pDes = isset($p['subcategory']) ? trim($p['subcategory']) : (isset($p['des']) ? trim($p['des']) : 'entero');
+                $pCant = isset($p['stock']) ? (float)$p['stock'] : (isset($p['cant']) ? (float)$p['cant'] : 0);
+                $pCat = isset($p['category']) ? trim($p['category']) : (isset($p['categoria']) ? trim($p['categoria']) : 'General');
+                $pMarca = isset($p['brand']) ? trim($p['brand']) : (isset($p['marca']) ? trim($p['marca']) : 'MAZAL');
+                $pUnidad = isset($p['unit']) ? trim($p['unit']) : (isset($p['unidad']) ? trim($p['unidad']) : 'pz');
+                $pStkMin = isset($p['stockMin']) ? (float)$p['stockMin'] : 5;
+                $pStkMax = isset($p['stockMax']) ? (float)$p['stockMax'] : 100;
+                $pUbic = isset($p['location']) ? trim($p['location']) : 'Bodega Principal';
+                $pImg = isset($p['imageUrl']) ? trim($p['imageUrl']) : (isset($p['imagen']) ? trim($p['imagen']) : '');
+                $pProv = isset($p['supplierId']) ? trim($p['supplierId']) : (isset($p['proveedor_id']) ? trim($p['proveedor_id']) : 'PROV_01');
+                $pSucursal = isset($p['sucursal']) ? trim($p['sucursal']) : $branch;
 
-            $pMayoreo = isset($p['priceMax']) ? round((float)$p['priceMax'], 4) : 0;
-            $pMedio = isset($p['priceMed']) ? round((float)$p['priceMed'], 4) : 0;
-            $pMenudeo = isset($p['priceMin']) ? round((float)$p['priceMin'], 4) : 0;
-            $pUnitario = isset($p['cost']) ? strval(round((float)$p['cost'], 4)) : '0';
-            $pEspecial = isset($p['priceSpecial']) ? round((float)$p['priceSpecial'], 4) : 0;
-            $pRaw = json_encode($p);
+                $pMayoreo = isset($p['priceMax']) ? round((float)$p['priceMax'], 4) : 0;
+                $pMedio = isset($p['priceMed']) ? round((float)$p['priceMed'], 4) : 0;
+                $pMenudeo = isset($p['priceMin']) ? round((float)$p['priceMin'], 4) : 0;
+                $pUnitario = isset($p['cost']) ? strval(round((float)$p['cost'], 4)) : '0';
+                $pEspecial = isset($p['priceSpecial']) ? round((float)$p['priceSpecial'], 4) : 0;
+                $pRaw = json_encode($p);
 
-            if (!empty($pName)) {
-                if ($pId > 0) {
-                    $stmtP = $mysqli->prepare("INSERT INTO productos (id, clave, nom_p, des, cant, categoria, marca, unidad, stock_min, stock_max, ubicacion, imagen, proveedor_id, sucursal, raw_data) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE clave=VALUES(clave), nom_p=VALUES(nom_p), des=VALUES(des), cant=VALUES(cant), categoria=VALUES(categoria), marca=VALUES(marca), unidad=VALUES(unidad), stock_min=VALUES(stock_min), stock_max=VALUES(stock_max), ubicacion=VALUES(ubicacion), imagen=VALUES(imagen), proveedor_id=VALUES(proveedor_id), sucursal=VALUES(sucursal), raw_data=VALUES(raw_data)");
-                    $stmtP->bind_param("isssddsssssssss", $pId, $pClave, $pName, $pDes, $pCant, $pCat, $pMarca, $pUnidad, $pStkMin, $pStkMax, $pUbic, $pImg, $pProv, $pSucursal, $pRaw);
-                    $stmtP->execute();
+                if (!empty($pName)) {
+                    if ($pId > 0) {
+                        $stmtP = $mysqli->prepare("INSERT INTO productos (id, clave, nom_p, des, cant, categoria, marca, unidad, stock_min, stock_max, ubicacion, imagen, proveedor_id, sucursal, raw_data) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE clave=VALUES(clave), nom_p=VALUES(nom_p), des=VALUES(des), cant=VALUES(cant), categoria=VALUES(categoria), marca=VALUES(marca), unidad=VALUES(unidad), stock_min=VALUES(stock_min), stock_max=VALUES(stock_max), ubicacion=VALUES(ubicacion), imagen=VALUES(imagen), proveedor_id=VALUES(proveedor_id), sucursal=VALUES(sucursal), raw_data=VALUES(raw_data)");
+                        if ($stmtP) {
+                            $stmtP->bind_param("isssddsssssssss", $pId, $pClave, $pName, $pDes, $pCant, $pCat, $pMarca, $pUnidad, $pStkMin, $pStkMax, $pUbic, $pImg, $pProv, $pSucursal, $pRaw);
+                            $stmtP->execute();
+                            $stmtP->close();
+                        }
 
-                    $stmtPr = $mysqli->prepare("INSERT INTO precios (id_producto, mayoreo, medio, menudeo, Unitario, precio_especial) VALUES (?, ?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE mayoreo=VALUES(mayoreo), medio=VALUES(medio), menudeo=VALUES(menudeo), Unitario=VALUES(Unitario), precio_especial=VALUES(precio_especial)");
-                    $stmtPr->bind_param("idddsd", $pId, $pMayoreo, $pMedio, $pMenudeo, $pUnitario, $pEspecial);
-                    $stmtPr->execute();
-                } else {
-                    $stmtP = $mysqli->prepare("INSERT INTO productos (clave, nom_p, des, cant, categoria, marca, unidad, stock_min, stock_max, ubicacion, imagen, proveedor_id, sucursal, raw_data) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
-                    $stmtP->bind_param("sssddsssssssss", $pClave, $pName, $pDes, $pCant, $pCat, $pMarca, $pUnidad, $pStkMin, $pStkMax, $pUbic, $pImg, $pProv, $pSucursal, $pRaw);
-                    $stmtP->execute();
-                    $newProdId = $mysqli->insert_id;
-                    if ($newProdId > 0) {
                         $stmtPr = $mysqli->prepare("INSERT INTO precios (id_producto, mayoreo, medio, menudeo, Unitario, precio_especial) VALUES (?, ?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE mayoreo=VALUES(mayoreo), medio=VALUES(medio), menudeo=VALUES(menudeo), Unitario=VALUES(Unitario), precio_especial=VALUES(precio_especial)");
-                        $stmtPr->bind_param("idddsd", $newProdId, $pMayoreo, $pMedio, $pMenudeo, $pUnitario, $pEspecial);
-                        $stmtPr->execute();
+                        if ($stmtPr) {
+                            $stmtPr->bind_param("idddsd", $pId, $pMayoreo, $pMedio, $pMenudeo, $pUnitario, $pEspecial);
+                            $stmtPr->execute();
+                            $stmtPr->close();
+                        }
+                    } else {
+                        $stmtP = $mysqli->prepare("INSERT INTO productos (clave, nom_p, des, cant, categoria, marca, unidad, stock_min, stock_max, ubicacion, imagen, proveedor_id, sucursal, raw_data) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+                        if ($stmtP) {
+                            $stmtP->bind_param("sssddsssssssss", $pClave, $pName, $pDes, $pCant, $pCat, $pMarca, $pUnidad, $pStkMin, $pStkMax, $pUbic, $pImg, $pProv, $pSucursal, $pRaw);
+                            $stmtP->execute();
+                            $newProdId = $mysqli->insert_id;
+                            $stmtP->close();
+                            if ($newProdId > 0) {
+                                $stmtPr = $mysqli->prepare("INSERT INTO precios (id_producto, mayoreo, medio, menudeo, Unitario, precio_especial) VALUES (?, ?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE mayoreo=VALUES(mayoreo), medio=VALUES(medio), menudeo=VALUES(menudeo), Unitario=VALUES(Unitario), precio_especial=VALUES(precio_especial)");
+                                if ($stmtPr) {
+                                    $stmtPr->bind_param("idddsd", $newProdId, $pMayoreo, $pMedio, $pMenudeo, $pUnitario, $pEspecial);
+                                    $stmtPr->execute();
+                                    $stmtPr->close();
+                                }
+                            }
+                        }
                     }
                 }
             }
-        }
+        } catch (Throwable $e) {}
     }
 
     // 4.5 Sincronizar ventas
     if ($postData && isset($postData['sales']) && is_array($postData['sales'])) {
-        foreach ($postData['sales'] as $v) {
-            $rawId = isset($v['id']) ? (string)$v['id'] : '';
-            $vId = (int)preg_replace('/[^0-9]/', '', $rawId);
-            $vTicket = isset($v['ticketNumber']) ? trim($v['ticketNumber']) : (isset($v['ticket_number']) ? trim($v['ticket_number']) : ($rawId ? "TICK-{$rawId}" : ''));
-            $vDesc = isset($v['description']) ? trim($v['description']) : (isset($v['descripcion']) ? trim($v['descripcion']) : "Venta Ticket {$vTicket}");
-            $vFecha = isset($v['date']) ? trim($v['date']) : (isset($v['fecha']) ? trim($v['fecha']) : date("Y-m-d H:i:s"));
-            $vTotal = isset($v['total']) ? round((float)$v['total'], 4) : 0;
-            $vProfit = isset($v['profit']) ? round((float)$v['profit'], 4) : (isset($v['total_utilidad']) ? round((float)$v['total_utilidad'], 4) : 0);
-            $vMetodo = isset($v['paymentMethod']) ? trim($v['paymentMethod']) : (isset($v['metodo_pago']) ? trim($v['metodo_pago']) : 'Efectivo');
-            $vSucursal = isset($v['sucursal']) ? trim($v['sucursal']) : $branch;
-            $vRaw = json_encode($v);
+        try {
+            foreach ($postData['sales'] as $v) {
+                $rawId = isset($v['id']) ? (string)$v['id'] : '';
+                $vId = (int)preg_replace('/[^0-9]/', '', $rawId);
+                $vTicket = isset($v['ticketNumber']) ? trim($v['ticketNumber']) : (isset($v['ticket_number']) ? trim($v['ticket_number']) : ($rawId ? "TICK-{$rawId}" : ''));
+                $vDesc = isset($v['description']) ? trim($v['description']) : (isset($v['descripcion']) ? trim($v['descripcion']) : "Venta Ticket {$vTicket}");
+                $vFecha = isset($v['date']) ? trim($v['date']) : (isset($v['fecha']) ? trim($v['fecha']) : date("Y-m-d H:i:s"));
+                $vTotal = isset($v['total']) ? round((float)$v['total'], 4) : 0;
+                $vProfit = isset($v['profit']) ? round((float)$v['profit'], 4) : (isset($v['total_utilidad']) ? round((float)$v['total_utilidad'], 4) : 0);
+                $vMetodo = isset($v['paymentMethod']) ? trim($v['paymentMethod']) : (isset($v['metodo_pago']) ? trim($v['metodo_pago']) : 'Efectivo');
+                $vSucursal = isset($v['sucursal']) ? trim($v['sucursal']) : $branch;
+                $vRaw = json_encode($v);
 
-            $rawCustId = isset($v['customerId']) ? (string)$v['customerId'] : (isset($v['id_cliente']) ? (string)$v['id_cliente'] : '');
-            $vClienteId = !empty($rawCustId) ? (int)preg_replace('/[^0-9]/', '', $rawCustId) : null;
-            if ($vClienteId === 0) $vClienteId = null;
+                $rawCustId = isset($v['customerId']) ? (string)$v['customerId'] : (isset($v['id_cliente']) ? (string)$v['id_cliente'] : '');
+                $vClienteId = !empty($rawCustId) ? (int)preg_replace('/[^0-9]/', '', $rawCustId) : null;
+                if ($vClienteId === 0) $vClienteId = null;
 
-            if ($vId > 0) {
-                $stmtV = $mysqli->prepare("INSERT INTO ventas (id_venta, ticket_number, descripcion, fecha, total, total_utilidad, id_cliente, metodo_pago, sucursal, raw_data) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE ticket_number=VALUES(ticket_number), descripcion=VALUES(descripcion), fecha=VALUES(fecha), total=VALUES(total), total_utilidad=VALUES(total_utilidad), id_cliente=VALUES(id_cliente), metodo_pago=VALUES(metodo_pago), sucursal=VALUES(sucursal), raw_data=VALUES(raw_data)");
-                $stmtV->bind_param("isssddisss", $vId, $vTicket, $vDesc, $vFecha, $vTotal, $vProfit, $vClienteId, $vMetodo, $vSucursal, $vRaw);
-                $stmtV->execute();
-            } else {
-                $stmtV = $mysqli->prepare("INSERT INTO ventas (ticket_number, descripcion, fecha, total, total_utilidad, id_cliente, metodo_pago, sucursal, raw_data) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)");
-                $stmtV->bind_param("sssddisss", $vTicket, $vDesc, $vFecha, $vTotal, $vProfit, $vClienteId, $vMetodo, $vSucursal, $vRaw);
-                $stmtV->execute();
+                if ($vId > 0) {
+                    $stmtV = $mysqli->prepare("INSERT INTO ventas (id_venta, ticket_number, descripcion, fecha, total, total_utilidad, id_cliente, metodo_pago, sucursal, raw_data) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE ticket_number=VALUES(ticket_number), descripcion=VALUES(descripcion), fecha=VALUES(fecha), total=VALUES(total), total_utilidad=VALUES(total_utilidad), id_cliente=VALUES(id_cliente), metodo_pago=VALUES(metodo_pago), sucursal=VALUES(sucursal), raw_data=VALUES(raw_data)");
+                    if ($stmtV) {
+                        $stmtV->bind_param("isssddisss", $vId, $vTicket, $vDesc, $vFecha, $vTotal, $vProfit, $vClienteId, $vMetodo, $vSucursal, $vRaw);
+                        $stmtV->execute();
+                        $stmtV->close();
+                    }
+                } else {
+                    $stmtV = $mysqli->prepare("INSERT INTO ventas (ticket_number, descripcion, fecha, total, total_utilidad, id_cliente, metodo_pago, sucursal, raw_data) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)");
+                    if ($stmtV) {
+                        $stmtV->bind_param("sssddisss", $vTicket, $vDesc, $vFecha, $vTotal, $vProfit, $vClienteId, $vMetodo, $vSucursal, $vRaw);
+                        $stmtV->execute();
+                        $stmtV->close();
+                    }
+                }
             }
-        }
+        } catch (Throwable $e) {}
     }
 
     echo json_encode([
@@ -1121,45 +1186,67 @@ if ($action === 'save_product' && $_SERVER['REQUEST_METHOD'] === 'POST') {
     $especial = isset($postData['priceSpecial']) ? round((float)$postData['priceSpecial'], 4) : 0;
 
     $existingId = 0;
-    if ($prodId > 0) {
-        $stmtC = $mysqli->prepare("SELECT id FROM productos WHERE id = ?");
-        $stmtC->bind_param("i", $prodId);
-        $stmtC->execute();
-        $resC = $stmtC->get_result();
-        if ($resC && $rowC = $resC->fetch_assoc()) {
-            $existingId = (int)$rowC['id'];
-        }
-    }
-    if (!$existingId && !empty($clave)) {
-        $stmtC = $mysqli->prepare("SELECT id FROM productos WHERE clave = ? LIMIT 1");
-        $stmtC->bind_param("s", $clave);
-        $stmtC->execute();
-        $resC = $stmtC->get_result();
-        if ($resC && $rowC = $resC->fetch_assoc()) {
-            $existingId = (int)$rowC['id'];
-        }
-    }
-
-    if ($existingId > 0) {
-        $stmtP = $mysqli->prepare("UPDATE productos SET clave = ?, nom_p = ?, des = ?, cant = ?, categoria = ?, marca = ?, unidad = ?, stock_min = ?, stock_max = ?, ubicacion = ?, imagen = ?, proveedor_id = ?, sucursal = ?, raw_data = ? WHERE id = ?");
-        $stmtP->bind_param("sssddsssssssssi", $clave, $nom_p, $des, $cant, $cat, $marca, $unidad, $stkMin, $stkMax, $ubic, $img, $provId, $suc, $pRaw, $existingId);
-        $stmtP->execute();
-
-        $stmtPr = $mysqli->prepare("INSERT INTO precios (id_producto, mayoreo, medio, menudeo, Unitario, precio_especial) VALUES (?, ?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE mayoreo=VALUES(mayoreo), medio=VALUES(medio), menudeo=VALUES(menudeo), Unitario=VALUES(Unitario), precio_especial=VALUES(precio_especial)");
-        $stmtPr->bind_param("idddsd", $existingId, $mayoreo, $medio, $menudeo, $unitario, $especial);
-        $stmtPr->execute();
-        $prodId = $existingId;
-    } else {
-        $stmtP = $mysqli->prepare("INSERT INTO productos (clave, nom_p, des, cant, categoria, marca, unidad, stock_min, stock_max, ubicacion, imagen, proveedor_id, sucursal, raw_data) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
-        $stmtP->bind_param("sssddsssssssss", $clave, $nom_p, $des, $cant, $cat, $marca, $unidad, $stkMin, $stkMax, $ubic, $img, $provId, $suc, $pRaw);
-        $stmtP->execute();
-        $prodId = $mysqli->insert_id;
-
+    try {
         if ($prodId > 0) {
-            $stmtPr = $mysqli->prepare("INSERT INTO precios (id_producto, mayoreo, medio, menudeo, Unitario, precio_especial) VALUES (?, ?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE mayoreo=VALUES(mayoreo), medio=VALUES(medio), menudeo=VALUES(menudeo), Unitario=VALUES(Unitario), precio_especial=VALUES(precio_especial)");
-            $stmtPr->bind_param("idddsd", $prodId, $mayoreo, $medio, $menudeo, $unitario, $especial);
-            $stmtPr->execute();
+            $stmtC = $mysqli->prepare("SELECT id FROM productos WHERE id = ?");
+            if ($stmtC) {
+                $stmtC->bind_param("i", $prodId);
+                $stmtC->execute();
+                $resC = $stmtC->get_result();
+                if ($resC && $rowC = $resC->fetch_assoc()) {
+                    $existingId = (int)$rowC['id'];
+                }
+                $stmtC->close();
+            }
         }
+        if (!$existingId && !empty($clave)) {
+            $stmtC = $mysqli->prepare("SELECT id FROM productos WHERE clave = ? LIMIT 1");
+            if ($stmtC) {
+                $stmtC->bind_param("s", $clave);
+                $stmtC->execute();
+                $resC = $stmtC->get_result();
+                if ($resC && $rowC = $resC->fetch_assoc()) {
+                    $existingId = (int)$rowC['id'];
+                }
+                $stmtC->close();
+            }
+        }
+
+        if ($existingId > 0) {
+            $stmtP = $mysqli->prepare("UPDATE productos SET clave = ?, nom_p = ?, des = ?, cant = ?, categoria = ?, marca = ?, unidad = ?, stock_min = ?, stock_max = ?, ubicacion = ?, imagen = ?, proveedor_id = ?, sucursal = ?, raw_data = ? WHERE id = ?");
+            if ($stmtP) {
+                $stmtP->bind_param("sssddsssssssssi", $clave, $nom_p, $des, $cant, $cat, $marca, $unidad, $stkMin, $stkMax, $ubic, $img, $provId, $suc, $pRaw, $existingId);
+                $stmtP->execute();
+                $stmtP->close();
+            }
+
+            $stmtPr = $mysqli->prepare("INSERT INTO precios (id_producto, mayoreo, medio, menudeo, Unitario, precio_especial) VALUES (?, ?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE mayoreo=VALUES(mayoreo), medio=VALUES(medio), menudeo=VALUES(menudeo), Unitario=VALUES(Unitario), precio_especial=VALUES(precio_especial)");
+            if ($stmtPr) {
+                $stmtPr->bind_param("idddsd", $existingId, $mayoreo, $medio, $menudeo, $unitario, $especial);
+                $stmtPr->execute();
+                $stmtPr->close();
+            }
+            $prodId = $existingId;
+        } else {
+            $stmtP = $mysqli->prepare("INSERT INTO productos (clave, nom_p, des, cant, categoria, marca, unidad, stock_min, stock_max, ubicacion, imagen, proveedor_id, sucursal, raw_data) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+            if ($stmtP) {
+                $stmtP->bind_param("sssddsssssssss", $clave, $nom_p, $des, $cant, $cat, $marca, $unidad, $stkMin, $stkMax, $ubic, $img, $provId, $suc, $pRaw);
+                $stmtP->execute();
+                $prodId = $mysqli->insert_id;
+                $stmtP->close();
+
+                if ($prodId > 0) {
+                    $stmtPr = $mysqli->prepare("INSERT INTO precios (id_producto, mayoreo, medio, menudeo, Unitario, precio_especial) VALUES (?, ?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE mayoreo=VALUES(mayoreo), medio=VALUES(medio), menudeo=VALUES(menudeo), Unitario=VALUES(Unitario), precio_especial=VALUES(precio_especial)");
+                    if ($stmtPr) {
+                        $stmtPr->bind_param("idddsd", $prodId, $mayoreo, $medio, $menudeo, $unitario, $especial);
+                        $stmtPr->execute();
+                        $stmtPr->close();
+                    }
+                }
+            }
+        }
+    } catch (Throwable $e) {
+        error_log("Error in save_product: " . $e->getMessage());
     }
 
     echo json_encode([
@@ -1205,8 +1292,11 @@ if ($action === 'update_stock' && $_SERVER['REQUEST_METHOD'] === 'POST') {
 
     if ($prodId > 0) {
         $stmt = $mysqli->prepare("UPDATE productos SET cant = ? WHERE id = ?");
-        $stmt->bind_param("di", $newStock, $prodId);
-        $stmt->execute();
+        if ($stmt) {
+            $stmt->bind_param("di", $newStock, $prodId);
+            $stmt->execute();
+            $stmt->close();
+        }
 
         echo json_encode([
             "success" => true,
@@ -1243,16 +1333,24 @@ if ($action === 'save_customer' && $_SERVER['REQUEST_METHOD'] === 'POST') {
         exit;
     }
 
-    if ($cId > 0) {
-        $stmtC = $mysqli->prepare("INSERT INTO clientes (id_cliente, nombre_c, tel, cant_ade, email, direccion, rfc, limite_credito, dias_credito, notas, status, raw_data) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE nombre_c=VALUES(nombre_c), tel=VALUES(tel), cant_ade=VALUES(cant_ade), email=VALUES(email), direccion=VALUES(direccion), rfc=VALUES(rfc), limite_credito=VALUES(limite_credito), dias_credito=VALUES(dias_credito), notas=VALUES(notas), status=VALUES(status), raw_data=VALUES(raw_data)");
-        $stmtC->bind_param("issdsssdisss", $cId, $cName, $cTel, $cDebt, $cEmail, $cDir, $cRfc, $cLim, $cDias, $cNotas, $cStatus, $cRaw);
-        $stmtC->execute();
-    } else {
-        $stmtC = $mysqli->prepare("INSERT INTO clientes (nombre_c, tel, cant_ade, email, direccion, rfc, limite_credito, dias_credito, notas, status, raw_data) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
-        $stmtC->bind_param("ssdsssdisss", $cName, $cTel, $cDebt, $cEmail, $cDir, $cRfc, $cLim, $cDias, $cNotas, $cStatus, $cRaw);
-        $stmtC->execute();
-        $cId = $mysqli->insert_id;
-    }
+    try {
+        if ($cId > 0) {
+            $stmtC = $mysqli->prepare("INSERT INTO clientes (id_cliente, nombre_c, tel, cant_ade, email, direccion, rfc, limite_credito, dias_credito, notas, status, raw_data) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE nombre_c=VALUES(nombre_c), tel=VALUES(tel), cant_ade=VALUES(cant_ade), email=VALUES(email), direccion=VALUES(direccion), rfc=VALUES(rfc), limite_credito=VALUES(limite_credito), dias_credito=VALUES(dias_credito), notas=VALUES(notas), status=VALUES(status), raw_data=VALUES(raw_data)");
+            if ($stmtC) {
+                $stmtC->bind_param("issdsssdisss", $cId, $cName, $cTel, $cDebt, $cEmail, $cDir, $cRfc, $cLim, $cDias, $cNotas, $cStatus, $cRaw);
+                $stmtC->execute();
+                $stmtC->close();
+            }
+        } else {
+            $stmtC = $mysqli->prepare("INSERT INTO clientes (nombre_c, tel, cant_ade, email, direccion, rfc, limite_credito, dias_credito, notas, status, raw_data) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+            if ($stmtC) {
+                $stmtC->bind_param("ssdsssdisss", $cName, $cTel, $cDebt, $cEmail, $cDir, $cRfc, $cLim, $cDias, $cNotas, $cStatus, $cRaw);
+                $stmtC->execute();
+                $cId = $mysqli->insert_id;
+                $stmtC->close();
+            }
+        }
+    } catch (Throwable $e) {}
 
     echo json_encode([
         "success" => true,
@@ -1275,14 +1373,20 @@ if ($action === 'delete_customer' && $_SERVER['REQUEST_METHOD'] === 'POST') {
     $deleted = false;
     if ($cId > 0) {
         $stmt = $mysqli->prepare("DELETE FROM clientes WHERE id_cliente = ?");
-        $stmt->bind_param("i", $cId);
-        $stmt->execute();
-        $deleted = true;
+        if ($stmt) {
+            $stmt->bind_param("i", $cId);
+            $stmt->execute();
+            $stmt->close();
+            $deleted = true;
+        }
     } else if (!empty($cName)) {
         $stmt = $mysqli->prepare("DELETE FROM clientes WHERE nombre_c = ?");
-        $stmt->bind_param("s", $cName);
-        $stmt->execute();
-        $deleted = true;
+        if ($stmt) {
+            $stmt->bind_param("s", $cName);
+            $stmt->execute();
+            $stmt->close();
+            $deleted = true;
+        }
     }
 
     echo json_encode([
@@ -1315,16 +1419,24 @@ if ($action === 'save_supplier' && $_SERVER['REQUEST_METHOD'] === 'POST') {
         exit;
     }
 
-    if ($sId > 0) {
-        $stmtS = $mysqli->prepare("INSERT INTO proveedor (id, nombre, tel, empresa, adeudo, email, direccion, rfc, contacto, raw_data) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE nombre=VALUES(nombre), tel=VALUES(tel), empresa=VALUES(empresa), adeudo=VALUES(adeudo), email=VALUES(email), direccion=VALUES(direccion), rfc=VALUES(rfc), contacto=VALUES(contacto), raw_data=VALUES(raw_data)");
-        $stmtS->bind_param("isssdsssss", $sId, $sName, $sTel, $sEmpresa, $sAdeudo, $sEmail, $sDir, $sRfc, $sContacto, $sRaw);
-        $stmtS->execute();
-    } else {
-        $stmtS = $mysqli->prepare("INSERT INTO proveedor (nombre, tel, empresa, adeudo, email, direccion, rfc, contacto, raw_data) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)");
-        $stmtS->bind_param("sssdsssss", $sName, $sTel, $sEmpresa, $sAdeudo, $sEmail, $sDir, $sRfc, $sContacto, $sRaw);
-        $stmtS->execute();
-        $sId = $mysqli->insert_id;
-    }
+    try {
+        if ($sId > 0) {
+            $stmtS = $mysqli->prepare("INSERT INTO proveedor (id, nombre, tel, empresa, adeudo, email, direccion, rfc, contacto, raw_data) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE nombre=VALUES(nombre), tel=VALUES(tel), empresa=VALUES(empresa), adeudo=VALUES(adeudo), email=VALUES(email), direccion=VALUES(direccion), rfc=VALUES(rfc), contacto=VALUES(contacto), raw_data=VALUES(raw_data)");
+            if ($stmtS) {
+                $stmtS->bind_param("isssdsssss", $sId, $sName, $sTel, $sEmpresa, $sAdeudo, $sEmail, $sDir, $sRfc, $sContacto, $sRaw);
+                $stmtS->execute();
+                $stmtS->close();
+            }
+        } else {
+            $stmtS = $mysqli->prepare("INSERT INTO proveedor (nombre, tel, empresa, adeudo, email, direccion, rfc, contacto, raw_data) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)");
+            if ($stmtS) {
+                $stmtS->bind_param("sssdsssss", $sName, $sTel, $sEmpresa, $sAdeudo, $sEmail, $sDir, $sRfc, $sContacto, $sRaw);
+                $stmtS->execute();
+                $sId = $mysqli->insert_id;
+                $stmtS->close();
+            }
+        }
+    } catch (Throwable $e) {}
 
     echo json_encode([
         "success" => true,
@@ -1346,9 +1458,12 @@ if ($action === 'delete_supplier' && $_SERVER['REQUEST_METHOD'] === 'POST') {
     $deleted = false;
     if ($sId > 0) {
         $stmt = $mysqli->prepare("DELETE FROM proveedor WHERE id = ?");
-        $stmt->bind_param("i", $sId);
-        $stmt->execute();
-        $deleted = true;
+        if ($stmt) {
+            $stmt->bind_param("i", $sId);
+            $stmt->execute();
+            $stmt->close();
+            $deleted = true;
+        }
     }
 
     echo json_encode([
@@ -1379,16 +1494,24 @@ if ($action === 'save_sale' && $_SERVER['REQUEST_METHOD'] === 'POST') {
     $vClienteId = !empty($rawCustId) ? (int)preg_replace('/[^0-9]/', '', $rawCustId) : null;
     if ($vClienteId === 0) $vClienteId = null;
 
-    if ($vId > 0) {
-        $stmtV = $mysqli->prepare("INSERT INTO ventas (id_venta, ticket_number, descripcion, fecha, total, total_utilidad, id_cliente, metodo_pago, sucursal, raw_data) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE ticket_number=VALUES(ticket_number), descripcion=VALUES(descripcion), fecha=VALUES(fecha), total=VALUES(total), total_utilidad=VALUES(total_utilidad), id_cliente=VALUES(id_cliente), metodo_pago=VALUES(metodo_pago), sucursal=VALUES(sucursal), raw_data=VALUES(raw_data)");
-        $stmtV->bind_param("isssddisss", $vId, $vTicket, $vDesc, $vFecha, $vTotal, $vProfit, $vClienteId, $vMetodo, $vSucursal, $vRaw);
-        $stmtV->execute();
-    } else {
-        $stmtV = $mysqli->prepare("INSERT INTO ventas (ticket_number, descripcion, fecha, total, total_utilidad, id_cliente, metodo_pago, sucursal, raw_data) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)");
-        $stmtV->bind_param("sssddisss", $vTicket, $vDesc, $vFecha, $vTotal, $vProfit, $vClienteId, $vMetodo, $vSucursal, $vRaw);
-        $stmtV->execute();
-        $vId = $mysqli->insert_id;
-    }
+    try {
+        if ($vId > 0) {
+            $stmtV = $mysqli->prepare("INSERT INTO ventas (id_venta, ticket_number, descripcion, fecha, total, total_utilidad, id_cliente, metodo_pago, sucursal, raw_data) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE ticket_number=VALUES(ticket_number), descripcion=VALUES(descripcion), fecha=VALUES(fecha), total=VALUES(total), total_utilidad=VALUES(total_utilidad), id_cliente=VALUES(id_cliente), metodo_pago=VALUES(metodo_pago), sucursal=VALUES(sucursal), raw_data=VALUES(raw_data)");
+            if ($stmtV) {
+                $stmtV->bind_param("isssddisss", $vId, $vTicket, $vDesc, $vFecha, $vTotal, $vProfit, $vClienteId, $vMetodo, $vSucursal, $vRaw);
+                $stmtV->execute();
+                $stmtV->close();
+            }
+        } else {
+            $stmtV = $mysqli->prepare("INSERT INTO ventas (ticket_number, descripcion, fecha, total, total_utilidad, id_cliente, metodo_pago, sucursal, raw_data) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)");
+            if ($stmtV) {
+                $stmtV->bind_param("sssddisss", $vTicket, $vDesc, $vFecha, $vTotal, $vProfit, $vClienteId, $vMetodo, $vSucursal, $vRaw);
+                $stmtV->execute();
+                $vId = $mysqli->insert_id;
+                $stmtV->close();
+            }
+        }
+    } catch (Throwable $e) {}
 
     echo json_encode([
         "success" => true,
@@ -1411,9 +1534,12 @@ if ($action === 'delete_sale' && $_SERVER['REQUEST_METHOD'] === 'POST') {
     $deleted = false;
     if ($vId > 0) {
         $stmt = $mysqli->prepare("DELETE FROM ventas WHERE id_venta = ?");
-        $stmt->bind_param("i", $vId);
-        $stmt->execute();
-        $deleted = true;
+        if ($stmt) {
+            $stmt->bind_param("i", $vId);
+            $stmt->execute();
+            $stmt->close();
+            $deleted = true;
+        }
     }
 
     echo json_encode([
@@ -1442,9 +1568,14 @@ if ($action === 'save_movement' && $_SERVER['REQUEST_METHOD'] === 'POST') {
     $mSucursal = isset($postData['sucursal']) ? trim($postData['sucursal']) : $branch;
     $mRaw = json_encode($postData);
 
-    $stmtM = $mysqli->prepare("INSERT INTO movimientos_inventario (id, product_id, product_name, type, quantity, previous_stock, new_stock, date, user_name, notes, sucursal, raw_data) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE product_id=VALUES(product_id), product_name=VALUES(product_name), type=VALUES(type), quantity=VALUES(quantity), previous_stock=VALUES(previous_stock), new_stock=VALUES(new_stock), date=VALUES(date), user_name=VALUES(user_name), notes=VALUES(notes), sucursal=VALUES(sucursal), raw_data=VALUES(raw_data)");
-    $stmtM->bind_param("ssssdddsssss", $mId, $prodId, $prodName, $mType, $mQty, $prevStock, $newStock, $mDate, $mUser, $mNotes, $mSucursal, $mRaw);
-    $stmtM->execute();
+    try {
+        $stmtM = $mysqli->prepare("INSERT INTO movimientos_inventario (id, product_id, product_name, type, quantity, previous_stock, new_stock, date, user_name, notes, sucursal, raw_data) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE product_id=VALUES(product_id), product_name=VALUES(product_name), type=VALUES(type), quantity=VALUES(quantity), previous_stock=VALUES(previous_stock), new_stock=VALUES(new_stock), date=VALUES(date), user_name=VALUES(user_name), notes=VALUES(notes), sucursal=VALUES(sucursal), raw_data=VALUES(raw_data)");
+        if ($stmtM) {
+            $stmtM->bind_param("ssssdddsssss", $mId, $prodId, $prodName, $mType, $mQty, $prevStock, $newStock, $mDate, $mUser, $mNotes, $mSucursal, $mRaw);
+            $stmtM->execute();
+            $stmtM->close();
+        }
+    } catch (Throwable $e) {}
 
     echo json_encode([
         "success" => true,
@@ -1473,9 +1604,14 @@ if ($action === 'save_cash_session' && $_SERVER['REQUEST_METHOD'] === 'POST') {
     $csSucursal = isset($postData['sucursal']) ? trim($postData['sucursal']) : $branch;
     $csRaw = json_encode($postData);
 
-    $stmtCS = $mysqli->prepare("INSERT INTO sesiones_caja (id, start_time, end_time, opened_by, initial_cash, final_cash, status, sales_total, expenses_total, expected_final_cash, sucursal, raw_data) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE start_time=VALUES(start_time), end_time=VALUES(end_time), opened_by=VALUES(opened_by), initial_cash=VALUES(initial_cash), final_cash=VALUES(final_cash), status=VALUES(status), sales_total=VALUES(sales_total), expenses_total=VALUES(expenses_total), expected_final_cash=VALUES(expected_final_cash), sucursal=VALUES(sucursal), raw_data=VALUES(raw_data)");
-    $stmtCS->bind_param("ssssddsdddss", $csId, $sTime, $eTime, $openedBy, $initCash, $finalCash, $csStatus, $salesTot, $expTot, $expFinal, $csSucursal, $csRaw);
-    $stmtCS->execute();
+    try {
+        $stmtCS = $mysqli->prepare("INSERT INTO sesiones_caja (id, start_time, end_time, opened_by, initial_cash, final_cash, status, sales_total, expenses_total, expected_final_cash, sucursal, raw_data) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE start_time=VALUES(start_time), end_time=VALUES(end_time), opened_by=VALUES(opened_by), initial_cash=VALUES(initial_cash), final_cash=VALUES(final_cash), status=VALUES(status), sales_total=VALUES(sales_total), expenses_total=VALUES(expenses_total), expected_final_cash=VALUES(expected_final_cash), sucursal=VALUES(sucursal), raw_data=VALUES(raw_data)");
+        if ($stmtCS) {
+            $stmtCS->bind_param("ssssddsdddss", $csId, $sTime, $eTime, $openedBy, $initCash, $finalCash, $csStatus, $salesTot, $expTot, $expFinal, $csSucursal, $csRaw);
+            $stmtCS->execute();
+            $stmtCS->close();
+        }
+    } catch (Throwable $e) {}
 
     echo json_encode([
         "success" => true,
@@ -1500,9 +1636,14 @@ if ($action === 'save_expense' && $_SERVER['REQUEST_METHOD'] === 'POST') {
     $eSucursal = isset($postData['sucursal']) ? trim($postData['sucursal']) : $branch;
     $eRaw = json_encode($postData);
 
-    $stmtE = $mysqli->prepare("INSERT INTO gastos_caja (id, description, amount, category, date, user_name, sucursal, raw_data) VALUES (?, ?, ?, ?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE description=VALUES(description), amount=VALUES(amount), category=VALUES(category), date=VALUES(date), user_name=VALUES(user_name), sucursal=VALUES(sucursal), raw_data=VALUES(raw_data)");
-    $stmtE->bind_param("ssdsssss", $eId, $eDesc, $eAmount, $eCat, $eDate, $eUser, $eSucursal, $eRaw);
-    $stmtE->execute();
+    try {
+        $stmtE = $mysqli->prepare("INSERT INTO gastos_caja (id, description, amount, category, date, user_name, sucursal, raw_data) VALUES (?, ?, ?, ?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE description=VALUES(description), amount=VALUES(amount), category=VALUES(category), date=VALUES(date), user_name=VALUES(user_name), sucursal=VALUES(sucursal), raw_data=VALUES(raw_data)");
+        if ($stmtE) {
+            $stmtE->bind_param("ssdsssss", $eId, $eDesc, $eAmount, $eCat, $eDate, $eUser, $eSucursal, $eRaw);
+            $stmtE->execute();
+            $stmtE->close();
+        }
+    } catch (Throwable $e) {}
 
     echo json_encode([
         "success" => true,
@@ -1523,9 +1664,12 @@ if ($action === 'delete_expense' && $_SERVER['REQUEST_METHOD'] === 'POST') {
     $deleted = false;
     if (!empty($eId)) {
         $stmt = $mysqli->prepare("DELETE FROM gastos_caja WHERE id = ?");
-        $stmt->bind_param("s", $eId);
-        $stmt->execute();
-        $deleted = true;
+        if ($stmt) {
+            $stmt->bind_param("s", $eId);
+            $stmt->execute();
+            $stmt->close();
+            $deleted = true;
+        }
     }
 
     echo json_encode([
@@ -1552,9 +1696,14 @@ if ($action === 'save_purchase_order' && $_SERVER['REQUEST_METHOD'] === 'POST') 
     $poSucursal = isset($postData['sucursal']) ? trim($postData['sucursal']) : $branch;
     $poRaw = json_encode($postData);
 
-    $stmtPO = $mysqli->prepare("INSERT INTO ordenes_compra (id, supplier_id, supplier_name, total, status, date, received_date, payment_status, sucursal, raw_data) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE supplier_id=VALUES(supplier_id), supplier_name=VALUES(supplier_name), total=VALUES(total), status=VALUES(status), date=VALUES(date), received_date=VALUES(received_date), payment_status=VALUES(payment_status), sucursal=VALUES(sucursal), raw_data=VALUES(raw_data)");
-    $stmtPO->bind_param("sssdssssss", $poId, $suppId, $suppName, $poTotal, $poStatus, $poDate, $poRecDate, $poPayStatus, $poSucursal, $poRaw);
-    $stmtPO->execute();
+    try {
+        $stmtPO = $mysqli->prepare("INSERT INTO ordenes_compra (id, supplier_id, supplier_name, total, status, date, received_date, payment_status, sucursal, raw_data) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE supplier_id=VALUES(supplier_id), supplier_name=VALUES(supplier_name), total=VALUES(total), status=VALUES(status), date=VALUES(date), received_date=VALUES(received_date), payment_status=VALUES(payment_status), sucursal=VALUES(sucursal), raw_data=VALUES(raw_data)");
+        if ($stmtPO) {
+            $stmtPO->bind_param("sssdssssss", $poId, $suppId, $suppName, $poTotal, $poStatus, $poDate, $poRecDate, $poPayStatus, $poSucursal, $poRaw);
+            $stmtPO->execute();
+            $stmtPO->close();
+        }
+    } catch (Throwable $e) {}
 
     echo json_encode([
         "success" => true,
@@ -1575,9 +1724,12 @@ if ($action === 'delete_purchase_order' && $_SERVER['REQUEST_METHOD'] === 'POST'
     $deleted = false;
     if (!empty($poId)) {
         $stmt = $mysqli->prepare("DELETE FROM ordenes_compra WHERE id = ?");
-        $stmt->bind_param("s", $poId);
-        $stmt->execute();
-        $deleted = true;
+        if ($stmt) {
+            $stmt->bind_param("s", $poId);
+            $stmt->execute();
+            $stmt->close();
+            $deleted = true;
+        }
     }
 
     echo json_encode([
@@ -1611,23 +1763,35 @@ if ($action === 'save_user' && $_SERVER['REQUEST_METHOD'] === 'POST') {
     else if (strpos($rolNorm, 'conta') !== false) $rol = 'contabilidad';
     else $rol = 'vendedor';
 
-    $stmtCheck = $mysqli->prepare("SELECT id FROM usuarios WHERE usuario = ?");
-    $stmtCheck->bind_param("s", $usuario);
-    $stmtCheck->execute();
-    $resCheck = $stmtCheck->get_result();
+    $userId = 0;
+    try {
+        $stmtCheck = $mysqli->prepare("SELECT id FROM usuarios WHERE usuario = ?");
+        if ($stmtCheck) {
+            $stmtCheck->bind_param("s", $usuario);
+            $stmtCheck->execute();
+            $resCheck = $stmtCheck->get_result();
 
-    if ($resCheck && $resCheck->num_rows > 0) {
-        $rowU = $resCheck->fetch_assoc();
-        $userId = $rowU['id'];
-        $stmtUp = $mysqli->prepare("UPDATE usuarios SET nombrecompleto = ?, password = ?, rol = ? WHERE id = ?");
-        $stmtUp->bind_param("sssi", $nombre, $pass, $rol, $userId);
-        $stmtUp->execute();
-    } else {
-        $stmtIns = $mysqli->prepare("INSERT INTO usuarios (usuario, nombrecompleto, password, rol) VALUES (?, ?, ?, ?)");
-        $stmtIns->bind_param("ssss", $usuario, $nombre, $pass, $rol);
-        $stmtIns->execute();
-        $userId = $mysqli->insert_id;
-    }
+            if ($resCheck && $resCheck->num_rows > 0) {
+                $rowU = $resCheck->fetch_assoc();
+                $userId = $rowU['id'];
+                $stmtUp = $mysqli->prepare("UPDATE usuarios SET nombrecompleto = ?, password = ?, rol = ? WHERE id = ?");
+                if ($stmtUp) {
+                    $stmtUp->bind_param("sssi", $nombre, $pass, $rol, $userId);
+                    $stmtUp->execute();
+                    $stmtUp->close();
+                }
+            } else {
+                $stmtIns = $mysqli->prepare("INSERT INTO usuarios (usuario, nombrecompleto, password, rol) VALUES (?, ?, ?, ?)");
+                if ($stmtIns) {
+                    $stmtIns->bind_param("ssss", $usuario, $nombre, $pass, $rol);
+                    $stmtIns->execute();
+                    $userId = $mysqli->insert_id;
+                    $stmtIns->close();
+                }
+            }
+            $stmtCheck->close();
+        }
+    } catch (Throwable $e) {}
 
     echo json_encode([
         "success" => true,
@@ -1655,8 +1819,11 @@ if ($action === 'delete_user' && $_SERVER['REQUEST_METHOD'] === 'POST') {
 
     if (!empty($usuario)) {
         $stmtDel = $mysqli->prepare("DELETE FROM usuarios WHERE usuario = ?");
-        $stmtDel->bind_param("s", $usuario);
-        $stmtDel->execute();
+        if ($stmtDel) {
+            $stmtDel->bind_param("s", $usuario);
+            $stmtDel->execute();
+            $stmtDel->close();
+        }
 
         echo json_encode([
             "success" => true,
@@ -1683,9 +1850,14 @@ if ($action === 'save_bank_account' && $_SERVER['REQUEST_METHOD'] === 'POST') {
     $bBranch = isset($postData['branch']) ? trim($postData['branch']) : $branch;
     $raw = json_encode($postData);
 
-    $stmt = $mysqli->prepare("INSERT INTO cuentas_bancarias (id, bank_name, account_number, type, balance, initial_balance, currency, status, branch, raw_data) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE bank_name=VALUES(bank_name), account_number=VALUES(account_number), type=VALUES(type), balance=VALUES(balance), initial_balance=VALUES(initial_balance), currency=VALUES(currency), status=VALUES(status), branch=VALUES(branch), raw_data=VALUES(raw_data)");
-    $stmt->bind_param("ssssddssss", $id, $bName, $accNum, $type, $balance, $initBal, $curr, $stat, $bBranch, $raw);
-    $stmt->execute();
+    try {
+        $stmt = $mysqli->prepare("INSERT INTO cuentas_bancarias (id, bank_name, account_number, type, balance, initial_balance, currency, status, branch, raw_data) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE bank_name=VALUES(bank_name), account_number=VALUES(account_number), type=VALUES(type), balance=VALUES(balance), initial_balance=VALUES(initial_balance), currency=VALUES(currency), status=VALUES(status), branch=VALUES(branch), raw_data=VALUES(raw_data)");
+        if ($stmt) {
+            $stmt->bind_param("ssssddssss", $id, $bName, $accNum, $type, $balance, $initBal, $curr, $stat, $bBranch, $raw);
+            $stmt->execute();
+            $stmt->close();
+        }
+    } catch (Throwable $e) {}
 
     echo json_encode(["success" => true, "message" => "Cuenta bancaria guardada.", "id" => $id]);
     exit;
@@ -1706,9 +1878,14 @@ if ($action === 'save_bank_movement' && $_SERVER['REQUEST_METHOD'] === 'POST') {
     $user = isset($postData['user']) ? trim($postData['user']) : "Admin";
     $raw = json_encode($postData);
 
-    $stmt = $mysqli->prepare("INSERT INTO movimientos_bancarios (id, bank_account_id, type, amount, date, description, category, reference, user_name, raw_data) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE bank_account_id=VALUES(bank_account_id), type=VALUES(type), amount=VALUES(amount), date=VALUES(date), description=VALUES(description), category=VALUES(category), reference=VALUES(reference), user_name=VALUES(user_name), raw_data=VALUES(raw_data)");
-    $stmt->bind_param("sssdssssss", $id, $accId, $type, $amount, $date, $desc, $cat, $ref, $user, $raw);
-    $stmt->execute();
+    try {
+        $stmt = $mysqli->prepare("INSERT INTO movimientos_bancarios (id, bank_account_id, type, amount, date, description, category, reference, user_name, raw_data) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE bank_account_id=VALUES(bank_account_id), type=VALUES(type), amount=VALUES(amount), date=VALUES(date), description=VALUES(description), category=VALUES(category), reference=VALUES(reference), user_name=VALUES(user_name), raw_data=VALUES(raw_data)");
+        if ($stmt) {
+            $stmt->bind_param("sssdssssss", $id, $accId, $type, $amount, $date, $desc, $cat, $ref, $user, $raw);
+            $stmt->execute();
+            $stmt->close();
+        }
+    } catch (Throwable $e) {}
 
     echo json_encode(["success" => true, "message" => "Movimiento bancario guardado.", "id" => $id]);
     exit;
@@ -1728,9 +1905,14 @@ if ($action === 'save_credit_payment' && $_SERVER['REQUEST_METHOD'] === 'POST') 
     $suc = isset($postData['sucursal']) ? trim($postData['sucursal']) : $branch;
     $raw = json_encode($postData);
 
-    $stmt = $mysqli->prepare("INSERT INTO abonos_credito (id, customer_id, amount, date, payment_method, notes, user_name, sucursal, raw_data) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE amount=VALUES(amount), date=VALUES(date), payment_method=VALUES(payment_method), notes=VALUES(notes), user_name=VALUES(user_name), sucursal=VALUES(sucursal), raw_data=VALUES(raw_data)");
-    $stmt->bind_param("ssdssssss", $id, $custId, $amount, $date, $method, $notes, $user, $suc, $raw);
-    $stmt->execute();
+    try {
+        $stmt = $mysqli->prepare("INSERT INTO abonos_credito (id, customer_id, amount, date, payment_method, notes, user_name, sucursal, raw_data) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE amount=VALUES(amount), date=VALUES(date), payment_method=VALUES(payment_method), notes=VALUES(notes), user_name=VALUES(user_name), sucursal=VALUES(sucursal), raw_data=VALUES(raw_data)");
+        if ($stmt) {
+            $stmt->bind_param("ssdssssss", $id, $custId, $amount, $date, $method, $notes, $user, $suc, $raw);
+            $stmt->execute();
+            $stmt->close();
+        }
+    } catch (Throwable $e) {}
 
     echo json_encode(["success" => true, "message" => "Abono guardado en MySQL.", "id" => $id]);
     exit;
@@ -1749,9 +1931,14 @@ if ($action === 'save_audit_log' && $_SERVER['REQUEST_METHOD'] === 'POST') {
     $ip = isset($postData['ip']) ? trim($postData['ip']) : ($_SERVER['REMOTE_ADDR'] ?? '127.0.0.1');
     $suc = isset($postData['branch']) ? trim($postData['branch']) : $branch;
 
-    $stmt = $mysqli->prepare("INSERT INTO auditoria (id, user_name, role, action, details, timestamp, ip, branch) VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
-    $stmt->bind_param("ssssssss", $id, $uName, $uRole, $act, $det, $ts, $ip, $suc);
-    $stmt->execute();
+    try {
+        $stmt = $mysqli->prepare("INSERT INTO auditoria (id, user_name, role, action, details, timestamp, ip, branch) VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
+        if ($stmt) {
+            $stmt->bind_param("ssssssss", $id, $uName, $uRole, $act, $det, $ts, $ip, $suc);
+            $stmt->execute();
+            $stmt->close();
+        }
+    } catch (Throwable $e) {}
 
     echo json_encode(["success" => true, "id" => $id]);
     exit;
