@@ -1068,12 +1068,15 @@ if ($action === 'get_native_tables') {
 if ($action === 'get_historical_sales') {
     $ventas = [];
     $resV = $mysqli->query("
-        SELECT v.id_venta, v.ticket_number, v.id_producto, p.nom_p, p.clave, v.descripcion, v.fecha, v.cantidad, 
+        SELECT v.id_venta, v.ticket_number, v.id_producto, p.nom_p, p.clave, p.des, p.unidad,
+               ROUND(COALESCE(pr.menudeo, 0), 4) as menudeo,
+               v.descripcion, v.fecha, v.cantidad, 
                ROUND(v.total, 4) as total, 
                ROUND(v.total_utilidad, 4) as total_utilidad, 
                v.id_cliente, c.nombre_c, v.metodo_pago, v.sucursal, v.raw_data
         FROM ventas v
         LEFT JOIN productos p ON v.id_producto = p.id
+        LEFT JOIN precios pr ON p.id = pr.id_producto
         LEFT JOIN clientes c ON v.id_cliente = c.id_cliente
         ORDER BY v.fecha DESC, v.id_venta DESC
         LIMIT 1000

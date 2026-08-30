@@ -1174,17 +1174,71 @@ export const loadDatabaseFromMySQL = async (branchParam?: string): Promise<typeo
               if (v.raw_data) {
                 try { raw = typeof v.raw_data === "string" ? JSON.parse(v.raw_data) : v.raw_data; } catch {}
               }
+
+              let itemsList: any[] = [];
+              if (Array.isArray(raw.items) && raw.items.length > 0) {
+                itemsList = raw.items.map((it: any) => {
+                  let itQty = Number(it.quantity) || 1;
+                  let itUnitP = Number(it.unitPrice) || 0;
+                  const itTot = Number(it.totalPrice) || (itQty * itUnitP);
+                  const isW = it.displayUnit === 'g' || it.displayUnit === 'kg' || it.displayUnit === 'ml' || it.displayUnit === 'L' || (it.unit && ['kg', 'g', 'l', 'ml'].includes(String(it.unit).toLowerCase()));
+                  if (isW && itQty >= 10) {
+                    const inKg = itQty / 1000;
+                    if (itUnitP <= 0 || Math.abs(itUnitP - itTot) < 0.05) {
+                      itUnitP = parseFloat((itTot / inKg).toFixed(2));
+                    }
+                    itQty = inKg;
+                  }
+                  return {
+                    ...it,
+                    quantity: itQty,
+                    unitPrice: itUnitP,
+                    totalPrice: itTot
+                  };
+                });
+              } else {
+                const isWeighedProd = (v.des && v.des.toLowerCase() === 'mixto') || (v.unidad && v.unidad.toLowerCase() === 'kg') || (v.nom_p && (v.nom_p.toLowerCase().includes('kg') || v.nom_p.toLowerCase().includes('kilo') || v.nom_p.toLowerCase().includes('bolsa')));
+                let rawQty = Number(v.cantidad || 1);
+                const totalVal = Number(v.total || 0);
+                let unitPriceVal = totalVal;
+                let displayUnit = "pz";
+
+                if (isWeighedProd) {
+                  displayUnit = "kg";
+                  if (rawQty >= 10) {
+                    const qtyInKg = rawQty / 1000;
+                    let pricePerKg = Number(v.menudeo || 0);
+                    if (pricePerKg > 0 && pricePerKg < 1.0) pricePerKg = pricePerKg * 1000;
+                    if (pricePerKg <= 0 && qtyInKg > 0) {
+                      pricePerKg = parseFloat((totalVal / qtyInKg).toFixed(2));
+                    }
+                    unitPriceVal = pricePerKg > 0 ? pricePerKg : (totalVal > 0 ? parseFloat((totalVal / qtyInKg).toFixed(2)) : totalVal);
+                    rawQty = qtyInKg;
+                    displayUnit = "g";
+                  } else if (rawQty > 0) {
+                    unitPriceVal = parseFloat((totalVal / rawQty).toFixed(2));
+                  }
+                } else {
+                  if (rawQty > 0) {
+                    unitPriceVal = parseFloat((totalVal / rawQty).toFixed(2));
+                  }
+                }
+
+                itemsList = [{
+                  productId: String(v.id_producto || ""),
+                  productName: v.nom_p || v.descripcion || "Venta",
+                  quantity: rawQty,
+                  displayUnit: displayUnit,
+                  unitPrice: unitPriceVal,
+                  totalPrice: totalVal,
+                  cost: 0
+                }];
+              }
+
               return {
                 id: raw.id || `SALE_${v.id_venta}`,
                 ticketNumber: v.ticket_number || raw.ticketNumber || `TICK-${v.id_venta}`,
-                items: Array.isArray(raw.items) ? raw.items : [{
-                  productId: String(v.id_producto || ""),
-                  productName: v.nom_p || v.descripcion || "Venta",
-                  quantity: Number(v.cantidad || 1),
-                  unitPrice: Number(v.total || 0),
-                  totalPrice: Number(v.total || 0),
-                  cost: 0
-                }],
+                items: itemsList,
                 total: Number(v.total || 0),
                 costTotal: Number(raw.costTotal || 0),
                 profit: Number(v.total_utilidad ?? raw.profit ?? 0),

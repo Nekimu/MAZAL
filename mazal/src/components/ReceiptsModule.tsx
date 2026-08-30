@@ -320,16 +320,31 @@ export default function ReceiptsModule({ currentUser }: ReceiptsModuleProps) {
                   </div>
 
                   {selectedSale.items.map((item, idx) => {
-                    const prod = db.products.find((p: any) => p.id === item.productId);
-                    const isW = isWeighed(prod) || (item.unit && ['kg', 'g', 'l', 'ml'].includes(String(item.unit).toLowerCase()));
+                    const prod = db.products.find((p: any) => p.id === item.productId || (p.code && p.code === item.productId));
+                    const isW = isWeighed(prod) || (item.unit && ['kg', 'g', 'l', 'ml'].includes(String(item.unit).toLowerCase())) || (item.displayUnit && ['kg', 'g', 'l', 'ml'].includes(String(item.displayUnit).toLowerCase()));
                     const unitLabel = getUnitLabel(prod) || (item.unit?.toLowerCase() === 'kg' ? 'Kg' : (item.unit || 'pza'));
 
                     let rawQty = Number(item.quantity) || 0;
-                    if (isW && rawQty >= 50 && (item.unitPrice || 0) > 0) {
-                      const pricePerKg = Number(item.unitPrice) || 1;
-                      const totalP = Number(item.totalPrice) || 0;
-                      if (Math.abs(totalP - (rawQty * pricePerKg / 1000)) < 0.1 || totalP <= (rawQty * pricePerKg / 500)) {
-                        rawQty = rawQty / 1000;
+                    let unitPrice = Number(item.unitPrice) || 0;
+                    const totalPrice = Number(item.totalPrice) || 0;
+
+                    if (isW) {
+                      if (rawQty >= 10) {
+                        const qtyInKg = rawQty / 1000;
+                        if (unitPrice <= 0 || Math.abs(unitPrice - totalPrice) < 0.05) {
+                          if (prod && prod.priceMin > 1.0) {
+                            unitPrice = prod.priceMin;
+                          } else if (qtyInKg > 0) {
+                            unitPrice = parseFloat((totalPrice / qtyInKg).toFixed(2));
+                          }
+                        }
+                        rawQty = qtyInKg;
+                      } else if (rawQty > 0 && (unitPrice <= 0 || Math.abs(unitPrice - totalPrice) < 0.05)) {
+                        if (prod && prod.priceMin > 1.0) {
+                          unitPrice = prod.priceMin;
+                        } else if (rawQty < 1) {
+                          unitPrice = parseFloat((totalPrice / rawQty).toFixed(2));
+                        }
                       }
                     }
 
@@ -346,14 +361,16 @@ export default function ReceiptsModule({ currentUser }: ReceiptsModuleProps) {
                       qtyFormatted = `${rawQty} ${unitLabel || "pza"}`;
                     }
 
+                    const displayPricePerUnit = unitPrice > 0 ? unitPrice : (prod?.priceMin || totalPrice);
+
                     return (
                       <div key={idx} className="grid grid-cols-12 text-[11px] leading-tight gap-1">
                         <div className="col-span-6">
                           <span className="font-bold block">{item.productName}</span>
-                          <span className="text-[9px] text-gray-500">c/{unitLabel}: ${formatPrice(item.unitPrice)}</span>
+                          <span className="text-[9px] text-gray-500">c/{unitLabel}: ${formatPrice(displayPricePerUnit)}</span>
                         </div>
                         <span className="col-span-2 text-center font-bold">{qtyFormatted}</span>
-                        <span className="col-span-4 text-right font-bold">${formatPrice(item.totalPrice)}</span>
+                        <span className="col-span-4 text-right font-bold">${formatPrice(totalPrice)}</span>
                       </div>
                     );
                   })}

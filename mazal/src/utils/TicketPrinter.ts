@@ -84,22 +84,35 @@ export function calculateTotalArticles(items: Sale["items"], dbProducts: Product
  * Formats a quantity line for thermal receipt output
  */
 export function formatItemQuantityLine(item: Sale["items"][0], dbProducts: Product[] = []): string {
-  const prod = (dbProducts || []).find(p => p.id === item.productId);
-  const isW = isWeighed(prod) || (item.unit && ['kg', 'g', 'l', 'ml'].includes(String(item.unit).toLowerCase()));
+  const prod = (dbProducts || []).find(p => p.id === item.productId || (p.code && p.code === item.productId));
+  const isW = isWeighed(prod) || (item.unit && ['kg', 'g', 'l', 'ml'].includes(String(item.unit).toLowerCase())) || (item.displayUnit && ['kg', 'g', 'l', 'ml'].includes(String(item.displayUnit).toLowerCase()));
   const unitLabel = getUnitLabel(prod) || (item.unit?.toLowerCase() === 'kg' ? 'Kg' : (item.unit || 'pz'));
 
   let rawQty = Number(item.quantity) || 0;
-  // Si la cantidad es >= 50 y es producto por peso, verificar si se guardó en gramos en versiones previas
-  if (isW && rawQty >= 50 && (item.unitPrice || 0) > 0) {
-    const pricePerKg = Number(item.unitPrice) || 1;
-    const totalP = Number(item.totalPrice) || 0;
-    if (Math.abs(totalP - (rawQty * pricePerKg / 1000)) < 0.1 || totalP <= (rawQty * pricePerKg / 500)) {
-      rawQty = rawQty / 1000;
-    }
-  }
+  let unitPrice = Number(item.unitPrice) || 0;
+  const totalPrice = Number(item.totalPrice) || 0;
 
-  let qtyFormatted = "";
   if (isW) {
+    // Si la cantidad es >= 10, fue guardada en gramos (ej. 187 g, 500 g, 1000 g)
+    if (rawQty >= 10) {
+      const qtyInKg = rawQty / 1000;
+      if (unitPrice <= 0 || Math.abs(unitPrice - totalPrice) < 0.05) {
+        if (prod && prod.priceMin > 1.0) {
+          unitPrice = prod.priceMin;
+        } else if (qtyInKg > 0) {
+          unitPrice = parseFloat((totalPrice / qtyInKg).toFixed(2));
+        }
+      }
+      rawQty = qtyInKg;
+    } else if (rawQty > 0 && (unitPrice <= 0 || Math.abs(unitPrice - totalPrice) < 0.05)) {
+      if (prod && prod.priceMin > 1.0) {
+        unitPrice = prod.priceMin;
+      } else if (rawQty < 1) {
+        unitPrice = parseFloat((totalPrice / rawQty).toFixed(2));
+      }
+    }
+
+    let qtyFormatted = "";
     if (item.displayUnit === "g" || (!item.displayUnit && rawQty < 1 && unitLabel === "Kg")) {
       qtyFormatted = `${kgToGrams(rawQty)} g`;
     } else if (item.displayUnit === "ml" || (!item.displayUnit && rawQty < 1 && unitLabel === "L")) {
@@ -107,10 +120,10 @@ export function formatItemQuantityLine(item: Sale["items"][0], dbProducts: Produ
     } else {
       qtyFormatted = `${rawQty.toFixed(3)} ${unitLabel}`;
     }
-    return `${qtyFormatted} x $${formatPrice(item.unitPrice)}/${unitLabel}`;
+    return `${qtyFormatted} x $${formatPrice(unitPrice)}/${unitLabel}`;
   } else {
-    qtyFormatted = `${rawQty} ${unitLabel || "pz"}`;
-    return `${qtyFormatted} x $${formatPrice(item.unitPrice)}`;
+    let qtyFormatted = `${rawQty} ${unitLabel || "pz"}`;
+    return `${qtyFormatted} x $${formatPrice(unitPrice > 0 ? unitPrice : totalPrice)}`;
   }
 }
 
