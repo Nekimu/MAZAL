@@ -645,7 +645,17 @@ export default function POSModule({
       return;
     }
 
-    // 1. Process and update stock
+    // 1. Prepare folio and sale date
+    const now = new Date();
+    const Y = now.getFullYear();
+    const M = String(now.getMonth() + 1).padStart(2, '0');
+    const D = String(now.getDate()).padStart(2, '0');
+    const h = String(now.getHours()).padStart(2, '0');
+    const m = String(now.getMinutes()).padStart(2, '0');
+    const nextTicketNum = `TK-${Y}${M}${D}-${h}${m}`;
+    const saleDate = `${Y}-${M}-${D} ${h}:${m}`;
+
+    // 2. Process and update stock
     const updatedProducts = database.products.map((prod: Product) => {
       const totalSoldForProd = cart
         .filter((item) => item.product.id === prod.id)
@@ -675,7 +685,7 @@ export default function POSModule({
       return prod;
     });
 
-    // 2. If credit, update customer outstanding used credit balance
+    // 3. If credit, update customer outstanding used credit balance
     let updatedCustomers = database.customers;
     if (paymentMethod === PaymentMethod.CREDIT && selectedCustomer) {
       updatedCustomers = database.customers.map((c: Customer) => {
@@ -687,16 +697,7 @@ export default function POSModule({
       });
     }
 
-    // 3. Register transaction
-    const now = new Date();
-    const Y = now.getFullYear();
-    const M = String(now.getMonth() + 1).padStart(2, '0');
-    const D = String(now.getDate()).padStart(2, '0');
-    const h = String(now.getHours()).padStart(2, '0');
-    const m = String(now.getMinutes()).padStart(2, '0');
-    const nextTicketNum = `TK-${Y}${M}${D}-${h}${m}`;
-    const saleDate = `${Y}-${M}-${D} ${h}:${m}`;
-
+    // 4. Register transaction
     const costTotal = cart.reduce((acc, item) => acc + item.product.cost * item.quantity, 0);
     const profit = total - costTotal;
 
