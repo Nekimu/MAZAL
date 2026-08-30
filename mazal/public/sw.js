@@ -1,5 +1,5 @@
 // Service Worker for Mazal POS & ERP - 100% Localhost XAMPP & Apache
-const CACHE_NAME = "mazal-pos-v10-local-xampp";
+const CACHE_NAME = "mazal-pos-v25-clean-live";
 const ASSETS_TO_CACHE = [
   "./",
   "./index.html",
@@ -8,12 +8,13 @@ const ASSETS_TO_CACHE = [
 
 // 1. Install Event - Pre-cache Core Shell safely
 self.addEventListener("install", (event) => {
+  self.skipWaiting();
   event.waitUntil(
     caches.open(CACHE_NAME).then((cache) => {
       return Promise.allSettled(
-        ASSETS_TO_CACHE.map((url) => cache.add(url).catch(() => {}))
+        ASSETS_TO_CACHE.map((url) => cache.add(new Request(url, { cache: 'reload' })).catch(() => {}))
       );
-    }).then(() => self.skipWaiting())
+    })
   );
 });
 
@@ -24,7 +25,7 @@ self.addEventListener("activate", (event) => {
       return Promise.all(
         cacheNames.map((cache) => {
           if (cache !== CACHE_NAME) {
-            console.log("[Service Worker] Purging old cache:", cache);
+            console.log("[Service Worker] Purging legacy cache:", cache);
             return caches.delete(cache);
           }
         })
@@ -50,7 +51,7 @@ self.addEventListener("fetch", (event) => {
 
   // Network-First strategy: Always fetch newest bundle from network if online
   event.respondWith(
-    fetch(request)
+    fetch(request, { cache: 'no-cache' })
       .then((networkResponse) => {
         if (networkResponse && networkResponse.status === 200) {
           const responseToCache = networkResponse.clone();

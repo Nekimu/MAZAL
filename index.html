@@ -58,7 +58,7 @@
           if (window.caches) {
             caches.keys().then((names) => {
               for (const name of names) {
-                if (name !== 'mazal-pos-v15-universal-sync') {
+                if (name !== 'mazal-pos-v25-clean-live') {
                   console.log('Purging legacy cache:', name);
                   caches.delete(name);
                 }
