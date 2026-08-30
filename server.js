@@ -4,6 +4,11 @@
  * Gestión de Usuarios con RBAC, Rate Limiting, Entrega Dinámica de Configuración e Inyección SPA.
  */
 require('dotenv').config();
+
+if (!process.env.RAILWAY_ENVIRONMENT && !process.env.RAILWAY_STATIC_URL) {
+  console.log('[MAZAL] server.js no es necesario en modo 100% local XAMPP. Usa api.php + Apache.');
+}
+
 const express = require('express');
 const compression = require('compression');
 const path = require('path');

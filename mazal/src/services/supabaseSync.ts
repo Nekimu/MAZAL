@@ -1,3 +1,4 @@
+// INACTIVO mientras PAUSE_ONLINE_SYNC = true. No borrar: necesario si se reactiva el modo nube.
 /**
  * MAZAL POS & ERP - Supabase Sync Engine
  * Sincronización en la nube bidireccional, tiempo real y contingencia offline.

@@ -7,6 +7,7 @@ import React, { useState } from "react";
 import { MazalLogo } from "./MazalLogo";
 import { Store, Lock, KeyRound, Eye, EyeOff, ArrowRight, ShieldCheck, Sun, Moon } from "lucide-react";
 import { verifyBranchAccess } from "../services/authService";
+import { ACTIVE_BRANCHES, isBranchActive } from "../config/localConfig";
 
 interface BranchGateProps {
   onBranchSelect: (branch: "Norte" | "Sur") => void;
@@ -157,26 +158,54 @@ export default function BranchGate({ onBranchSelect, theme = "light", onToggleTh
             </button>
 
             {/* MAZAL 2 branch button card */}
-            <button
-              onClick={() => handleBranchClick("Sur")}
-              id="branch-btn-sur"
-              className="group p-4 rounded-2xl border border-gray-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-950/40 hover:bg-white dark:hover:bg-slate-850 hover:border-blue-500 dark:hover:border-blue-500 hover:shadow-md transition-all duration-200 text-left flex items-center justify-between cursor-pointer"
-            >
-              <div className="flex items-center gap-3.5">
-                <div className="p-3 bg-blue-500/10 text-blue-600 dark:text-blue-400 rounded-xl group-hover:bg-blue-600 group-hover:text-white transition-colors duration-200">
-                  <Store className="h-5 w-5" />
+            {isBranchActive("Sur") ? (
+              <button
+                onClick={() => handleBranchClick("Sur")}
+                id="branch-btn-sur"
+                className="group p-4 rounded-2xl border border-gray-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-950/40 hover:bg-white dark:hover:bg-slate-850 hover:border-blue-500 dark:hover:border-blue-500 hover:shadow-md transition-all duration-200 text-left flex items-center justify-between cursor-pointer"
+              >
+                <div className="flex items-center gap-3.5">
+                  <div className="p-3 bg-blue-500/10 text-blue-600 dark:text-blue-400 rounded-xl group-hover:bg-blue-600 group-hover:text-white transition-colors duration-200">
+                    <Store className="h-5 w-5" />
+                  </div>
+                  <div>
+                    <h3 className="font-extrabold text-sm text-slate-900 dark:text-white">
+                      MAZAL 2
+                    </h3>
+                    <p className="text-[11px] text-gray-500 dark:text-slate-400 mt-0.5">
+                      Sucursal Secundaria • Inventarios, ventas y cajas de MAZAL 2
+                    </p>
+                  </div>
                 </div>
-                <div>
-                  <h3 className="font-extrabold text-sm text-slate-900 dark:text-white">
-                    MAZAL 2
-                  </h3>
-                  <p className="text-[11px] text-gray-500 dark:text-slate-400 mt-0.5">
-                    Sucursal Secundaria • Inventarios, ventas y cajas de MAZAL 2
-                  </p>
+                <ArrowRight className="h-4 w-4 text-gray-300 dark:text-slate-600 group-hover:text-blue-500 group-hover:translate-x-1 transition-all" />
+              </button>
+            ) : (
+              <div
+                id="branch-btn-sur-disabled"
+                className="p-4 rounded-2xl border border-dashed border-gray-200 dark:border-slate-800 bg-gray-50/50 dark:bg-slate-900/30 text-left flex items-center justify-between opacity-60 cursor-not-allowed"
+                title="Sucursal Sur inactiva en este servidor local"
+              >
+                <div className="flex items-center gap-3.5">
+                  <div className="p-3 bg-gray-200/50 dark:bg-slate-800 text-gray-400 dark:text-slate-500 rounded-xl">
+                    <Store className="h-5 w-5" />
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <h3 className="font-bold text-sm text-gray-400 dark:text-slate-500">
+                        MAZAL 2
+                      </h3>
+                      <span className="text-[9px] font-bold px-1.5 py-0.5 bg-gray-200 dark:bg-slate-800 text-gray-600 dark:text-slate-400 rounded-md uppercase tracking-wider">
+                        Inactiva
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-gray-400 dark:text-slate-600 mt-0.5">
+                      Sucursal Secundaria (Sur) desactivada en servidor local
+                    </p>
+                  </div>
                 </div>
+                <Lock className="h-4 w-4 text-gray-400 dark:text-slate-600" />
               </div>
-              <ArrowRight className="h-4 w-4 text-gray-300 dark:text-slate-600 group-hover:text-blue-500 group-hover:translate-x-1 transition-all" />
-            </button>
+            )}
           </div>
         ) : (
           <form onSubmit={handleSubmit} className="space-y-4 animate-fadeIn">

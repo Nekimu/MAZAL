@@ -1,0 +1,44 @@
+# ==============================================================================
+# MAZAL POS & ERP - REGLAS DE SEGURIDAD APACHE (.htaccess)
+# ==============================================================================
+
+# 1. Desactivar listado de directorios
+Options -Indexes
+
+# 2. Bloquear acceso a archivos sensibles y de configuración
+<FilesMatch "\.(sql|env|log|md|bat|ps1|sh|json|lock|mjs|bak|dump|config)$">
+    Require all denied
+</FilesMatch>
+
+# Bloquear explícitamente archivos clave
+<Files "config.php">
+    Require all denied
+</Files>
+<Files "config.example.php">
+    Require all denied
+</Files>
+<Files ".htaccess">
+    Require all denied
+</Files>
+<Files "package.json">
+    Require all denied
+</Files>
+
+# 3. Bloquear directorios críticos de infraestructura
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+    RewriteRule (^|/)\.(git|agents|github) - [F,L]
+    RewriteRule (^|/)logs(/|$) - [F,L]
+    RewriteRule (^|/)backups(/|$) - [F,L]
+    RewriteRule (^|/)scripts(/|$) - [F,L]
+    RewriteRule (^|/)tests(/|$) - [F,L]
+    RewriteRule (^|/)docs(/|$) - [F,L]
+</IfModule>
+
+# 4. Cabeceras de seguridad HTTP a nivel servidor
+<IfModule mod_headers.c>
+    Header set X-Content-Type-Options "nosniff"
+    Header set X-Frame-Options "SAMEORIGIN"
+    Header set Referrer-Policy "strict-origin-when-cross-origin"
+    Header set X-XSS-Protection "1; mode=block"
+</IfModule>

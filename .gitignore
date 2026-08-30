@@ -38,6 +38,8 @@ mazal/.env.*
 *.keystore
 
 # Databases, SQL Dumps & Local Backups
+config.php
+!config.example.php
 backups/
 *.sql
 !scripts/sql/*.sql

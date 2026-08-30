@@ -7,7 +7,7 @@
 
 import { Product, StockTransfer } from "../types";
 import { getDatabase, saveDatabase, logAction, saveProductToSupabase, normalizeProduct } from "../data";
-import { supabase, isSupabaseConfigured } from "../supabase";
+import { supabase, isSupabaseConfigured, PAUSE_ONLINE_SYNC } from "../supabase";
 
 export interface BranchStockItem {
   code: string;
@@ -274,7 +274,7 @@ export async function confirmStockTransferReceipt(transfer: StockTransfer, recei
     await saveDatabase(db);
 
     // 3. Sincronizar producto en Supabase Cloud en la sucursal de destino directamente
-    if (isSupabaseConfigured) {
+    if (!PAUSE_ONLINE_SYNC && isSupabaseConfigured) {
       try {
         const { data: dbDestList } = await supabase
           .from("products")

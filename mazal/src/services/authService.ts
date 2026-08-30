@@ -4,10 +4,11 @@
  * SIN BYPASSES NI CREDENCIALES HARDCODEADAS.
  */
 
-import { supabase, isSupabaseConfigured, ensureSupabaseConfigured, getSupabaseClient } from "../supabase";
+import { supabase, isSupabaseConfigured, ensureSupabaseConfigured, getSupabaseClient, PAUSE_ONLINE_SYNC } from "../supabase";
 import { User, UserRole } from "../types";
 import { getDatabase, logAction, callLocalApi } from "../data";
 import { verifyPasswordHash } from "../utils/securityValidators";
+import { getDefaultBranch } from "../config/localConfig";
 
 const AUTH_TOKEN_KEY = "mazal_auth_token";
 let inMemoryToken: string | null = null;
@@ -184,43 +185,45 @@ export async function authenticateStaff(
     // Continúa con fallback local seguro
   }
 
-  // 3. Fallback directo a Supabase Cloud con verificación estricta de hash
-  try {
-    const isConfigured = await ensureSupabaseConfigured();
-    if (isConfigured) {
-      const client = getSupabaseClient();
-      const { data: dbUser, error: dbErr } = await client
-        .from("users")
-        .select("*")
-        .ilike("username", cleanUser)
-        .maybeSingle();
+  // 3. Fallback directo a Supabase Cloud con verificación estricta de hash (solo si no está pausado)
+  if (!PAUSE_ONLINE_SYNC) {
+    try {
+      const isConfigured = await ensureSupabaseConfigured();
+      if (isConfigured) {
+        const client = getSupabaseClient();
+        const { data: dbUser, error: dbErr } = await client
+          .from("users")
+          .select("*")
+          .ilike("username", cleanUser)
+          .maybeSingle();
 
-      if (!dbErr && dbUser) {
-        if (dbUser.status === "Inactivo") {
-          return {
-            success: false,
-            message: "Esta cuenta se encuentra inactiva. Contacta al Administrador."
-          };
-        }
+        if (!dbErr && dbUser) {
+          if (dbUser.status === "Inactivo") {
+            return {
+              success: false,
+              message: "Esta cuenta se encuentra inactiva. Contacta al Administrador."
+            };
+          }
 
-        const isMatch = await verifyPasswordHash(cleanPass, dbUser.password_hash || dbUser.password);
-        if (isMatch) {
-          return {
-            success: true,
-            user: {
-              id: dbUser.id || `USER_${cleanUser.toUpperCase()}`,
-              username: dbUser.username,
-              name: dbUser.name || dbUser.username,
-              role: normalizeUserRole(dbUser.role),
-              status: dbUser.status || "Activo"
-            },
-            isDefaultPassword: isDefault
-          };
+          const isMatch = await verifyPasswordHash(cleanPass, dbUser.password_hash || dbUser.password);
+          if (isMatch) {
+            return {
+              success: true,
+              user: {
+                id: dbUser.id || `USER_${cleanUser.toUpperCase()}`,
+                username: dbUser.username,
+                name: dbUser.name || dbUser.username,
+                role: normalizeUserRole(dbUser.role),
+                status: dbUser.status || "Activo"
+              },
+              isDefaultPassword: isDefault
+            };
+          }
         }
       }
+    } catch (rpcErr) {
+      console.warn("Aviso al validar en Supabase:", rpcErr);
     }
-  } catch (rpcErr) {
-    console.warn("Aviso al validar en Supabase:", rpcErr);
   }
 
   // 4. Fallback local offline (verificación estricta de hash contra base de datos local en memoria)

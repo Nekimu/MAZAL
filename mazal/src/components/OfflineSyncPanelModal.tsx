@@ -31,8 +31,8 @@ import {
   isForcedOfflineMode,
   checkActiveConnection
 } from "../services/offlineSync";
-import { testSupabaseConnection, isSupabaseConfigured, SUPABASE_URL } from "../supabase";
-import { syncDatabaseWithSupabase, loadDatabaseFromSupabase, callLocalApi, activeBranch } from "../data";
+import { testSupabaseConnection, isSupabaseConfigured, SUPABASE_URL, PAUSE_ONLINE_SYNC } from "../supabase";
+import { syncDatabaseWithSupabase, loadDatabaseFromSupabase, callLocalApi, activeBranch, syncWithLocalMySQL, loadDatabaseFromMySQL } from "../data";
 import { OfflineSyncState, PendingOperation } from "../types";
 
 interface Props {
@@ -111,13 +111,19 @@ export const OfflineSyncPanelModal: React.FC<Props> = ({ isOpen, onClose }) => {
 
   const handleSyncNow = async () => {
     setIsSyncingManual(true);
-    setSyncMessage("Sincronizando operaciones encoladas con Supabase Cloud...");
+    setSyncMessage(PAUSE_ONLINE_SYNC ? "Sincronizando con MySQL Local (XAMPP)..." : "Sincronizando operaciones encoladas con Supabase Cloud...");
     try {
-      const res = await triggerAutoSync();
-      if (res.success) {
-        setSyncMessage(`Sincronización completada con éxito. ${res.syncedCount} operaciones enviadas.`);
+      if (PAUSE_ONLINE_SYNC) {
+        const res = await syncWithLocalMySQL();
+        await loadDatabaseFromMySQL();
+        setSyncMessage(`✅ Sincronización local exitosa: ${res.message || 'Datos actualizados con MySQL'}`);
       } else {
-        setSyncMessage(`Sincronización finalizada con ${res.errors} advertencias/errores.`);
+        const res = await triggerAutoSync();
+        if (res.success) {
+          setSyncMessage(`Sincronización completada con éxito. ${res.syncedCount} operaciones enviadas.`);
+        } else {
+          setSyncMessage(`Sincronización finalizada con ${res.errors} advertencias/errores.`);
+        }
       }
     } catch (e: any) {
       setSyncMessage("Error al intentar la sincronización: " + (e.message || String(e)));

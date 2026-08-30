@@ -30,6 +30,7 @@ import {
   TransferRecord,
   ReplenishmentRequest
 } from "./types";
+import { LOCAL_API_BASE, getDefaultBranch, ACTIVE_BRANCHES, LOCAL_MODE } from "./config/localConfig";
 import {
   REAL_MAZAL_PRODUCTS,
   REAL_MAZAL_SUPPLIERS,
@@ -177,10 +178,10 @@ const INITIAL_BRANCHES: Branch[] = [
 ];
 
 // Database state container helper backed by cloud memory and real-time listeners
-export let activeBranch: "Norte" | "Sur" | string | null = (localStorage.getItem("mazal_active_branch") as string) || "Norte";
+export let activeBranch: "Norte" | "Sur" | string | null = (localStorage.getItem("mazal_active_branch") as string) || getDefaultBranch();
 
 export const setActiveBranch = (branch: string | null) => {
-  activeBranch = branch || "Norte";
+  activeBranch = branch || getDefaultBranch();
   if (branch) {
     localStorage.setItem("mazal_active_branch", branch);
   } else {
@@ -526,20 +527,18 @@ export const notifySubscribers = () => {
 // Helper for local API calls with fallback endpoints
 export const callLocalApi = async (queryString: string, options?: RequestInit): Promise<Response> => {
   const candidateUrls = [
+    `${LOCAL_API_BASE}?${queryString}`,
     `api.php?${queryString}`,
     `/MAZAL/api.php?${queryString}`,
     `/mazal/api.php?${queryString}`,
-    `/api.php?${queryString}`,
-    `http://localhost/MAZAL/api.php?${queryString}`,
-    `http://localhost/mazal/api.php?${queryString}`,
-    `http://localhost/api.php?${queryString}`
+    `/api.php?${queryString}`
   ];
 
   for (const url of candidateUrls) {
     try {
       const res = await fetch(url, {
         ...options,
-        signal: options?.signal || AbortSignal.timeout(3000)
+        signal: options?.signal || AbortSignal.timeout(4000)
       });
       if (res.ok) return res;
     } catch (e) {
@@ -551,7 +550,7 @@ export const callLocalApi = async (queryString: string, options?: RequestInit): 
 
 export const persistToLocalMySQL = async (db: any, branchParam?: string): Promise<boolean> => {
   try {
-    const branch = branchParam || activeBranch || "Norte";
+    const branch = branchParam || activeBranch || getDefaultBranch();
     const res = await callLocalApi(`action=save_state&branch=${encodeURIComponent(branch)}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -566,7 +565,7 @@ export const persistToLocalMySQL = async (db: any, branchParam?: string): Promis
 
 export const saveProductToMySQL = async (product: any, branchParam?: string): Promise<boolean> => {
   try {
-    const branch = branchParam || activeBranch || "Norte";
+    const branch = branchParam || activeBranch || getDefaultBranch();
     const res = await callLocalApi(`action=save_product&branch=${encodeURIComponent(branch)}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -581,7 +580,7 @@ export const saveProductToMySQL = async (product: any, branchParam?: string): Pr
 
 export const deleteProductFromMySQL = async (productId: string | number, branchParam?: string): Promise<boolean> => {
   try {
-    const branch = branchParam || activeBranch || "Norte";
+    const branch = branchParam || activeBranch || getDefaultBranch();
     const res = await callLocalApi(`action=delete_product&branch=${encodeURIComponent(branch)}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -596,7 +595,7 @@ export const deleteProductFromMySQL = async (productId: string | number, branchP
 
 export const updateStockInMySQL = async (productId: string | number, stock: number, branchParam?: string): Promise<boolean> => {
   try {
-    const branch = branchParam || activeBranch || "Norte";
+    const branch = branchParam || activeBranch || getDefaultBranch();
     const res = await callLocalApi(`action=update_stock&branch=${encodeURIComponent(branch)}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -611,7 +610,7 @@ export const updateStockInMySQL = async (productId: string | number, stock: numb
 
 export const saveCustomerToMySQL = async (customer: any, branchParam?: string): Promise<boolean> => {
   try {
-    const branch = branchParam || activeBranch || "Norte";
+    const branch = branchParam || activeBranch || getDefaultBranch();
     const res = await callLocalApi(`action=save_customer&branch=${encodeURIComponent(branch)}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -626,7 +625,7 @@ export const saveCustomerToMySQL = async (customer: any, branchParam?: string): 
 
 export const deleteCustomerFromMySQL = async (customerId: string | number, name?: string, branchParam?: string): Promise<boolean> => {
   try {
-    const branch = branchParam || activeBranch || "Norte";
+    const branch = branchParam || activeBranch || getDefaultBranch();
     const res = await callLocalApi(`action=delete_customer&branch=${encodeURIComponent(branch)}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -641,7 +640,7 @@ export const deleteCustomerFromMySQL = async (customerId: string | number, name?
 
 export const saveSupplierToMySQL = async (supplier: any, branchParam?: string): Promise<boolean> => {
   try {
-    const branch = branchParam || activeBranch || "Norte";
+    const branch = branchParam || activeBranch || getDefaultBranch();
     const res = await callLocalApi(`action=save_supplier&branch=${encodeURIComponent(branch)}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -656,7 +655,7 @@ export const saveSupplierToMySQL = async (supplier: any, branchParam?: string): 
 
 export const deleteSupplierFromMySQL = async (supplierId: string | number, branchParam?: string): Promise<boolean> => {
   try {
-    const branch = branchParam || activeBranch || "Norte";
+    const branch = branchParam || activeBranch || getDefaultBranch();
     const res = await callLocalApi(`action=delete_supplier&branch=${encodeURIComponent(branch)}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -671,7 +670,7 @@ export const deleteSupplierFromMySQL = async (supplierId: string | number, branc
 
 export const saveSaleToMySQL = async (sale: any, branchParam?: string): Promise<boolean> => {
   try {
-    const branch = branchParam || activeBranch || "Norte";
+    const branch = branchParam || activeBranch || getDefaultBranch();
     const res = await callLocalApi(`action=save_sale&branch=${encodeURIComponent(branch)}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -686,7 +685,7 @@ export const saveSaleToMySQL = async (sale: any, branchParam?: string): Promise<
 
 export const deleteSaleFromMySQL = async (saleId: string | number, branchParam?: string): Promise<boolean> => {
   try {
-    const branch = branchParam || activeBranch || "Norte";
+    const branch = branchParam || activeBranch || getDefaultBranch();
     const res = await callLocalApi(`action=delete_sale&branch=${encodeURIComponent(branch)}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -701,7 +700,7 @@ export const deleteSaleFromMySQL = async (saleId: string | number, branchParam?:
 
 export const saveMovementToMySQL = async (movement: any, branchParam?: string): Promise<boolean> => {
   try {
-    const branch = branchParam || activeBranch || "Norte";
+    const branch = branchParam || activeBranch || getDefaultBranch();
     const res = await callLocalApi(`action=save_movement&branch=${encodeURIComponent(branch)}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -716,7 +715,7 @@ export const saveMovementToMySQL = async (movement: any, branchParam?: string): 
 
 export const saveCashSessionToMySQL = async (session: any, branchParam?: string): Promise<boolean> => {
   try {
-    const branch = branchParam || activeBranch || "Norte";
+    const branch = branchParam || activeBranch || getDefaultBranch();
     const res = await callLocalApi(`action=save_cash_session&branch=${encodeURIComponent(branch)}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -731,7 +730,7 @@ export const saveCashSessionToMySQL = async (session: any, branchParam?: string)
 
 export const saveExpenseToMySQL = async (expense: any, branchParam?: string): Promise<boolean> => {
   try {
-    const branch = branchParam || activeBranch || "Norte";
+    const branch = branchParam || activeBranch || getDefaultBranch();
     const res = await callLocalApi(`action=save_expense&branch=${encodeURIComponent(branch)}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -746,7 +745,7 @@ export const saveExpenseToMySQL = async (expense: any, branchParam?: string): Pr
 
 export const deleteExpenseFromMySQL = async (expenseId: string, branchParam?: string): Promise<boolean> => {
   try {
-    const branch = branchParam || activeBranch || "Norte";
+    const branch = branchParam || activeBranch || getDefaultBranch();
     const res = await callLocalApi(`action=delete_expense&branch=${encodeURIComponent(branch)}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -761,7 +760,7 @@ export const deleteExpenseFromMySQL = async (expenseId: string, branchParam?: st
 
 export const savePurchaseOrderToMySQL = async (order: any, branchParam?: string): Promise<boolean> => {
   try {
-    const branch = branchParam || activeBranch || "Norte";
+    const branch = branchParam || activeBranch || getDefaultBranch();
     const res = await callLocalApi(`action=save_purchase_order&branch=${encodeURIComponent(branch)}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -776,7 +775,7 @@ export const savePurchaseOrderToMySQL = async (order: any, branchParam?: string)
 
 export const deletePurchaseOrderFromMySQL = async (orderId: string, branchParam?: string): Promise<boolean> => {
   try {
-    const branch = branchParam || activeBranch || "Norte";
+    const branch = branchParam || activeBranch || getDefaultBranch();
     const res = await callLocalApi(`action=delete_purchase_order&branch=${encodeURIComponent(branch)}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -791,7 +790,7 @@ export const deletePurchaseOrderFromMySQL = async (orderId: string, branchParam?
 
 export const saveCreditPaymentToMySQL = async (payment: any, branchParam?: string): Promise<boolean> => {
   try {
-    const branch = branchParam || activeBranch || "Norte";
+    const branch = branchParam || activeBranch || getDefaultBranch();
     const res = await callLocalApi(`action=save_credit_payment&branch=${encodeURIComponent(branch)}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -806,7 +805,7 @@ export const saveCreditPaymentToMySQL = async (payment: any, branchParam?: strin
 
 export const saveBankAccountToMySQL = async (account: any, branchParam?: string): Promise<boolean> => {
   try {
-    const branch = branchParam || activeBranch || "Norte";
+    const branch = branchParam || activeBranch || getDefaultBranch();
     const res = await callLocalApi(`action=save_bank_account&branch=${encodeURIComponent(branch)}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -821,7 +820,7 @@ export const saveBankAccountToMySQL = async (account: any, branchParam?: string)
 
 export const saveBankMovementToMySQL = async (movement: any, branchParam?: string): Promise<boolean> => {
   try {
-    const branch = branchParam || activeBranch || "Norte";
+    const branch = branchParam || activeBranch || getDefaultBranch();
     const res = await callLocalApi(`action=save_bank_movement&branch=${encodeURIComponent(branch)}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -836,7 +835,7 @@ export const saveBankMovementToMySQL = async (movement: any, branchParam?: strin
 
 export const saveAuditLogToMySQL = async (log: any, branchParam?: string): Promise<boolean> => {
   try {
-    const branch = branchParam || activeBranch || "Norte";
+    const branch = branchParam || activeBranch || getDefaultBranch();
     const res = await callLocalApi(`action=save_audit_log&branch=${encodeURIComponent(branch)}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -851,7 +850,7 @@ export const saveAuditLogToMySQL = async (log: any, branchParam?: string): Promi
 
 export const saveUserToMySQL = async (user: any, branchParam?: string): Promise<boolean> => {
   try {
-    const branch = branchParam || activeBranch || "Norte";
+    const branch = branchParam || activeBranch || getDefaultBranch();
     const res = await callLocalApi(`action=save_user&branch=${encodeURIComponent(branch)}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -866,7 +865,7 @@ export const saveUserToMySQL = async (user: any, branchParam?: string): Promise<
 
 export const deleteUserFromMySQL = async (username: string, branchParam?: string): Promise<boolean> => {
   try {
-    const branch = branchParam || activeBranch || "Norte";
+    const branch = branchParam || activeBranch || getDefaultBranch();
     const res = await callLocalApi(`action=delete_user&branch=${encodeURIComponent(branch)}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -880,7 +879,7 @@ export const deleteUserFromMySQL = async (username: string, branchParam?: string
 };
 
 export const loadDatabaseFromMySQL = async (branchParam?: string): Promise<typeof inMemoryDb> => {
-  const branch = branchParam || activeBranch || "Norte";
+  const branch = branchParam || activeBranch || getDefaultBranch();
   try {
     // 1. Primero intentar cargar el snapshot completo si existe en mazal_app_state
     try {
@@ -1331,44 +1330,46 @@ export const saveDatabase = (db: any): Promise<void> => {
     const supabaseTable = tableMap[key] || key;
 
     // Detect and process DELETIONS
-    for (const [id] of oldMap.entries()) {
-      if (id && !newMap.has(id)) {
-        if (isOnline) {
-          // Immediately delete from Supabase Cloud
-          deleteEntityFromSupabase(supabaseTable, id).catch((err) => {
-            console.warn(`[Supabase Delete] Aviso al eliminar ${id} de ${supabaseTable}:`, err);
-          });
-        } else {
-          // Enqueue offline deletion
-          enqueueOperation({
-            type: opType,
-            isoDate: new Date().toISOString(),
-            branch: activeBranch || "Norte",
-            user: "Usuario Local",
-            action: "DELETE",
-            collectionName: getCollectionName(key),
-            docId: id,
-            payload: { id }
-          });
+    if (!PAUSE_ONLINE_SYNC) {
+      for (const [id] of oldMap.entries()) {
+        if (id && !newMap.has(id)) {
+          if (isOnline) {
+            // Immediately delete from Supabase Cloud
+            deleteEntityFromSupabase(supabaseTable, id).catch((err) => {
+              console.warn(`[Supabase Delete] Aviso al eliminar ${id} de ${supabaseTable}:`, err);
+            });
+          } else {
+            // Enqueue offline deletion
+            enqueueOperation({
+              type: opType,
+              isoDate: new Date().toISOString(),
+              branch: activeBranch || getDefaultBranch(),
+              user: "Usuario Local",
+              action: "DELETE",
+              collectionName: getCollectionName(key),
+              docId: id,
+              payload: { id }
+            });
+          }
         }
       }
-    }
 
-    // Detect and process offline additions / modifications
-    if (!isOnline) {
-      for (const [id, newItem] of newMap.entries()) {
-        const oldItem = oldMap.get(id);
-        if (!oldItem || JSON.stringify(oldItem) !== JSON.stringify(newItem)) {
-          enqueueOperation({
-            type: opType,
-            isoDate: new Date().toISOString(),
-            branch: activeBranch || "Norte",
-            user: "Usuario Local",
-            action: !oldItem ? "CREATE" : "UPDATE",
-            collectionName: getCollectionName(key),
-            docId: id,
-            payload: newItem
-          });
+      // Detect and process offline additions / modifications
+      if (!isOnline) {
+        for (const [id, newItem] of newMap.entries()) {
+          const oldItem = oldMap.get(id);
+          if (!oldItem || JSON.stringify(oldItem) !== JSON.stringify(newItem)) {
+            enqueueOperation({
+              type: opType,
+              isoDate: new Date().toISOString(),
+              branch: activeBranch || getDefaultBranch(),
+              user: "Usuario Local",
+              action: !oldItem ? "CREATE" : "UPDATE",
+              collectionName: getCollectionName(key),
+              docId: id,
+              payload: newItem
+            });
+          }
         }
       }
     }
@@ -1379,8 +1380,8 @@ export const saveDatabase = (db: any): Promise<void> => {
   saveToLocalStorage(inMemoryDb);
   notifySubscribers();
 
-  // Persistir en base de datos local MySQL (mazal_bd para Norte, mazal_bd1 para Sur)
-  persistToLocalMySQL(updatedDb, activeBranch || "Norte").catch(() => {});
+  // Persistir en base de datos local MySQL (mazal_bd)
+  persistToLocalMySQL(updatedDb, activeBranch || getDefaultBranch()).catch(() => {});
 
   if (!PAUSE_ONLINE_SYNC && isOnline) {
     triggerAutoSync();
@@ -1388,7 +1389,7 @@ export const saveDatabase = (db: any): Promise<void> => {
     // Sync with Supabase Cloud in background with guaranteed config check
     ensureSupabaseConfigured().then((configured) => {
       if (configured) {
-        syncAllToSupabase(updatedDb, activeBranch || "Norte").then((res) => {
+        syncAllToSupabase(updatedDb, activeBranch || getDefaultBranch()).then((res) => {
           if (res.success) {
             console.log("☁️ [Supabase Sync] Base de datos sincronizada con éxito en la nube.");
           } else {
@@ -1413,17 +1414,16 @@ if (typeof window !== "undefined") {
   window.addEventListener("online", () => {
     isOnlineState = true;
     notifyNetworkSubscribers();
-    console.log("🌐 Conexión a Internet restablecida. Sincronizando con Supabase Cloud...");
-    if (isSupabaseConfigured) {
-      syncAllToSupabase(getDatabase(), activeBranch || "Norte");
+    if (!PAUSE_ONLINE_SYNC && isSupabaseConfigured) {
+      console.log("🌐 Conexión a Internet restablecida. Sincronizando con Supabase Cloud...");
+      syncAllToSupabase(getDatabase(), activeBranch || getDefaultBranch());
     }
   });
 
   window.addEventListener("offline", () => {
     isOnlineState = false;
-    pendingOfflineSync = true;
+    pendingOfflineSync = false;
     notifyNetworkSubscribers();
-    console.warn("⚠️ Conexión perdida. Activando modo local de contingencia.");
   });
 }
 
@@ -1441,7 +1441,7 @@ export const loadDatabaseFromCloud = async () => {
 let supabaseRealtimeUnsub: (() => void) | null = null;
 
 export const loadDatabaseFromSupabase = async (branchParam?: string): Promise<typeof inMemoryDb> => {
-  const branch = branchParam || activeBranch || "Norte";
+  const branch = branchParam || activeBranch || getDefaultBranch();
   await loadDatabaseFromMySQL(branch);
   return inMemoryDb;
 };
@@ -1450,10 +1450,8 @@ export const syncDatabaseWithSupabase = async (branchParam?: string) => {
   return { success: true };
 };
 
-
-
 export const syncWithLocalMySQL = async (branchParam?: string): Promise<{ success: boolean; totalProducts: number; message: string }> => {
-  const targetBranch = branchParam || activeBranch || "Norte";
+  const targetBranch = branchParam || activeBranch || getDefaultBranch();
 
   try {
     // 1. Intentar cargar estado completo previamente guardado en mazal_app_state
@@ -1668,9 +1666,9 @@ export const resetDatabaseToFactory = async () => {
   notifySubscribers();
 
   // Sincronizar estado limpio con Supabase Cloud si está configurado
-  if (isSupabaseConfigured) {
+  if (!PAUSE_ONLINE_SYNC && isSupabaseConfigured) {
     try {
-      await syncAllToSupabase(inMemoryDb, activeBranch || "Norte");
+      await syncAllToSupabase(inMemoryDb, activeBranch || getDefaultBranch());
     } catch (e) {
       console.warn("Error sincronizando estado limpio con Supabase:", e);
     }

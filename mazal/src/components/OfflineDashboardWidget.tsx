@@ -15,8 +15,8 @@ import {
   Zap
 } from "lucide-react";
 import { getOfflineState, subscribeOfflineSyncState, triggerAutoSync } from "../services/offlineSync";
-import { ensureSupabaseConfigured } from "../supabase";
-import { syncDatabaseWithSupabase, loadDatabaseFromSupabase } from "../data";
+import { ensureSupabaseConfigured, PAUSE_ONLINE_SYNC } from "../supabase";
+import { syncDatabaseWithSupabase, loadDatabaseFromSupabase, syncWithLocalMySQL, loadDatabaseFromMySQL } from "../data";
 import { OfflineSyncState } from "../types";
 import { OfflineSyncPanelModal } from "./OfflineSyncPanelModal";
 
@@ -39,20 +39,29 @@ export const OfflineDashboardWidget: React.FC = () => {
     setIsSyncing(true);
     setSyncFeedback(null);
     try {
-      await ensureSupabaseConfigured();
-      await triggerAutoSync();
-      const cloudRes = await syncDatabaseWithSupabase();
-      await loadDatabaseFromSupabase();
-      if (cloudRes.success) {
+      if (PAUSE_ONLINE_SYNC) {
+        const res = await syncWithLocalMySQL();
+        await loadDatabaseFromMySQL();
         setSyncFeedback({
           success: true,
-          message: (cloudRes as any).message || "Sincronizado con Supabase Cloud exitosamente."
+          message: res.message || "Sincronizado con MySQL Local (mazal_bd) exitosamente."
         });
       } else {
-        setSyncFeedback({
-          success: false,
-          message: (cloudRes as any).error || "Aviso al sincronizar con la nube."
-        });
+        await ensureSupabaseConfigured();
+        await triggerAutoSync();
+        const cloudRes = await syncDatabaseWithSupabase();
+        await loadDatabaseFromSupabase();
+        if (cloudRes.success) {
+          setSyncFeedback({
+            success: true,
+            message: (cloudRes as any).message || "Sincronizado con Supabase Cloud exitosamente."
+          });
+        } else {
+          setSyncFeedback({
+            success: false,
+            message: (cloudRes as any).error || "Aviso al sincronizar con la nube."
+          });
+        }
       }
     } catch (err: any) {
       setSyncFeedback({

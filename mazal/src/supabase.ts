@@ -30,7 +30,8 @@ export let SUPABASE_URL: string = "";
 export let SUPABASE_ANON_KEY: string = "";
 
 export function checkIsConfigured(url: string, key: string): boolean {
-  return false;
+  if (PAUSE_ONLINE_SYNC) return false;
+  return Boolean(url && key && !url.includes("your-project") && !url.includes("placeholder"));
 }
 
 export let isSupabaseConfigured = false;
@@ -62,6 +63,9 @@ function createSafeDummyClient(): SupabaseClient {
   } as unknown as SupabaseClient;
 }
 function createSupabaseInstance(url: string, key: string): SupabaseClient {
+  if (PAUSE_ONLINE_SYNC) {
+    return createSafeDummyClient();
+  }
   if (url && key) {
     try {
       return createClient(url, key);
@@ -82,6 +86,7 @@ export function getSupabaseClient(): SupabaseClient {
 const configListeners: Array<(configured: boolean) => void> = [];
 
 export function onSupabaseConfigChange(listener: (configured: boolean) => void) {
+  if (PAUSE_ONLINE_SYNC) return () => {};
   configListeners.push(listener);
   return () => {
     const idx = configListeners.indexOf(listener);
@@ -94,6 +99,7 @@ export function onSupabaseConfigChange(listener: (configured: boolean) => void) 
  */
 export async function ensureSupabaseConfigured(): Promise<boolean> {
   if (PAUSE_ONLINE_SYNC) {
+    isSupabaseConfigured = false;
     return false;
   }
   if (isSupabaseConfigured && checkIsConfigured(SUPABASE_URL, SUPABASE_ANON_KEY)) {
@@ -105,52 +111,14 @@ export async function ensureSupabaseConfigured(): Promise<boolean> {
     SUPABASE_URL = HARDCODED_SUPABASE_URL;
     SUPABASE_ANON_KEY = HARDCODED_SUPABASE_ANON_KEY;
   }
-  isSupabaseConfigured = true;
+  isSupabaseConfigured = checkIsConfigured(SUPABASE_URL, SUPABASE_ANON_KEY);
   supabase = createSupabaseInstance(SUPABASE_URL, SUPABASE_ANON_KEY);
-
-  // Check window config again
-  const windowConf = (typeof window !== "undefined" && (window as any).__MAZAL_CONFIG__) || {};
-  if (windowConf.supabaseUrl && windowConf.supabaseAnonKey && checkIsConfigured(windowConf.supabaseUrl, windowConf.supabaseAnonKey)) {
-    SUPABASE_URL = windowConf.supabaseUrl;
-    SUPABASE_ANON_KEY = windowConf.supabaseAnonKey;
-    isSupabaseConfigured = true;
-    supabase = createSupabaseInstance(SUPABASE_URL, SUPABASE_ANON_KEY);
-    configListeners.forEach((fn) => fn(true));
-    return true;
-  }
-
-  try {
-    const res = await fetch("/api/config");
-    const contentType = res.headers.get("content-type") || "";
-    if (res.ok && contentType.includes("application/json")) {
-      const data = await res.json();
-      if (data.supabaseUrl && data.supabaseAnonKey && checkIsConfigured(data.supabaseUrl, data.supabaseAnonKey)) {
-        SUPABASE_URL = data.supabaseUrl;
-        SUPABASE_ANON_KEY = data.supabaseAnonKey;
-        isSupabaseConfigured = true;
-        supabase = createSupabaseInstance(SUPABASE_URL, SUPABASE_ANON_KEY);
-
-        try {
-          localStorage.setItem("custom_supabase_config", JSON.stringify({
-            supabaseUrl: SUPABASE_URL,
-            supabaseAnonKey: SUPABASE_ANON_KEY
-          }));
-        } catch (e) {}
-
-        configListeners.forEach((fn) => fn(true));
-        console.log("☁️ Configuración de Supabase obtenida exitosamente desde el servidor.");
-        return true;
-      }
-    }
-  } catch (err) {
-    // Non-blocking fallback to built-in default config
-  }
 
   return isSupabaseConfigured;
 }
 
-// Auto-run runtime check on startup
-if (typeof window !== "undefined") {
+// Auto-run runtime check ONLY if online sync is enabled
+if (typeof window !== "undefined" && !PAUSE_ONLINE_SYNC) {
   ensureSupabaseConfigured().catch(() => {});
 }
 
@@ -163,6 +131,14 @@ export async function testSupabaseConnection(): Promise<{
   url: string;
   tableCount?: number;
 }> {
+  if (PAUSE_ONLINE_SYNC) {
+    return {
+      success: false,
+      message: "Modo 100% Local activo (Supabase desactivado por configuración).",
+      url: ""
+    };
+  }
+
   if (!isSupabaseConfigured) {
     await ensureSupabaseConfigured();
   }
@@ -182,14 +158,6 @@ export async function testSupabaseConnection(): Promise<{
       .limit(1);
 
     if (error) {
-      if (error.code === "PGRST205" || error.message?.includes("schema cache")) {
-        return {
-          success: true,
-          message: "Conectado a Supabase (Tablas listas en la nube).",
-          url: SUPABASE_URL,
-          tableCount: 0
-        };
-      }
       return {
         success: false,
         message: `Error de respuesta Supabase: ${error.message} (${error.code})`,
@@ -199,14 +167,14 @@ export async function testSupabaseConnection(): Promise<{
 
     return {
       success: true,
-      message: "Conexión a Supabase exitosa y tablas verificadas en la nube.",
+      message: "Conexión a Supabase exitosa.",
       url: SUPABASE_URL,
       tableCount: Array.isArray(data) ? data.length : 1
     };
   } catch (err: any) {
     return {
       success: false,
-      message: `Error de red al conectar con Supabase: ${err.message || String(err)}`,
+      message: `Error de red: ${err.message || String(err)}`,
       url: SUPABASE_URL
     };
   }

@@ -3,18 +3,53 @@ error_reporting(0);
 ini_set('display_errors', '0');
 mysqli_report(MYSQLI_REPORT_OFF);
 
-// Ensure unhandled exceptions return a clean JSON response instead of a raw 500 error
-set_exception_handler(function($e) {
-    http_response_code(200);
+// ------------------------------------------------------------------------------
+// MANEJADOR GLOBAL DE EXCEPCIONES Y ERRORES (HARDENED ERROR LOGGER)
+// ------------------------------------------------------------------------------
+set_exception_handler(function(Throwable $e) {
+    $ip = $_SERVER['REMOTE_ADDR'] ?? 'UNKNOWN';
+    $action = $_GET['action'] ?? ($_POST['action'] ?? 'NONE');
+    $date = date('Y-m-d H:i:s');
+    $logMsg = sprintf("[%s] [IP: %s] [Action: %s] Exception: %s in %s:%d\nTrace: %s\n",
+        $date, $ip, $action, $e->getMessage(), $e->getFile(), $e->getLine(), $e->getTraceAsString()
+    );
+
+    // Registro seguro en log del servidor
+    error_log($logMsg);
+    $logsDir = __DIR__ . '/logs';
+    if (!is_dir($logsDir)) {
+        @mkdir($logsDir, 0750, true);
+    }
+    @file_put_contents($logsDir . '/api_errors.log', $logMsg, FILE_APPEND | LOCK_EX);
+
+    // Respuesta estandarizada genérica al cliente (sin filtrar rutas ni detalles internos)
+    http_response_code(500);
     header("Content-Type: application/json; charset=UTF-8");
     echo json_encode([
         "success" => false,
-        "error" => "Error interno backend: " . $e->getMessage(),
-        "file" => basename($e->getFile()),
-        "line" => $e->getLine()
+        "error" => "Ocurrió un error interno. Intenta de nuevo."
     ]);
     exit;
 });
+
+set_error_handler(function($severity, $message, $file, $line) {
+    if (!(error_reporting() & $severity)) {
+        return false;
+    }
+    $ip = $_SERVER['REMOTE_ADDR'] ?? 'UNKNOWN';
+    $date = date('Y-m-d H:i:s');
+    $logMsg = sprintf("[%s] [IP: %s] PHP Warning/Error [%d]: %s in %s:%d\n",
+        $date, $ip, $severity, $message, $file, $line
+    );
+    error_log($logMsg);
+    $logsDir = __DIR__ . '/logs';
+    if (!is_dir($logsDir)) {
+        @mkdir($logsDir, 0750, true);
+    }
+    @file_put_contents($logsDir . '/api_errors.log', $logMsg, FILE_APPEND | LOCK_EX);
+    return true;
+});
+
 /**
  * ==============================================================================
  * MAZAL POS & ERP - BACKEND API MYSQL / APACHE (XAMPP LOCALHOST)
@@ -30,18 +65,57 @@ set_exception_handler(function($e) {
  * - Órdenes de Compra / Suministro
  * - Cuentas Bancarias, Movimientos y Finanzas
  * - Presupuestos, Centros de Costos y Vehículos
- * - Auditoría y Logs de Seguridad
+ * - Auditoría y Logs de Seguridad Local
  * - Sucursales, Inventario Multi-Sucursal, Transferencias y Distribución
  * - Usuarios, Autenticación y Matriz de Permisos
  * - Estado Global (mazal_app_state)
  * ==============================================================================
  */
 
-// Headers CORS para permitir peticiones desde cualquier origen local y Vite Dev Server
-header("Access-Control-Allow-Origin: *");
+// Cargar archivo de configuración local externo (si existe) para credenciales y orígenes
+$configFile = __DIR__ . '/config.php';
+$config = [];
+if (file_exists($configFile)) {
+    $config = @include $configFile;
+    if (!is_array($config)) {
+        $config = [];
+    }
+}
+
+// ------------------------------------------------------------------------------
+// CABECERAS HTTP DE SEGURIDAD Y CORS RESTRINGIDO (WHITELIST)
+// ------------------------------------------------------------------------------
+$allowedOrigins = [
+    'http://localhost',
+    'http://localhost:5173',
+    'http://localhost:3000',
+    'http://localhost:80',
+    'http://127.0.0.1',
+    'http://127.0.0.1:5173',
+    'http://127.0.0.1:3000',
+    'http://127.0.0.1:80'
+];
+
+if (isset($config['allowed_origins']) && is_array($config['allowed_origins'])) {
+    $allowedOrigins = array_unique(array_merge($allowedOrigins, $config['allowed_origins']));
+}
+
+$origin = $_SERVER['HTTP_ORIGIN'] ?? '';
+if (!empty($origin) && in_array($origin, $allowedOrigins, true)) {
+    header("Access-Control-Allow-Origin: " . $origin);
+    header("Access-Control-Allow-Credentials: true");
+    header("Vary: Origin");
+}
+
 header("Access-Control-Allow-Methods: GET, POST, PUT, DELETE, OPTIONS");
 header("Access-Control-Allow-Headers: Content-Type, Authorization, X-Requested-With");
 header("Content-Type: application/json; charset=UTF-8");
+
+// Cabeceras de seguridad HTTP básicas
+header("X-Content-Type-Options: nosniff");
+header("X-Frame-Options: SAMEORIGIN");
+header("Referrer-Policy: strict-origin-when-cross-origin");
+header("X-XSS-Protection: 1; mode=block");
 
 // Manejo de preflight OPTIONS
 if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
@@ -49,65 +123,135 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
     exit;
 }
 
-// Configuración de Servidor MySQL (XAMPP por defecto)
-$servername = "localhost";
-$username   = "root";
-$password   = "";
+// ------------------------------------------------------------------------------
+// FUNCIONES HELPER DE SANITIZACIÓN, VALIDACIÓN Y AUDITORÍA LOCAL
+// ------------------------------------------------------------------------------
+function sanitizeInt($val, $default = 0) {
+    if ($val === null || $val === '') return $default;
+    $filtered = preg_replace('/[^0-9\-]/', '', (string)$val);
+    return is_numeric($filtered) ? (int)$filtered : $default;
+}
+
+function sanitizeFloat($val, $default = 0.0) {
+    if ($val === null || $val === '') return $default;
+    if (is_numeric($val)) return (float)$val;
+    $clean = preg_replace('/[^0-9.\-]/', '', (string)$val);
+    return is_numeric($clean) ? (float)$clean : $default;
+}
+
+function sanitizeString($val, $maxLen = 255) {
+    if ($val === null) return '';
+    return mb_substr(trim((string)$val), 0, $maxLen, 'UTF-8');
+}
+
+function validateNumeric($val, $fieldName = 'campo', $allowNegative = false) {
+    if (!is_numeric($val)) {
+        http_response_code(400);
+        echo json_encode([
+            "success" => false,
+            "error" => "El campo '{$fieldName}' debe ser un valor numérico válido."
+        ]);
+        exit;
+    }
+    $num = (float)$val;
+    if (!$allowNegative && $num < 0) {
+        http_response_code(400);
+        echo json_encode([
+            "success" => false,
+            "error" => "El campo '{$fieldName}' no puede ser un valor negativo."
+        ]);
+        exit;
+    }
+    return $num;
+}
+
+function recordAuditLog($db, $userName, $role, $actionName, $details, $branch = 'Norte') {
+    try {
+        $id = 'AUD_' . uniqid() . '_' . time();
+        $ip = $_SERVER['REMOTE_ADDR'] ?? '127.0.0.1';
+        $ts = date('Y-m-d H:i:s');
+        $cleanUser = sanitizeString($userName, 100) ?: 'Sistema';
+        $cleanRole = sanitizeString($role, 50) ?: 'Usuario';
+        $cleanAction = sanitizeString($actionName, 100);
+        $cleanDetails = sanitizeString($details, 2000);
+        $cleanBranch = sanitizeString($branch, 50) ?: 'Norte';
+
+        $stmt = $db->prepare("INSERT INTO auditoria (id, user_name, role, action, details, timestamp, ip, branch) VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
+        if ($stmt) {
+            $stmt->bind_param("ssssssss", $id, $cleanUser, $cleanRole, $cleanAction, $cleanDetails, $ts, $ip, $cleanBranch);
+            $stmt->execute();
+            $stmt->close();
+        }
+    } catch (Throwable $e) {
+        error_log("Aviso al registrar auditoría local: " . $e->getMessage());
+    }
+}
+
+// Configuración de Servidor MySQL desde config.php o variables de entorno
+$servername = $config['db_host'] ?? getenv('DB_HOST') ?: "127.0.0.1";
+$username   = $config['db_user'] ?? getenv('DB_USER') ?: "root";
+$password   = $config['db_pass'] ?? getenv('DB_PASS') ?: "";
+$port       = (int)($config['db_port'] ?? getenv('DB_PORT') ?: 3306);
+$dbname     = $config['db_name'] ?? 'mazal_bd';
 
 // Detección de Entrada JSON o Form Data
 $rawInput = file_get_contents('php://input');
 $postData = json_decode($rawInput, true) ?: [];
 
 // Detección de Sucursal y Ruteo de Base de Datos
-$branch = isset($_GET['branch']) ? trim($_GET['branch']) : (isset($_POST['branch']) ? trim($_POST['branch']) : (isset($postData['branch']) ? trim($postData['branch']) : 'Norte'));
+$branch = isset($_GET['branch']) ? sanitizeString($_GET['branch'], 50) : (isset($_POST['branch']) ? sanitizeString($_POST['branch'], 50) : (isset($postData['branch']) ? sanitizeString($postData['branch'], 50) : 'Norte'));
 if (empty($branch)) {
     $branch = 'Norte';
 }
 
-// Mapa de Sucursal a Base de Datos MySQL
-$branchDbMap = [
-    'MAZAL 1' => 'mazal_bd',   // Sucursal Norte / Principal
-    'mazal 1' => 'mazal_bd',
-    'Norte'   => 'mazal_bd',
-    'Matriz'  => 'mazal_bd',
-    'Centro'  => 'mazal_bd',
-    'Bodega'  => 'mazal_bd',
-    'MAZAL 2' => 'mazal_bd1',  // Sucursal Sur / Secundaria
-    'mazal 2' => 'mazal_bd1',
-    'Sur'     => 'mazal_bd1',
-];
+$requestedDb = isset($_GET['db']) ? sanitizeString($_GET['db'], 50) : (isset($_POST['db']) ? sanitizeString($_POST['db'], 50) : (isset($postData['db']) ? sanitizeString($postData['db'], 50) : null));
 
-$requestedDb = isset($_GET['db']) ? trim($_GET['db']) : (isset($_POST['db']) ? trim($_POST['db']) : (isset($postData['db']) ? trim($postData['db']) : null));
-
-if ($requestedDb && in_array($requestedDb, ['mazal_bd', 'mazal_bd1'])) {
-    $dbname = $requestedDb;
-} else {
-    $dbname = isset($branchDbMap[$branch]) ? $branchDbMap[$branch] : 'mazal_bd';
+// Bloqueo explícito de Sucursal Sur / mazal_bd1 (modo Sucursal Norte activa únicamente)
+$lowerBranch = strtolower($branch);
+if ($requestedDb === 'mazal_bd1' || $lowerBranch === 'sur' || $lowerBranch === 'mazal 2') {
+    echo json_encode([
+        "success" => false,
+        "error" => "Sucursal Sur no está activa actualmente.",
+        "branch" => $branch,
+        "database" => "mazal_bd",
+        "online" => false
+    ]);
+    exit;
 }
 
 // Conexión y Auto-Aprovisionamiento de Base de Datos
-$rawMysqli = @new mysqli($servername, $username, $password);
+$rawMysqli = @new mysqli($servername, $username, $password, null, $port);
 
 if ($rawMysqli && !$rawMysqli->connect_errno) {
     @$rawMysqli->query("SET GLOBAL max_allowed_packet = 67108864;");
-    // Crear bases de datos automáticamente si no existen
-    @$rawMysqli->query("CREATE DATABASE IF NOT EXISTS `mazal_bd` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;");
-    @$rawMysqli->query("CREATE DATABASE IF NOT EXISTS `mazal_bd1` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;");
+    // Crear base de datos principal automáticamente si no existe
+    @$rawMysqli->query("CREATE DATABASE IF NOT EXISTS `{$dbname}` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;");
 }
 
-$mysqli = @new mysqli($servername, $username, $password, $dbname);
+$mysqli = @new mysqli($servername, $username, $password, $dbname, $port);
 
 if ($mysqli->connect_errno) {
     if ($dbname !== 'mazal_bd') {
         $dbname = 'mazal_bd';
-        $mysqli = @new mysqli($servername, $username, $password, $dbname);
+        $mysqli = @new mysqli($servername, $username, $password, $dbname, $port);
     }
 }
 
 if ($mysqli->connect_errno) {
+    $ip = $_SERVER['REMOTE_ADDR'] ?? 'UNKNOWN';
+    $errDetail = $mysqli->connect_error;
+    $logMsg = sprintf("[%s] [IP: %s] Error de conexión MySQL ({$dbname}) con usuario %s: %s\n",
+        date('Y-m-d H:i:s'), $ip, $username, $errDetail
+    );
+    error_log($logMsg);
+    $logsDir = __DIR__ . '/logs';
+    if (!is_dir($logsDir)) { @mkdir($logsDir, 0750, true); }
+    @file_put_contents($logsDir . '/api_errors.log', $logMsg, FILE_APPEND | LOCK_EX);
+
+    http_response_code(500);
     echo json_encode([
         "success" => false,
-        "error" => "Error al conectar con MySQL ({$dbname}): " . $mysqli->connect_error,
+        "error" => "Error al conectar con la base de datos local.",
         "branch" => $branch,
         "database" => $dbname,
         "online" => false
@@ -572,8 +716,8 @@ $action = isset($_GET['action']) ? $_GET['action'] : (isset($_POST['action']) ? 
 // 0. LOGIN & AUTENTICACIÓN (Server-Side)
 // ------------------------------------------------------------------------------
 if ($action === 'login' && $_SERVER['REQUEST_METHOD'] === 'POST') {
-    $userIn = isset($postData['username']) ? trim($postData['username']) : (isset($postData['usuario']) ? trim($postData['usuario']) : (isset($_POST['username']) ? trim($_POST['username']) : ''));
-    $passIn = isset($postData['password']) ? trim($postData['password']) : (isset($_POST['password']) ? trim($_POST['password']) : '');
+    $userIn = sanitizeString($postData['username'] ?? ($postData['usuario'] ?? ($_POST['username'] ?? '')), 100);
+    $passIn = (string)($postData['password'] ?? ($_POST['password'] ?? ''));
 
     if (empty($userIn) || empty($passIn)) {
         echo json_encode(["success" => false, "error" => "Usuario y contraseña son requeridos."]);
@@ -600,10 +744,13 @@ if ($action === 'login' && $_SERVER['REQUEST_METHOD'] === 'POST') {
             }
 
             if ($isValid) {
-                // Actualizar último login
                 $now = date("Y-m-d H:i:s");
-                $uId = $row['id'];
+                $uId = (int)$row['id'];
                 $mysqli->query("UPDATE usuarios SET last_login = '{$now}' WHERE id = {$uId}");
+
+                $userRole = $row['rol'] ?: 'vendedor';
+                $userName = $row['usuario'];
+                recordAuditLog($mysqli, $userName, $userRole, 'LOGIN_EXITOSO', "Inicio de sesión autorizado para @{$userName}", $branch);
 
                 echo json_encode([
                     "success" => true,
@@ -612,7 +759,7 @@ if ($action === 'login' && $_SERVER['REQUEST_METHOD'] === 'POST') {
                         "id" => (string)$row['id'],
                         "username" => $row['usuario'],
                         "name" => $row['nombrecompleto'] ?: $row['usuario'],
-                        "role" => $row['rol'] ?: 'vendedor',
+                        "role" => $userRole,
                         "branch" => $branch,
                         "database" => $dbname
                     ]
@@ -622,6 +769,7 @@ if ($action === 'login' && $_SERVER['REQUEST_METHOD'] === 'POST') {
         }
     }
 
+    recordAuditLog($mysqli, $userIn, 'Desconocido', 'LOGIN_FALLIDO', "Intento fallido de inicio de sesión para el usuario @{$userIn}", $branch);
     echo json_encode(["success" => false, "error" => "Credenciales incorrectas."]);
     exit;
 }
@@ -631,6 +779,14 @@ if ($action === 'login' && $_SERVER['REQUEST_METHOD'] === 'POST') {
 // ------------------------------------------------------------------------------
 if ($action === 'ping') {
     $count = function($tbl) use ($mysqli) {
+        $allowedTables = [
+            'productos', 'ventas', 'usuarios', 'clientes', 'proveedor',
+            'cuentas_bancarias', 'gastos_caja', 'sesiones_caja',
+            'ordenes_compra', 'movimientos_inventario', 'auditoria'
+        ];
+        if (!in_array($tbl, $allowedTables, true)) {
+            return 0;
+        }
         $r = $mysqli->query("SELECT count(*) as t FROM `{$tbl}`");
         return ($r && $row = $r->fetch_assoc()) ? (int)$row['t'] : 0;
     };
@@ -691,6 +847,7 @@ if ($action === 'get_permissions') {
             $p_sec = (int)$p['security'];
             $stmt->bind_param("siiiiii", $rol, $p_pos, $p_inv, $p_cust, $p_pur, $p_rep, $p_sec);
             $stmt->execute();
+            $stmt->close();
         }
         $permissions = $defaults;
     }
@@ -731,10 +888,14 @@ if ($action === 'save_permissions' && $_SERVER['REQUEST_METHOD'] === 'POST') {
             $p_pos = $p_inv = $p_cust = $p_pur = $p_rep = $p_sec = 1;
         }
 
-        $stmt->bind_param("siiiiii", $rol, $p_pos, $p_inv, $p_cust, $p_pur, $p_rep, $p_sec);
+        $cleanRol = sanitizeString($rol, 50);
+        $stmt->bind_param("siiiiii", $cleanRol, $p_pos, $p_inv, $p_cust, $p_pur, $p_rep, $p_sec);
         $stmt->execute();
-        $updatedRoles[] = $rol;
+        $updatedRoles[] = $cleanRol;
     }
+    $stmt->close();
+
+    recordAuditLog($mysqli, 'Admin', 'Administrador', 'ACTUALIZAR_PERMISOS', 'Matriz de permisos de roles modificada en el sistema', $branch);
 
     echo json_encode([
         "success" => true,
@@ -1163,27 +1324,27 @@ if ($action === 'get_historical_sales') {
 // ------------------------------------------------------------------------------
 if ($action === 'save_product' && $_SERVER['REQUEST_METHOD'] === 'POST') {
     $rawId = isset($postData['id']) ? (string)$postData['id'] : '';
-    $prodId = (int)preg_replace('/[^0-9]/', '', $rawId);
-    $clave  = isset($postData['code']) ? trim($postData['code']) : (isset($postData['clave']) ? trim($postData['clave']) : '');
-    $nom_p  = isset($postData['name']) ? trim($postData['name']) : (isset($postData['nom_p']) ? trim($postData['nom_p']) : '');
-    $des    = isset($postData['subcategory']) ? trim($postData['subcategory']) : (isset($postData['des']) ? trim($postData['des']) : 'entero');
-    $cant   = isset($postData['stock']) ? (float)$postData['stock'] : (isset($postData['cant']) ? (float)$postData['cant'] : 0);
-    $cat    = isset($postData['category']) ? trim($postData['category']) : (isset($postData['categoria']) ? trim($postData['categoria']) : 'General');
-    $marca  = isset($postData['brand']) ? trim($postData['brand']) : (isset($postData['marca']) ? trim($postData['marca']) : 'MAZAL');
-    $unidad = isset($postData['unit']) ? trim($postData['unit']) : (isset($postData['unidad']) ? trim($postData['unidad']) : 'pz');
-    $stkMin = isset($postData['stockMin']) ? (float)$postData['stockMin'] : 5;
-    $stkMax = isset($postData['stockMax']) ? (float)$postData['stockMax'] : 100;
-    $ubic   = isset($postData['location']) ? trim($postData['location']) : 'Bodega Principal';
-    $img    = isset($postData['imageUrl']) ? trim($postData['imageUrl']) : (isset($postData['imagen']) ? trim($postData['imagen']) : '');
-    $provId = isset($postData['supplierId']) ? trim($postData['supplierId']) : (isset($postData['proveedor_id']) ? trim($postData['proveedor_id']) : 'PROV_01');
-    $suc    = isset($postData['sucursal']) ? trim($postData['sucursal']) : $branch;
+    $prodId = sanitizeInt($rawId);
+    $clave  = sanitizeString($postData['code'] ?? ($postData['clave'] ?? ''), 100);
+    $nom_p  = sanitizeString($postData['name'] ?? ($postData['nom_p'] ?? ''), 255);
+    $des    = sanitizeString($postData['subcategory'] ?? ($postData['des'] ?? 'entero'), 100);
+    $cant   = sanitizeFloat($postData['stock'] ?? ($postData['cant'] ?? 0));
+    $cat    = sanitizeString($postData['category'] ?? ($postData['categoria'] ?? 'General'), 100);
+    $marca  = sanitizeString($postData['brand'] ?? ($postData['marca'] ?? 'MAZAL'), 100);
+    $unidad = sanitizeString($postData['unit'] ?? ($postData['unidad'] ?? 'pz'), 50);
+    $stkMin = sanitizeFloat($postData['stockMin'] ?? 5);
+    $stkMax = sanitizeFloat($postData['stockMax'] ?? 100);
+    $ubic   = sanitizeString($postData['location'] ?? 'Bodega Principal', 255);
+    $img    = sanitizeString($postData['imageUrl'] ?? ($postData['imagen'] ?? ''), 500);
+    $provId = sanitizeString($postData['supplierId'] ?? ($postData['proveedor_id'] ?? 'PROV_01'), 100);
+    $suc    = sanitizeString($postData['sucursal'] ?? $branch, 50);
     $pRaw   = json_encode($postData);
 
-    $mayoreo  = isset($postData['priceMax']) ? round((float)$postData['priceMax'], 4) : 0;
-    $medio    = isset($postData['priceMed']) ? round((float)$postData['priceMed'], 4) : 0;
-    $menudeo  = isset($postData['priceMin']) ? round((float)$postData['priceMin'], 4) : 0;
-    $unitario = isset($postData['cost']) ? strval(round((float)$postData['cost'], 4)) : '0';
-    $especial = isset($postData['priceSpecial']) ? round((float)$postData['priceSpecial'], 4) : 0;
+    $mayoreo  = sanitizeFloat($postData['priceMax'] ?? 0);
+    $medio    = sanitizeFloat($postData['priceMed'] ?? 0);
+    $menudeo  = sanitizeFloat($postData['priceMin'] ?? 0);
+    $unitario = strval(sanitizeFloat($postData['cost'] ?? 0));
+    $especial = sanitizeFloat($postData['priceSpecial'] ?? 0);
 
     $existingId = 0;
     try {
@@ -1264,13 +1425,28 @@ if ($action === 'save_product' && $_SERVER['REQUEST_METHOD'] === 'POST') {
 // ------------------------------------------------------------------------------
 if ($action === 'delete_product' && $_SERVER['REQUEST_METHOD'] === 'POST') {
     $rawId = isset($postData['id']) ? (string)$postData['id'] : (isset($_GET['id']) ? (string)$_GET['id'] : '');
-    $pId = (int)preg_replace('/[^0-9]/', '', $rawId);
+    $pId = sanitizeInt($rawId);
 
     $deleted = false;
     if ($pId > 0) {
-        $mysqli->query("DELETE FROM precios WHERE id_producto = {$pId}");
-        $mysqli->query("DELETE FROM productos WHERE id = {$pId}");
-        $deleted = true;
+        $stmtDelPrecios = $mysqli->prepare("DELETE FROM precios WHERE id_producto = ?");
+        if ($stmtDelPrecios) {
+            $stmtDelPrecios->bind_param("i", $pId);
+            $stmtDelPrecios->execute();
+            $stmtDelPrecios->close();
+        }
+
+        $stmtDelProd = $mysqli->prepare("DELETE FROM productos WHERE id = ?");
+        if ($stmtDelProd) {
+            $stmtDelProd->bind_param("i", $pId);
+            $stmtDelProd->execute();
+            $stmtDelProd->close();
+            $deleted = true;
+        }
+
+        if ($deleted) {
+            recordAuditLog($mysqli, 'Admin', 'Administrador', 'ELIMINAR_PRODUCTO', "Producto ID #{$pId} eliminado de la base de datos", $branch);
+        }
     }
 
     echo json_encode([
@@ -1287,8 +1463,8 @@ if ($action === 'delete_product' && $_SERVER['REQUEST_METHOD'] === 'POST') {
 // ------------------------------------------------------------------------------
 if ($action === 'update_stock' && $_SERVER['REQUEST_METHOD'] === 'POST') {
     $rawId = isset($postData['id']) ? (string)$postData['id'] : (isset($_GET['id']) ? (string)$_GET['id'] : '');
-    $prodId = (int)preg_replace('/[^0-9]/', '', $rawId);
-    $newStock = isset($postData['stock']) ? (float)$postData['stock'] : (isset($postData['cant']) ? (float)$postData['cant'] : 0);
+    $prodId = sanitizeInt($rawId);
+    $newStock = sanitizeFloat($postData['stock'] ?? ($postData['cant'] ?? 0));
 
     if ($prodId > 0) {
         $stmt = $mysqli->prepare("UPDATE productos SET cant = ? WHERE id = ?");
@@ -1315,17 +1491,17 @@ if ($action === 'update_stock' && $_SERVER['REQUEST_METHOD'] === 'POST') {
 // ------------------------------------------------------------------------------
 if ($action === 'save_customer' && $_SERVER['REQUEST_METHOD'] === 'POST') {
     $rawId = isset($postData['id']) ? (string)$postData['id'] : (isset($postData['id_cliente']) ? (string)$postData['id_cliente'] : '');
-    $cId = (int)preg_replace('/[^0-9]/', '', $rawId);
-    $cName = isset($postData['name']) ? trim($postData['name']) : (isset($postData['nombre_c']) ? trim($postData['nombre_c']) : '');
-    $cTel = isset($postData['phone']) ? trim($postData['phone']) : (isset($postData['tel']) ? trim($postData['tel']) : '');
-    $cDebt = isset($postData['creditUsed']) ? (float)$postData['creditUsed'] : (isset($postData['cant_ade']) ? (float)$postData['cant_ade'] : 0);
-    $cEmail = isset($postData['email']) ? trim($postData['email']) : '';
-    $cDir = isset($postData['address']) ? trim($postData['address']) : (isset($postData['direccion']) ? trim($postData['direccion']) : '');
-    $cRfc = isset($postData['rfc']) ? trim($postData['rfc']) : '';
-    $cLim = isset($postData['creditLimit']) ? (float)$postData['creditLimit'] : (isset($postData['limite_credito']) ? (float)$postData['limite_credito'] : 0);
-    $cDias = isset($postData['creditDays']) ? (int)$postData['creditDays'] : 30;
-    $cNotas = isset($postData['notes']) ? trim($postData['notes']) : '';
-    $cStatus = isset($postData['status']) ? trim($postData['status']) : 'Activo';
+    $cId = sanitizeInt($rawId);
+    $cName = sanitizeString($postData['name'] ?? ($postData['nombre_c'] ?? ''), 255);
+    $cTel = sanitizeString($postData['phone'] ?? ($postData['tel'] ?? ''), 50);
+    $cDebt = sanitizeFloat($postData['creditUsed'] ?? ($postData['cant_ade'] ?? 0));
+    $cEmail = sanitizeString($postData['email'] ?? '', 100);
+    $cDir = sanitizeString($postData['address'] ?? ($postData['direccion'] ?? ''), 255);
+    $cRfc = sanitizeString($postData['rfc'] ?? '', 50);
+    $cLim = sanitizeFloat($postData['creditLimit'] ?? ($postData['limite_credito'] ?? 0));
+    $cDias = sanitizeInt($postData['creditDays'] ?? 30, 30);
+    $cNotas = sanitizeString($postData['notes'] ?? '', 1000);
+    $cStatus = sanitizeString($postData['status'] ?? 'Activo', 50);
     $cRaw = json_encode($postData);
 
     if (empty($cName)) {
@@ -1367,8 +1543,8 @@ if ($action === 'save_customer' && $_SERVER['REQUEST_METHOD'] === 'POST') {
 // ------------------------------------------------------------------------------
 if ($action === 'delete_customer' && $_SERVER['REQUEST_METHOD'] === 'POST') {
     $rawId = isset($postData['id']) ? (string)$postData['id'] : (isset($postData['id_cliente']) ? (string)$postData['id_cliente'] : '');
-    $cId = (int)preg_replace('/[^0-9]/', '', $rawId);
-    $cName = isset($postData['name']) ? trim($postData['name']) : '';
+    $cId = sanitizeInt($rawId);
+    $cName = sanitizeString($postData['name'] ?? '', 255);
 
     $deleted = false;
     if ($cId > 0) {
@@ -1389,6 +1565,10 @@ if ($action === 'delete_customer' && $_SERVER['REQUEST_METHOD'] === 'POST') {
         }
     }
 
+    if ($deleted) {
+        recordAuditLog($mysqli, 'Admin', 'Administrador', 'ELIMINAR_CLIENTE', "Cliente ID #{$cId} ({$cName}) eliminado", $branch);
+    }
+
     echo json_encode([
         "success" => $deleted,
         "message" => $deleted ? "Cliente eliminado de MySQL ({$dbname})." : "ID o nombre de cliente no proporcionado.",
@@ -1403,15 +1583,15 @@ if ($action === 'delete_customer' && $_SERVER['REQUEST_METHOD'] === 'POST') {
 // ------------------------------------------------------------------------------
 if ($action === 'save_supplier' && $_SERVER['REQUEST_METHOD'] === 'POST') {
     $rawId = isset($postData['id']) ? (string)$postData['id'] : '';
-    $sId = (int)preg_replace('/[^0-9]/', '', $rawId);
-    $sName = isset($postData['name']) ? trim($postData['name']) : (isset($postData['nombre']) ? trim($postData['nombre']) : '');
-    $sTel = isset($postData['phone']) ? trim($postData['phone']) : (isset($postData['tel']) ? trim($postData['tel']) : '');
-    $sEmpresa = isset($postData['company']) ? trim($postData['company']) : (isset($postData['empresa']) ? trim($postData['empresa']) : $sName);
-    $sAdeudo = isset($postData['outstandingBalance']) ? (float)$postData['outstandingBalance'] : (isset($postData['adeudo']) ? (float)$postData['adeudo'] : 0);
-    $sEmail = isset($postData['email']) ? trim($postData['email']) : '';
-    $sDir = isset($postData['address']) ? trim($postData['address']) : (isset($postData['direccion']) ? trim($postData['direccion']) : '');
-    $sRfc = isset($postData['rfc']) ? trim($postData['rfc']) : '';
-    $sContacto = isset($postData['contact']) ? trim($postData['contact']) : (isset($postData['contacto']) ? trim($postData['contacto']) : '');
+    $sId = sanitizeInt($rawId);
+    $sName = sanitizeString($postData['name'] ?? ($postData['nombre'] ?? ''), 255);
+    $sTel = sanitizeString($postData['phone'] ?? ($postData['tel'] ?? ''), 50);
+    $sEmpresa = sanitizeString($postData['company'] ?? ($postData['empresa'] ?? $sName), 255);
+    $sAdeudo = sanitizeFloat($postData['outstandingBalance'] ?? ($postData['adeudo'] ?? 0));
+    $sEmail = sanitizeString($postData['email'] ?? '', 100);
+    $sDir = sanitizeString($postData['address'] ?? ($postData['direccion'] ?? ''), 255);
+    $sRfc = sanitizeString($postData['rfc'] ?? '', 50);
+    $sContacto = sanitizeString($postData['contact'] ?? ($postData['contacto'] ?? ''), 255);
     $sRaw = json_encode($postData);
 
     if (empty($sName)) {
@@ -1453,7 +1633,7 @@ if ($action === 'save_supplier' && $_SERVER['REQUEST_METHOD'] === 'POST') {
 // ------------------------------------------------------------------------------
 if ($action === 'delete_supplier' && $_SERVER['REQUEST_METHOD'] === 'POST') {
     $rawId = isset($postData['id']) ? (string)$postData['id'] : '';
-    $sId = (int)preg_replace('/[^0-9]/', '', $rawId);
+    $sId = sanitizeInt($rawId);
 
     $deleted = false;
     if ($sId > 0) {
@@ -1463,6 +1643,10 @@ if ($action === 'delete_supplier' && $_SERVER['REQUEST_METHOD'] === 'POST') {
             $stmt->execute();
             $stmt->close();
             $deleted = true;
+        }
+
+        if ($deleted) {
+            recordAuditLog($mysqli, 'Admin', 'Administrador', 'ELIMINAR_PROVEEDOR', "Proveedor ID #{$sId} eliminado", $branch);
         }
     }
 
@@ -1745,10 +1929,10 @@ if ($action === 'delete_purchase_order' && $_SERVER['REQUEST_METHOD'] === 'POST'
 // 23. GUARDAR / EDITAR USUARIO
 // ------------------------------------------------------------------------------
 if ($action === 'save_user' && $_SERVER['REQUEST_METHOD'] === 'POST') {
-    $usuario = isset($postData['username']) ? trim($postData['username']) : (isset($postData['usuario']) ? trim($postData['usuario']) : '');
-    $nombre  = isset($postData['name']) ? trim($postData['name']) : (isset($postData['nombrecompleto']) ? trim($postData['nombrecompleto']) : $usuario);
-    $pass    = isset($postData['password']) ? trim($postData['password']) : '';
-    $rol     = isset($postData['role']) ? trim($postData['role']) : (isset($postData['rol']) ? trim($postData['rol']) : 'vendedor');
+    $usuario = sanitizeString($postData['username'] ?? ($postData['usuario'] ?? ''), 100);
+    $nombre  = sanitizeString($postData['name'] ?? ($postData['nombrecompleto'] ?? $usuario), 255);
+    $pass    = (string)($postData['password'] ?? '');
+    $rol     = sanitizeString($postData['role'] ?? ($postData['rol'] ?? 'vendedor'), 50);
 
     if (empty($usuario) || empty($pass)) {
         echo json_encode(["success" => false, "error" => "El nombre de usuario y contraseña son obligatorios."]);
@@ -1773,21 +1957,23 @@ if ($action === 'save_user' && $_SERVER['REQUEST_METHOD'] === 'POST') {
 
             if ($resCheck && $resCheck->num_rows > 0) {
                 $rowU = $resCheck->fetch_assoc();
-                $userId = $rowU['id'];
+                $userId = (int)$rowU['id'];
                 $stmtUp = $mysqli->prepare("UPDATE usuarios SET nombrecompleto = ?, password = ?, rol = ? WHERE id = ?");
                 if ($stmtUp) {
                     $stmtUp->bind_param("sssi", $nombre, $pass, $rol, $userId);
                     $stmtUp->execute();
                     $stmtUp->close();
                 }
+                recordAuditLog($mysqli, 'Admin', 'Administrador', 'MODIFICAR_USUARIO', "Usuario @{$usuario} actualizado (Rol: {$rol})", $branch);
             } else {
                 $stmtIns = $mysqli->prepare("INSERT INTO usuarios (usuario, nombrecompleto, password, rol) VALUES (?, ?, ?, ?)");
                 if ($stmtIns) {
                     $stmtIns->bind_param("ssss", $usuario, $nombre, $pass, $rol);
                     $stmtIns->execute();
-                    $userId = $mysqli->insert_id;
+                    $userId = (int)$mysqli->insert_id;
                     $stmtIns->close();
                 }
+                recordAuditLog($mysqli, 'Admin', 'Administrador', 'CREAR_USUARIO', "Nuevo usuario @{$usuario} registrado (Rol: {$rol})", $branch);
             }
             $stmtCheck->close();
         }
@@ -1810,9 +1996,9 @@ if ($action === 'save_user' && $_SERVER['REQUEST_METHOD'] === 'POST') {
 // 24. ELIMINAR USUARIO
 // ------------------------------------------------------------------------------
 if ($action === 'delete_user' && $_SERVER['REQUEST_METHOD'] === 'POST') {
-    $usuario = isset($postData['username']) ? trim($postData['username']) : (isset($postData['usuario']) ? trim($postData['usuario']) : '');
+    $usuario = sanitizeString($postData['username'] ?? ($postData['usuario'] ?? ''), 100);
     
-    if ($usuario === 'admin') {
+    if (strtolower($usuario) === 'admin') {
         echo json_encode(["success" => false, "error" => "No es posible eliminar el Administrador Maestro del sistema."]);
         exit;
     }
@@ -1824,6 +2010,8 @@ if ($action === 'delete_user' && $_SERVER['REQUEST_METHOD'] === 'POST') {
             $stmtDel->execute();
             $stmtDel->close();
         }
+
+        recordAuditLog($mysqli, 'Admin', 'Administrador', 'ELIMINAR_USUARIO', "Usuario @{$usuario} eliminado del sistema", $branch);
 
         echo json_encode([
             "success" => true,
@@ -1839,15 +2027,15 @@ if ($action === 'delete_user' && $_SERVER['REQUEST_METHOD'] === 'POST') {
 // 25. GUARDAR CUENTA BANCARIA
 // ------------------------------------------------------------------------------
 if ($action === 'save_bank_account' && $_SERVER['REQUEST_METHOD'] === 'POST') {
-    $id = isset($postData['id']) ? trim($postData['id']) : "ACC-" . time();
-    $bName = isset($postData['bankName']) ? trim($postData['bankName']) : "Banco";
-    $accNum = isset($postData['accountNumber']) ? trim($postData['accountNumber']) : "";
-    $type = isset($postData['type']) ? trim($postData['type']) : "Cheques";
-    $balance = isset($postData['balance']) ? (float)$postData['balance'] : 0;
-    $initBal = isset($postData['initialBalance']) ? (float)$postData['initialBalance'] : $balance;
-    $curr = isset($postData['currency']) ? trim($postData['currency']) : "MXN";
-    $stat = isset($postData['status']) ? trim($postData['status']) : "Activo";
-    $bBranch = isset($postData['branch']) ? trim($postData['branch']) : $branch;
+    $id = sanitizeString($postData['id'] ?? ("ACC-" . time()), 50);
+    $bName = sanitizeString($postData['bankName'] ?? "Banco", 100);
+    $accNum = sanitizeString($postData['accountNumber'] ?? "", 100);
+    $type = sanitizeString($postData['type'] ?? "Cheques", 50);
+    $balance = sanitizeFloat($postData['balance'] ?? 0);
+    $initBal = sanitizeFloat($postData['initialBalance'] ?? $balance);
+    $curr = sanitizeString($postData['currency'] ?? "MXN", 10);
+    $stat = sanitizeString($postData['status'] ?? "Activo", 50);
+    $bBranch = sanitizeString($postData['branch'] ?? $branch, 50);
     $raw = json_encode($postData);
 
     try {
@@ -1867,15 +2055,15 @@ if ($action === 'save_bank_account' && $_SERVER['REQUEST_METHOD'] === 'POST') {
 // 26. GUARDAR MOVIMIENTO BANCARIO
 // ------------------------------------------------------------------------------
 if ($action === 'save_bank_movement' && $_SERVER['REQUEST_METHOD'] === 'POST') {
-    $id = isset($postData['id']) ? trim($postData['id']) : "BM-" . time();
-    $accId = isset($postData['bankAccountId']) ? trim($postData['bankAccountId']) : "";
-    $type = isset($postData['type']) ? trim($postData['type']) : "Depósito";
-    $amount = isset($postData['amount']) ? (float)$postData['amount'] : 0;
-    $date = isset($postData['date']) ? trim($postData['date']) : date("Y-m-d H:i:s");
-    $desc = isset($postData['description']) ? trim($postData['description']) : "";
-    $cat = isset($postData['category']) ? trim($postData['category']) : "General";
-    $ref = isset($postData['reference']) ? trim($postData['reference']) : "";
-    $user = isset($postData['user']) ? trim($postData['user']) : "Admin";
+    $id = sanitizeString($postData['id'] ?? ("BM-" . time()), 50);
+    $accId = sanitizeString($postData['bankAccountId'] ?? "", 50);
+    $type = sanitizeString($postData['type'] ?? "Depósito", 50);
+    $amount = sanitizeFloat($postData['amount'] ?? 0);
+    $date = sanitizeString($postData['date'] ?? date("Y-m-d H:i:s"), 50);
+    $desc = sanitizeString($postData['description'] ?? "", 255);
+    $cat = sanitizeString($postData['category'] ?? "General", 100);
+    $ref = sanitizeString($postData['reference'] ?? "", 100);
+    $user = sanitizeString($postData['user'] ?? "Admin", 100);
     $raw = json_encode($postData);
 
     try {
@@ -1895,14 +2083,14 @@ if ($action === 'save_bank_movement' && $_SERVER['REQUEST_METHOD'] === 'POST') {
 // 27. GUARDAR ABONO DE CRÉDITO
 // ------------------------------------------------------------------------------
 if ($action === 'save_credit_payment' && $_SERVER['REQUEST_METHOD'] === 'POST') {
-    $id = isset($postData['id']) ? trim($postData['id']) : "PAY-" . time();
-    $custId = isset($postData['customerId']) ? trim($postData['customerId']) : "";
-    $amount = isset($postData['amount']) ? (float)$postData['amount'] : 0;
-    $date = isset($postData['date']) ? trim($postData['date']) : date("Y-m-d H:i:s");
-    $method = isset($postData['paymentMethod']) ? trim($postData['paymentMethod']) : "Efectivo";
-    $notes = isset($postData['notes']) ? trim($postData['notes']) : "";
-    $user = isset($postData['user']) ? trim($postData['user']) : "Admin";
-    $suc = isset($postData['sucursal']) ? trim($postData['sucursal']) : $branch;
+    $id = sanitizeString($postData['id'] ?? ("PAY-" . time()), 50);
+    $custId = sanitizeString($postData['customerId'] ?? "", 50);
+    $amount = sanitizeFloat($postData['amount'] ?? 0);
+    $date = sanitizeString($postData['date'] ?? date("Y-m-d H:i:s"), 50);
+    $method = sanitizeString($postData['paymentMethod'] ?? "Efectivo", 50);
+    $notes = sanitizeString($postData['notes'] ?? "", 500);
+    $user = sanitizeString($postData['user'] ?? "Admin", 100);
+    $suc = sanitizeString($postData['sucursal'] ?? $branch, 50);
     $raw = json_encode($postData);
 
     try {
@@ -1922,14 +2110,14 @@ if ($action === 'save_credit_payment' && $_SERVER['REQUEST_METHOD'] === 'POST') 
 // 28. GUARDAR LOG DE AUDITORÍA
 // ------------------------------------------------------------------------------
 if ($action === 'save_audit_log' && $_SERVER['REQUEST_METHOD'] === 'POST') {
-    $id = isset($postData['id']) ? trim($postData['id']) : "AUD-" . time();
-    $uName = isset($postData['user']) ? trim($postData['user']) : "Admin";
-    $uRole = isset($postData['role']) ? trim($postData['role']) : "Administrador";
-    $act = isset($postData['action']) ? trim($postData['action']) : "Operación";
-    $det = isset($postData['details']) ? trim($postData['details']) : "";
-    $ts = isset($postData['timestamp']) ? trim($postData['timestamp']) : date("Y-m-d H:i:s");
-    $ip = isset($postData['ip']) ? trim($postData['ip']) : ($_SERVER['REMOTE_ADDR'] ?? '127.0.0.1');
-    $suc = isset($postData['branch']) ? trim($postData['branch']) : $branch;
+    $id = sanitizeString($postData['id'] ?? ("AUD-" . time()), 50);
+    $uName = sanitizeString($postData['user'] ?? "Admin", 100);
+    $uRole = sanitizeString($postData['role'] ?? "Administrador", 50);
+    $act = sanitizeString($postData['action'] ?? "Operación", 100);
+    $det = sanitizeString($postData['details'] ?? "", 1000);
+    $ts = sanitizeString($postData['timestamp'] ?? date("Y-m-d H:i:s"), 50);
+    $ip = sanitizeString($postData['ip'] ?? ($_SERVER['REMOTE_ADDR'] ?? '127.0.0.1'), 45);
+    $suc = sanitizeString($postData['branch'] ?? $branch, 50);
 
     try {
         $stmt = $mysqli->prepare("INSERT INTO auditoria (id, user_name, role, action, details, timestamp, ip, branch) VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
