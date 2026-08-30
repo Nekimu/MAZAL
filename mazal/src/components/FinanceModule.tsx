@@ -745,330 +745,7 @@ export default function FinanceModule({ currentUser }: { currentUser: { name: st
 
   return (
     <div className="space-y-6">
-      {/* Top Banner Ribbon */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 p-5 rounded-2xl bg-white dark:bg-slate-900 border border-gray-150 dark:border-slate-800 shadow-sm text-slate-800 dark:text-slate-100">
-        <div className="flex items-center gap-4">
-          <div className="h-12 w-12 rounded-xl bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 flex items-center justify-center">
-            <Activity className="h-6 w-6" />
-          </div>
-          <div>
-            <h1 className="text-xl font-extrabold tracking-tight font-sans text-slate-900 dark:text-white">Módulo Financiero Mazal</h1>
-            <p className="text-xs text-slate-500 dark:text-slate-400 font-mono">Consolidación Contable, Caja Chica y Reportes Operativos</p>
-          </div>
-        </div>
-
-        {/* Global Controls */}
-        <div className="flex flex-wrap items-center gap-2.5">
-          <div className="flex flex-col">
-            <span className="text-[10px] text-gray-500 dark:text-slate-400 uppercase font-bold tracking-wider mb-1">Sucursal</span>
-            <select 
-              value={branchFilter} 
-              onChange={e => setBranchFilter(e.target.value)} 
-              className="px-2.5 py-1.5 rounded-lg text-xs bg-slate-50 dark:bg-slate-800 text-slate-800 dark:text-slate-200 border border-gray-200 dark:border-slate-700 focus:ring-1 focus:ring-emerald-500 focus:outline-none cursor-pointer"
-            >
-              {sucursales.map(s => <option key={s} value={s} className="bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-200">{s}</option>)}
-            </select>
-          </div>
-
-          <div className="flex flex-col">
-            <span className="text-[10px] text-gray-500 dark:text-slate-400 uppercase font-bold tracking-wider mb-1">Desde</span>
-            <input 
-              type="date" 
-              value={dateStartFilter} 
-              onChange={e => setDateStartFilter(e.target.value)} 
-              className="px-2.5 py-1 rounded-lg text-xs bg-slate-50 dark:bg-slate-800 text-slate-800 dark:text-slate-200 border border-gray-200 dark:border-slate-700 focus:ring-1 focus:ring-emerald-500 focus:outline-none"
-            />
-          </div>
-
-          <div className="flex flex-col">
-            <span className="text-[10px] text-gray-500 dark:text-slate-400 uppercase font-bold tracking-wider mb-1">Hasta</span>
-            <input 
-              type="date" 
-              value={dateEndFilter} 
-              onChange={e => setDateEndFilter(e.target.value)} 
-              className="px-2.5 py-1 rounded-lg text-xs bg-slate-50 dark:bg-slate-800 text-slate-800 dark:text-slate-200 border border-gray-200 dark:border-slate-700 focus:ring-1 focus:ring-emerald-500 focus:outline-none"
-            />
-          </div>
-
-          <div className="flex flex-col pt-4">
-            <button 
-              onClick={() => {
-                const startM = new Date();
-                startM.setDate(1);
-                setDateStartFilter(startM.toISOString().split("T")[0]);
-                setDateEndFilter(new Date().toISOString().split("T")[0]);
-                setBranchFilter("Todas");
-                setUserFilter("Todos");
-              }} 
-              className="p-1.5 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-lg text-slate-600 dark:text-slate-300 transition-colors cursor-pointer"
-              title="Restablecer Filtros"
-            >
-              <RefreshCw className="h-4 w-4" />
-            </button>
-          </div>
-        </div>
-      </div>
-
-      {/* Main KPI Widgets Cards Panel */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <div className={cardClass}>
-          <div className="flex justify-between items-start">
-            <div>
-              <p className={titleClass}>Ventas del Periodo</p>
-              <p className={valueClass}>${totalSalesAmount.toLocaleString("es-MX", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
-            </div>
-            <div className="p-2 rounded-lg bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400 border border-emerald-100 dark:border-emerald-900/30">
-              <TrendingUp className="h-5 w-5" />
-            </div>
-          </div>
-          <div className="mt-2 text-xs font-mono text-gray-500 dark:text-slate-400">
-            En base a <span className="font-bold text-gray-700 dark:text-gray-200">{filteredSales.length}</span> tickets emitidos
-          </div>
-        </div>
-
-        <div className={cardClass}>
-          <div className="flex justify-between items-start">
-            <div>
-              <p className={titleClass}>Gastos Generales</p>
-              <p className={valueClass}>${totalExpensesAmount.toLocaleString("es-MX", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
-            </div>
-            <div className="p-2 rounded-lg bg-rose-50 dark:bg-rose-950/40 text-rose-600 dark:text-rose-400 border border-rose-100 dark:border-rose-900/30">
-              <TrendingDown className="h-5 w-5" />
-            </div>
-          </div>
-          <div className="mt-2 text-xs font-mono text-gray-500 dark:text-slate-400">
-            Suma de <span className="font-bold text-gray-700 dark:text-gray-200">{filteredExpenses.length}</span> egresos operativos
-          </div>
-        </div>
-
-        <div className={cardClass}>
-          <div className="flex justify-between items-start">
-            <div>
-              <p className={titleClass}>Utilidad Bruta</p>
-              <p className={valueClass}>${totalSalesProfit.toLocaleString("es-MX", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
-            </div>
-            <div className="p-2 rounded-lg bg-blue-50 dark:bg-blue-950/40 text-blue-600 dark:text-blue-400 border border-blue-100 dark:border-blue-900/30">
-              <DollarSign className="h-5 w-5" />
-            </div>
-          </div>
-          <div className="mt-2 text-xs font-mono text-gray-500 dark:text-slate-400">
-            Margen: <span className="font-bold text-gray-700 dark:text-gray-200">{totalSalesAmount > 0 ? ((totalSalesProfit / totalSalesAmount) * 100).toFixed(1) : 0}%</span> bruto
-          </div>
-        </div>
-
-        <div className={cardClass}>
-          <div className="flex justify-between items-start">
-            <div>
-              <p className={titleClass}>Utilidad Neta (Pérdidas/G.)</p>
-              <p className={`text-2xl font-black font-sans tracking-tight mt-1 ${totalNetProfit >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600 dark:text-rose-400"}`}>
-                ${totalNetProfit.toLocaleString("es-MX", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-              </p>
-            </div>
-            <div className={`p-2 rounded-lg border ${totalNetProfit >= 0 ? "bg-teal-50 dark:bg-teal-950/40 text-teal-600 border-teal-100" : "bg-red-50 dark:bg-red-950/40 text-red-600 border-red-100"}`}>
-              <Activity className="h-5 w-5" />
-            </div>
-          </div>
-          <div className="mt-2 text-xs font-mono text-gray-500 dark:text-slate-400">
-            Utilidad real neta del periodo
-          </div>
-        </div>
-      </div>
-
-      {/* --- VISUAL CHARTS & BALANCE GENERAL GRAPHICS PANEL --- */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
-        {/* CHART 1: Balance General Structure (Line Chart) */}
-        <div className="p-5 rounded-2xl bg-white dark:bg-slate-900 border border-gray-150 dark:border-slate-800 shadow-xs space-y-4">
-          <div className="flex justify-between items-center border-b border-gray-100 dark:border-slate-850 pb-3">
-            <div>
-              <h4 className="font-extrabold text-sm text-gray-800 dark:text-slate-100 flex items-center gap-2">
-                <BarChart3 className="h-4.5 w-4.5 text-emerald-600 dark:text-emerald-400" />
-                Balance General
-              </h4>
-              <p className="text-[10px] text-gray-400 font-mono">Estructura Patrimonial: Activos, Pasivos y Capital</p>
-            </div>
-            <span className="px-2.5 py-1 rounded-lg text-[10px] font-bold bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400 border border-emerald-200/60 dark:border-emerald-900/40">
-              Patrimonio: ${netEquity.toLocaleString("es-MX", { maximumFractionDigits: 0 })}
-            </span>
-          </div>
-
-          <div className="h-44 w-full pt-1">
-            <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={balanceChartData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
-                <CartesianGrid strokeDasharray="3 3" opacity={0.15} />
-                <XAxis dataKey="name" tick={{ fontSize: 9, fill: "#888888" }} interval={0} />
-                <YAxis tick={{ fontSize: 9, fill: "#888888" }} tickFormatter={(v) => `$${v >= 1000 ? (v/1000).toFixed(0) + 'k' : v}`} />
-                <RechartsTooltip 
-                  formatter={(value: any) => [`$${Number(value || 0).toLocaleString("es-MX", { minimumFractionDigits: 2 })} MXN`, "Monto"]}
-                  contentStyle={{ backgroundColor: "#0f172a", borderRadius: "8px", border: "1px solid #334155", color: "#ffffff", fontSize: "11px" }}
-                />
-                <Line type="monotone" dataKey="valor" stroke="#10b981" strokeWidth={2.5} dot={{ r: 4, fill: "#10b981" }} activeDot={{ r: 6 }} />
-              </LineChart>
-            </ResponsiveContainer>
-          </div>
-
-          {/* Asset Item Breakdown Grid */}
-          <div className="grid grid-cols-3 gap-2 pt-2 border-t border-gray-100 dark:border-slate-850 text-[10px]">
-            <div className="bg-emerald-50/50 dark:bg-emerald-950/20 p-2 rounded-lg border border-emerald-100/40">
-              <span className="text-emerald-700 dark:text-emerald-400 font-bold block">📦 Inventarios</span>
-              <span className="font-mono font-bold text-gray-800 dark:text-slate-200">${inventoryTotalValuation.toLocaleString("es-MX", { maximumFractionDigits: 0 })}</span>
-            </div>
-            <div className="bg-blue-50/50 dark:bg-blue-950/20 p-2 rounded-lg border border-blue-100/40">
-              <span className="text-blue-700 dark:text-blue-400 font-bold block">👥 CxC Clientes</span>
-              <span className="font-mono font-bold text-gray-800 dark:text-slate-200">${totalReceivables.toLocaleString("es-MX", { maximumFractionDigits: 0 })}</span>
-            </div>
-            <div className="bg-rose-50/50 dark:bg-rose-950/20 p-2 rounded-lg border border-rose-100/40">
-              <span className="text-rose-700 dark:text-rose-400 font-bold block">🏭 CxP Proveed.</span>
-              <span className="font-mono font-bold text-gray-800 dark:text-slate-200">${totalLiabilities.toLocaleString("es-MX", { maximumFractionDigits: 0 })}</span>
-            </div>
-          </div>
-        </div>
-
-        {/* CHART 2: Performance Comparison Line Chart */}
-        <div className="p-5 rounded-2xl bg-white dark:bg-slate-900 border border-gray-150 dark:border-slate-800 shadow-xs space-y-4">
-          <div className="flex justify-between items-center border-b border-gray-100 dark:border-slate-850 pb-3">
-            <div>
-              <h4 className="font-extrabold text-sm text-gray-800 dark:text-slate-100 flex items-center gap-2">
-                <TrendingUp className="h-4.5 w-4.5 text-blue-600 dark:text-blue-400" />
-                Rendimiento y Flujo Monetario
-              </h4>
-              <p className="text-[10px] text-gray-400 font-mono">Comparativa de ingresos, costos y egresos del periodo</p>
-            </div>
-          </div>
-
-          <div className="h-44 w-full pt-1">
-            <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={performanceTrendList.length > 0 ? performanceTrendList : [{ date: "Hoy", shortDate: "Hoy", ventas: totalSalesAmount, costos: totalSalesCost, gastos: totalExpensesAmount, utilidad: totalNetProfit }]} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
-                <CartesianGrid strokeDasharray="3 3" opacity={0.15} />
-                <XAxis dataKey="shortDate" tick={{ fontSize: 9, fill: "#888888" }} />
-                <YAxis tick={{ fontSize: 9, fill: "#888888" }} tickFormatter={(v) => `$${v >= 1000 ? (v/1000).toFixed(0) + 'k' : v}`} />
-                <RechartsTooltip 
-                  formatter={(value: any, name: any) => [`$${Number(value || 0).toLocaleString("es-MX", { minimumFractionDigits: 2 })} MXN`, name === "ventas" ? "Ventas" : name === "costos" ? "Costos" : name === "gastos" ? "Gastos" : "Utilidad"]}
-                  contentStyle={{ backgroundColor: "#0f172a", borderRadius: "8px", border: "1px solid #334155", color: "#ffffff", fontSize: "11px" }}
-                />
-                <Legend wrapperStyle={{ fontSize: "9px" }} formatter={(value) => value === "ventas" ? "Ventas" : value === "costos" ? "Costos" : value === "gastos" ? "Gastos" : "Utilidad"} />
-                <Line type="monotone" dataKey="ventas" stroke="#10b981" strokeWidth={2} dot={{ r: 3 }} name="ventas" />
-                <Line type="monotone" dataKey="costos" stroke="#f59e0b" strokeWidth={1.5} dot={{ r: 2 }} name="costos" />
-                <Line type="monotone" dataKey="gastos" stroke="#f43f5e" strokeWidth={1.5} dot={{ r: 2 }} name="gastos" />
-                <Line type="monotone" dataKey="utilidad" stroke="#6366f1" strokeWidth={2} dot={{ r: 3 }} name="utilidad" />
-              </LineChart>
-            </ResponsiveContainer>
-          </div>
-
-          <div className="grid grid-cols-2 gap-2 pt-2 border-t border-gray-100 dark:border-slate-850 text-[10px]">
-            <div className="flex justify-between items-center bg-slate-50 dark:bg-slate-850/50 p-1.5 rounded">
-              <span className="text-gray-500">Ingresos:</span>
-              <strong className="text-emerald-600 font-mono">${totalSalesAmount.toLocaleString("es-MX", { maximumFractionDigits: 0 })}</strong>
-            </div>
-            <div className="flex justify-between items-center bg-slate-50 dark:bg-slate-850/50 p-1.5 rounded">
-              <span className="text-gray-500">Utilidad:</span>
-              <strong className={`${totalNetProfit >= 0 ? "text-emerald-600" : "text-rose-600"} font-mono`}>${totalNetProfit.toLocaleString("es-MX", { maximumFractionDigits: 0 })}</strong>
-            </div>
-          </div>
-        </div>
-
-        {/* CHART 3: Expense Category Distribution */}
-        <div className="p-5 rounded-2xl bg-white dark:bg-slate-900 border border-gray-150 dark:border-slate-800 shadow-xs space-y-4">
-          <div className="flex justify-between items-center border-b border-gray-100 dark:border-slate-850 pb-3">
-            <div>
-              <h4 className="font-extrabold text-sm text-gray-800 dark:text-slate-100 flex items-center gap-2">
-                <DollarSign className="h-4.5 w-4.5 text-purple-600 dark:text-purple-400" />
-                Egresos por Categoría
-              </h4>
-              <p className="text-[10px] text-gray-400 font-mono">Principales partidas de gasto operativo</p>
-            </div>
-            <span className="text-[10px] font-mono text-gray-500">
-              Total: ${totalExpensesAmount.toLocaleString("es-MX", { maximumFractionDigits: 0 })}
-            </span>
-          </div>
-
-          <div className="space-y-3 text-xs">
-            {topExpenseCategories.length === 0 ? (
-              <p className="text-gray-400 text-xs italic py-4 text-center">No hay gastos registrados en el periodo.</p>
-            ) : (
-              topExpenseCategories.slice(0, 4).map(([cat, amt]) => {
-                const pct = totalExpensesAmount > 0 ? ((amt / totalExpensesAmount) * 100).toFixed(1) : "0";
-                return (
-                  <div key={cat} className="space-y-1">
-                    <div className="flex justify-between text-[11px]">
-                      <span className="font-semibold text-gray-700 dark:text-slate-300">{cat}</span>
-                      <span className="font-mono text-gray-900 dark:text-slate-100 font-bold">
-                        ${amt.toLocaleString("es-MX", { minimumFractionDigits: 2 })} ({pct}%)
-                      </span>
-                    </div>
-                    <div className="h-2 w-full bg-gray-100 dark:bg-slate-800 rounded-full overflow-hidden">
-                      <div 
-                        className="bg-purple-500 h-full rounded-full transition-all" 
-                        style={{ width: `${pct}%` }}
-                      />
-                    </div>
-                  </div>
-                );
-              })
-            )}
-          </div>
-        </div>
-      </div>
-
-      {/* CHART 4: HISTORICAL SALES TREND LINE CHART */}
-      <div className="p-5 rounded-2xl bg-white dark:bg-slate-900 border border-gray-150 dark:border-slate-800 shadow-xs space-y-4">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-gray-100 dark:border-slate-850 pb-3">
-          <div>
-            <h4 className="font-extrabold text-base text-gray-800 dark:text-slate-100 flex items-center gap-2">
-              <Activity className="h-5 w-5 text-emerald-600 dark:text-emerald-400 animate-pulse" />
-              Tendencia Histórica de Ventas
-            </h4>
-            <p className="text-xs text-gray-500 dark:text-slate-400 mt-0.5">
-              Análisis dinámico de facturación diaria para identificar patrones de consumo y rendimiento en el tiempo.
-            </p>
-          </div>
-
-          {/* Quick Stats Badges */}
-          <div className="flex flex-wrap gap-2 text-xs font-mono">
-            {maxSaleDay && (
-              <span className="px-2.5 py-1 rounded-lg bg-emerald-50 dark:bg-emerald-950/50 text-emerald-700 dark:text-emerald-300 border border-emerald-200/60 font-bold flex items-center gap-1">
-                🚀 Pico: ${maxSaleDay.total.toLocaleString("es-MX", { maximumFractionDigits: 0 })} ({maxSaleDay.shortDate})
-              </span>
-            )}
-            {minSaleDay && (
-              <span className="px-2.5 py-1 rounded-lg bg-amber-50 dark:bg-amber-950/50 text-amber-700 dark:text-amber-300 border border-amber-200/60 font-bold flex items-center gap-1">
-                📉 Mínimo: ${minSaleDay.total.toLocaleString("es-MX", { maximumFractionDigits: 0 })} ({minSaleDay.shortDate})
-              </span>
-            )}
-          </div>
-        </div>
-
-        {/* Visual Recharts Line Graph */}
-        {salesTrendList.length === 0 ? (
-          <div className="py-12 text-center text-gray-400 text-xs italic bg-gray-50/50 dark:bg-slate-950/40 rounded-xl border border-dashed border-gray-200 dark:border-slate-800">
-            No se registraron ventas en el periodo seleccionado para graficar el histórico.
-          </div>
-        ) : (
-          <div className="space-y-3">
-            <div className="h-56 w-full pt-2">
-              <ResponsiveContainer width="100%" height="100%">
-                <LineChart data={salesTrendList} margin={{ top: 10, right: 15, left: -15, bottom: 0 }}>
-                  <CartesianGrid strokeDasharray="3 3" opacity={0.15} />
-                  <XAxis dataKey="shortDate" tick={{ fontSize: 10, fill: "#888888" }} />
-                  <YAxis tick={{ fontSize: 10, fill: "#888888" }} tickFormatter={(v) => `$${v >= 1000 ? (v/1000).toFixed(0) + 'k' : v}`} />
-                  <RechartsTooltip 
-                    formatter={(value: any) => [`$${Number(value || 0).toLocaleString("es-MX", { minimumFractionDigits: 2 })} MXN`, "Venta Total"]}
-                    labelFormatter={(label, payload) => payload?.[0]?.payload?.date || label}
-                    contentStyle={{ backgroundColor: "#0f172a", borderRadius: "8px", border: "1px solid #334155", color: "#ffffff", fontSize: "12px" }}
-                  />
-                  <Line type="monotone" dataKey="total" stroke="#10b981" strokeWidth={3} dot={{ r: 4, fill: "#10b981" }} activeDot={{ r: 7 }} />
-                </LineChart>
-              </ResponsiveContainer>
-            </div>
-            
-            <div className="flex justify-between items-center text-[10px] text-gray-400 font-mono pt-1">
-              <span>📅 Período: {sortedSalesDates[0] || "N/A"} al {sortedSalesDates[sortedSalesDates.length - 1] || "N/A"}</span>
-              <span>Promedio Diario: ${salesTrendList.length > 0 ? (totalSalesAmount / salesTrendList.length).toLocaleString("es-MX", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : "0.00"} MXN</span>
-            </div>
-          </div>
-        )}
-      </div>
-
-      {/* Primary Sub-navigation Tabs (MOVED TO TOP) */}
+      {/* --- SECCIÓN 1: NAVEGACIÓN PRINCIPAL DE SUB-PESTAÑAS (ARRIBA DEL TODO) --- */}
       <div className="flex overflow-x-auto gap-1.5 p-1.5 bg-slate-100 dark:bg-slate-900 rounded-2xl border border-gray-200 dark:border-slate-800 shadow-2xs">
         {[
           { id: "ventas", label: "Historial Ventas", icon: TrendingUp },
@@ -1098,10 +775,10 @@ export default function FinanceModule({ currentUser }: { currentUser: { name: st
         })}
       </div>
 
-      {/* --- PANEL RENDERERS --- */}
-
-      {/* 1. HISTORIAL VENTAS TAB */}
-      {activeSubTab === "ventas" && (
+      {/* --- SECCIÓN 2: INFORMACIÓN DE LA PESTAÑA SELECCIONADA (ALTO FIJO Y SCROLL INTERNO) --- */}
+      <div className="max-h-[640px] overflow-y-auto pr-1 space-y-4 rounded-2xl">
+        {/* 1. HISTORIAL VENTAS TAB */}
+        {activeSubTab === "ventas" && (
         <div className="space-y-4 animate-fadeIn">
           <div className="flex flex-col md:flex-row justify-between items-center gap-4 bg-white dark:bg-slate-900 p-4 rounded-xl border border-gray-100 dark:border-slate-800">
             <div className="relative w-full md:w-80">
@@ -1849,6 +1526,330 @@ export default function FinanceModule({ currentUser }: { currentUser: { name: st
           </div>
         </div>
       )}
+      </div>
+
+      {/* --- SECCIÓN 3: MÓDULO FINANCIERO MAZAL (RIBBON Y FILTROS) --- */}
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 p-5 rounded-2xl bg-white dark:bg-slate-900 border border-gray-150 dark:border-slate-800 shadow-sm text-slate-800 dark:text-slate-100">
+        <div className="flex items-center gap-4">
+          <div className="h-12 w-12 rounded-xl bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 flex items-center justify-center">
+            <Activity className="h-6 w-6" />
+          </div>
+          <div>
+            <h1 className="text-xl font-extrabold tracking-tight font-sans text-slate-900 dark:text-white">Módulo Financiero Mazal</h1>
+            <p className="text-xs text-slate-500 dark:text-slate-400 font-mono">Consolidación Contable, Caja Chica y Reportes Operativos</p>
+          </div>
+        </div>
+
+        {/* Global Controls */}
+        <div className="flex flex-wrap items-center gap-2.5">
+          <div className="flex flex-col">
+            <span className="text-[10px] text-gray-500 dark:text-slate-400 uppercase font-bold tracking-wider mb-1">Sucursal</span>
+            <select 
+              value={branchFilter} 
+              onChange={e => setBranchFilter(e.target.value)} 
+              className="px-2.5 py-1.5 rounded-lg text-xs bg-slate-50 dark:bg-slate-800 text-slate-800 dark:text-slate-200 border border-gray-200 dark:border-slate-700 focus:ring-1 focus:ring-emerald-500 focus:outline-none cursor-pointer"
+            >
+              {sucursales.map(s => <option key={s} value={s} className="bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-200">{s}</option>)}
+            </select>
+          </div>
+
+          <div className="flex flex-col">
+            <span className="text-[10px] text-gray-500 dark:text-slate-400 uppercase font-bold tracking-wider mb-1">Desde</span>
+            <input 
+              type="date" 
+              value={dateStartFilter} 
+              onChange={e => setDateStartFilter(e.target.value)} 
+              className="px-2.5 py-1 rounded-lg text-xs bg-slate-50 dark:bg-slate-800 text-slate-800 dark:text-slate-200 border border-gray-200 dark:border-slate-700 focus:ring-1 focus:ring-emerald-500 focus:outline-none"
+            />
+          </div>
+
+          <div className="flex flex-col">
+            <span className="text-[10px] text-gray-500 dark:text-slate-400 uppercase font-bold tracking-wider mb-1">Hasta</span>
+            <input 
+              type="date" 
+              value={dateEndFilter} 
+              onChange={e => setDateEndFilter(e.target.value)} 
+              className="px-2.5 py-1 rounded-lg text-xs bg-slate-50 dark:bg-slate-800 text-slate-800 dark:text-slate-200 border border-gray-200 dark:border-slate-700 focus:ring-1 focus:ring-emerald-500 focus:outline-none"
+            />
+          </div>
+
+          <div className="flex flex-col pt-4">
+            <button 
+              onClick={() => {
+                const startM = new Date();
+                startM.setDate(1);
+                setDateStartFilter(startM.toISOString().split("T")[0]);
+                setDateEndFilter(new Date().toISOString().split("T")[0]);
+                setBranchFilter("Todas");
+                setUserFilter("Todos");
+              }} 
+              className="p-1.5 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-lg text-slate-600 dark:text-slate-300 transition-colors cursor-pointer"
+              title="Restablecer Filtros"
+            >
+              <RefreshCw className="h-4 w-4" />
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* --- SECCIÓN 4: MAIN KPI WIDGETS CARDS PANEL --- */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className={cardClass}>
+          <div className="flex justify-between items-start">
+            <div>
+              <p className={titleClass}>Ventas del Periodo</p>
+              <p className={valueClass}>${totalSalesAmount.toLocaleString("es-MX", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
+            </div>
+            <div className="p-2 rounded-lg bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400 border border-emerald-100 dark:border-emerald-900/30">
+              <TrendingUp className="h-5 w-5" />
+            </div>
+          </div>
+          <div className="mt-2 text-xs font-mono text-gray-500 dark:text-slate-400">
+            En base a <span className="font-bold text-gray-700 dark:text-gray-200">{filteredSales.length}</span> tickets emitidos
+          </div>
+        </div>
+
+        <div className={cardClass}>
+          <div className="flex justify-between items-start">
+            <div>
+              <p className={titleClass}>Gastos Generales</p>
+              <p className={valueClass}>${totalExpensesAmount.toLocaleString("es-MX", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
+            </div>
+            <div className="p-2 rounded-lg bg-rose-50 dark:bg-rose-950/40 text-rose-600 dark:text-rose-400 border border-rose-100 dark:border-rose-900/30">
+              <TrendingDown className="h-5 w-5" />
+            </div>
+          </div>
+          <div className="mt-2 text-xs font-mono text-gray-500 dark:text-slate-400">
+            Suma de <span className="font-bold text-gray-700 dark:text-gray-200">{filteredExpenses.length}</span> egresos operativos
+          </div>
+        </div>
+
+        <div className={cardClass}>
+          <div className="flex justify-between items-start">
+            <div>
+              <p className={titleClass}>Utilidad Bruta</p>
+              <p className={valueClass}>${totalSalesProfit.toLocaleString("es-MX", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
+            </div>
+            <div className="p-2 rounded-lg bg-blue-50 dark:bg-blue-950/40 text-blue-600 dark:text-blue-400 border border-blue-100 dark:border-blue-900/30">
+              <DollarSign className="h-5 w-5" />
+            </div>
+          </div>
+          <div className="mt-2 text-xs font-mono text-gray-500 dark:text-slate-400">
+            Margen: <span className="font-bold text-gray-700 dark:text-gray-200">{totalSalesAmount > 0 ? ((totalSalesProfit / totalSalesAmount) * 100).toFixed(1) : 0}%</span> bruto
+          </div>
+        </div>
+
+        <div className={cardClass}>
+          <div className="flex justify-between items-start">
+            <div>
+              <p className={titleClass}>Utilidad Neta (Pérdidas/G.)</p>
+              <p className={`text-2xl font-black font-sans tracking-tight mt-1 ${totalNetProfit >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600 dark:text-rose-400"}`}>
+                ${totalNetProfit.toLocaleString("es-MX", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              </p>
+            </div>
+            <div className={`p-2 rounded-lg border ${totalNetProfit >= 0 ? "bg-teal-50 dark:bg-teal-950/40 text-teal-600 border-teal-100" : "bg-red-50 dark:bg-red-950/40 text-red-600 border-red-100"}`}>
+              <Activity className="h-5 w-5" />
+            </div>
+          </div>
+          <div className="mt-2 text-xs font-mono text-gray-500 dark:text-slate-400">
+            Utilidad real neta del periodo
+          </div>
+        </div>
+      </div>
+
+      {/* --- SECCIÓN 5: VISUAL CHARTS & BALANCE GENERAL GRAPHICS PANEL --- */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+        {/* CHART 1: Balance General Structure (Line Chart) */}
+        <div className="p-5 rounded-2xl bg-white dark:bg-slate-900 border border-gray-150 dark:border-slate-800 shadow-xs space-y-4">
+          <div className="flex justify-between items-center border-b border-gray-100 dark:border-slate-850 pb-3">
+            <div>
+              <h4 className="font-extrabold text-sm text-gray-800 dark:text-slate-100 flex items-center gap-2">
+                <BarChart3 className="h-4.5 w-4.5 text-emerald-600 dark:text-emerald-400" />
+                Balance General
+              </h4>
+              <p className="text-[10px] text-gray-400 font-mono">Estructura Patrimonial: Activos, Pasivos y Capital</p>
+            </div>
+            <span className="px-2.5 py-1 rounded-lg text-[10px] font-bold bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400 border border-emerald-200/60 dark:border-emerald-900/40">
+              Patrimonio: ${netEquity.toLocaleString("es-MX", { maximumFractionDigits: 0 })}
+            </span>
+          </div>
+
+          <div className="h-44 w-full pt-1">
+            <ResponsiveContainer width="100%" height="100%">
+              <LineChart data={balanceChartData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" opacity={0.15} />
+                <XAxis dataKey="name" tick={{ fontSize: 9, fill: "#888888" }} interval={0} />
+                <YAxis tick={{ fontSize: 9, fill: "#888888" }} tickFormatter={(v) => `$${v >= 1000 ? (v/1000).toFixed(0) + 'k' : v}`} />
+                <RechartsTooltip 
+                  formatter={(value: any) => [`$${Number(value || 0).toLocaleString("es-MX", { minimumFractionDigits: 2 })} MXN`, "Monto"]}
+                  contentStyle={{ backgroundColor: "#0f172a", borderRadius: "8px", border: "1px solid #334155", color: "#ffffff", fontSize: "11px" }}
+                />
+                <Line type="monotone" dataKey="valor" stroke="#10b981" strokeWidth={2.5} dot={{ r: 4, fill: "#10b981" }} activeDot={{ r: 6 }} />
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
+
+          {/* Asset Item Breakdown Grid */}
+          <div className="grid grid-cols-3 gap-2 pt-2 border-t border-gray-100 dark:border-slate-850 text-[10px]">
+            <div className="bg-emerald-50/50 dark:bg-emerald-950/20 p-2 rounded-lg border border-emerald-100/40">
+              <span className="text-emerald-700 dark:text-emerald-400 font-bold block">📦 Inventarios</span>
+              <span className="font-mono font-bold text-gray-800 dark:text-slate-200">${inventoryTotalValuation.toLocaleString("es-MX", { maximumFractionDigits: 0 })}</span>
+            </div>
+            <div className="bg-blue-50/50 dark:bg-blue-950/20 p-2 rounded-lg border border-blue-100/40">
+              <span className="text-blue-700 dark:text-blue-400 font-bold block">👥 CxC Clientes</span>
+              <span className="font-mono font-bold text-gray-800 dark:text-slate-200">${totalReceivables.toLocaleString("es-MX", { maximumFractionDigits: 0 })}</span>
+            </div>
+            <div className="bg-rose-50/50 dark:bg-rose-950/20 p-2 rounded-lg border border-rose-100/40">
+              <span className="text-rose-700 dark:text-rose-400 font-bold block">🏭 CxP Proveed.</span>
+              <span className="font-mono font-bold text-gray-800 dark:text-slate-200">${totalLiabilities.toLocaleString("es-MX", { maximumFractionDigits: 0 })}</span>
+            </div>
+          </div>
+        </div>
+
+        {/* CHART 2: Performance Comparison Line Chart */}
+        <div className="p-5 rounded-2xl bg-white dark:bg-slate-900 border border-gray-150 dark:border-slate-800 shadow-xs space-y-4">
+          <div className="flex justify-between items-center border-b border-gray-100 dark:border-slate-850 pb-3">
+            <div>
+              <h4 className="font-extrabold text-sm text-gray-800 dark:text-slate-100 flex items-center gap-2">
+                <TrendingUp className="h-4.5 w-4.5 text-blue-600 dark:text-blue-400" />
+                Rendimiento y Flujo Monetario
+              </h4>
+              <p className="text-[10px] text-gray-400 font-mono">Comparativa de ingresos, costos y egresos del periodo</p>
+            </div>
+          </div>
+
+          <div className="h-44 w-full pt-1">
+            <ResponsiveContainer width="100%" height="100%">
+              <LineChart data={performanceTrendList.length > 0 ? performanceTrendList : [{ date: "Hoy", shortDate: "Hoy", ventas: totalSalesAmount, costos: totalSalesCost, gastos: totalExpensesAmount, utilidad: totalNetProfit }]} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" opacity={0.15} />
+                <XAxis dataKey="shortDate" tick={{ fontSize: 9, fill: "#888888" }} />
+                <YAxis tick={{ fontSize: 9, fill: "#888888" }} tickFormatter={(v) => `$${v >= 1000 ? (v/1000).toFixed(0) + 'k' : v}`} />
+                <RechartsTooltip 
+                  formatter={(value: any, name: any) => [`$${Number(value || 0).toLocaleString("es-MX", { minimumFractionDigits: 2 })} MXN`, name === "ventas" ? "Ventas" : name === "costos" ? "Costos" : name === "gastos" ? "Gastos" : "Utilidad"]}
+                  contentStyle={{ backgroundColor: "#0f172a", borderRadius: "8px", border: "1px solid #334155", color: "#ffffff", fontSize: "11px" }}
+                />
+                <Legend wrapperStyle={{ fontSize: "9px" }} formatter={(value) => value === "ventas" ? "Ventas" : value === "costos" ? "Costos" : value === "gastos" ? "Gastos" : "Utilidad"} />
+                <Line type="monotone" dataKey="ventas" stroke="#10b981" strokeWidth={2} dot={{ r: 3 }} name="ventas" />
+                <Line type="monotone" dataKey="costos" stroke="#f59e0b" strokeWidth={1.5} dot={{ r: 2 }} name="costos" />
+                <Line type="monotone" dataKey="gastos" stroke="#f43f5e" strokeWidth={1.5} dot={{ r: 2 }} name="gastos" />
+                <Line type="monotone" dataKey="utilidad" stroke="#6366f1" strokeWidth={2} dot={{ r: 3 }} name="utilidad" />
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
+
+          <div className="grid grid-cols-2 gap-2 pt-2 border-t border-gray-100 dark:border-slate-850 text-[10px]">
+            <div className="flex justify-between items-center bg-slate-50 dark:bg-slate-850/50 p-1.5 rounded">
+              <span className="text-gray-500">Ingresos:</span>
+              <strong className="text-emerald-600 font-mono">${totalSalesAmount.toLocaleString("es-MX", { maximumFractionDigits: 0 })}</strong>
+            </div>
+            <div className="flex justify-between items-center bg-slate-50 dark:bg-slate-850/50 p-1.5 rounded">
+              <span className="text-gray-500">Utilidad:</span>
+              <strong className={`${totalNetProfit >= 0 ? "text-emerald-600" : "text-rose-600"} font-mono`}>${totalNetProfit.toLocaleString("es-MX", { maximumFractionDigits: 0 })}</strong>
+            </div>
+          </div>
+        </div>
+
+        {/* CHART 3: Expense Category Distribution */}
+        <div className="p-5 rounded-2xl bg-white dark:bg-slate-900 border border-gray-150 dark:border-slate-800 shadow-xs space-y-4">
+          <div className="flex justify-between items-center border-b border-gray-100 dark:border-slate-850 pb-3">
+            <div>
+              <h4 className="font-extrabold text-sm text-gray-800 dark:text-slate-100 flex items-center gap-2">
+                <DollarSign className="h-4.5 w-4.5 text-purple-600 dark:text-purple-400" />
+                Egresos por Categoría
+              </h4>
+              <p className="text-[10px] text-gray-400 font-mono">Principales partidas de gasto operativo</p>
+            </div>
+            <span className="text-[10px] font-mono text-gray-500">
+              Total: ${totalExpensesAmount.toLocaleString("es-MX", { maximumFractionDigits: 0 })}
+            </span>
+          </div>
+
+          <div className="space-y-3 text-xs">
+            {topExpenseCategories.length === 0 ? (
+              <p className="text-gray-400 text-xs italic py-4 text-center">No hay gastos registrados en el periodo.</p>
+            ) : (
+              topExpenseCategories.slice(0, 4).map(([cat, amt]) => {
+                const pct = totalExpensesAmount > 0 ? ((amt / totalExpensesAmount) * 100).toFixed(1) : "0";
+                return (
+                  <div key={cat} className="space-y-1">
+                    <div className="flex justify-between text-[11px]">
+                      <span className="font-semibold text-gray-700 dark:text-slate-300">{cat}</span>
+                      <span className="font-mono text-gray-900 dark:text-slate-100 font-bold">
+                        ${amt.toLocaleString("es-MX", { minimumFractionDigits: 2 })} ({pct}%)
+                      </span>
+                    </div>
+                    <div className="h-2 w-full bg-gray-100 dark:bg-slate-800 rounded-full overflow-hidden">
+                      <div 
+                        className="bg-purple-500 h-full rounded-full transition-all" 
+                        style={{ width: `${pct}%` }}
+                      />
+                    </div>
+                  </div>
+                );
+              })
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* --- SECCIÓN 6: CHART 4: HISTORICAL SALES TREND LINE CHART --- */}
+      <div className="p-5 rounded-2xl bg-white dark:bg-slate-900 border border-gray-150 dark:border-slate-800 shadow-xs space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-gray-100 dark:border-slate-850 pb-3">
+          <div>
+            <h4 className="font-extrabold text-base text-gray-800 dark:text-slate-100 flex items-center gap-2">
+              <Activity className="h-5 w-5 text-emerald-600 dark:text-emerald-400 animate-pulse" />
+              Tendencia Histórica de Ventas
+            </h4>
+            <p className="text-xs text-gray-500 dark:text-slate-400 mt-0.5">
+              Análisis dinámico de facturación diaria para identificar patrones de consumo y rendimiento en el tiempo.
+            </p>
+          </div>
+
+          {/* Quick Stats Badges */}
+          <div className="flex flex-wrap gap-2 text-xs font-mono">
+            {maxSaleDay && (
+              <span className="px-2.5 py-1 rounded-lg bg-emerald-50 dark:bg-emerald-950/50 text-emerald-700 dark:text-emerald-300 border border-emerald-200/60 font-bold flex items-center gap-1">
+                🚀 Pico: ${maxSaleDay.total.toLocaleString("es-MX", { maximumFractionDigits: 0 })} ({maxSaleDay.shortDate})
+              </span>
+            )}
+            {minSaleDay && (
+              <span className="px-2.5 py-1 rounded-lg bg-amber-50 dark:bg-amber-950/50 text-amber-700 dark:text-amber-300 border border-amber-200/60 font-bold flex items-center gap-1">
+                📉 Mínimo: ${minSaleDay.total.toLocaleString("es-MX", { maximumFractionDigits: 0 })} ({minSaleDay.shortDate})
+              </span>
+            )}
+          </div>
+        </div>
+
+        {/* Visual Recharts Line Graph */}
+        {salesTrendList.length === 0 ? (
+          <div className="py-12 text-center text-gray-400 text-xs italic bg-gray-50/50 dark:bg-slate-950/40 rounded-xl border border-dashed border-gray-200 dark:border-slate-800">
+            No se registraron ventas en el periodo seleccionado para graficar el histórico.
+          </div>
+        ) : (
+          <div className="space-y-3">
+            <div className="h-56 w-full pt-2">
+              <ResponsiveContainer width="100%" height="100%">
+                <LineChart data={salesTrendList} margin={{ top: 10, right: 15, left: -15, bottom: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" opacity={0.15} />
+                  <XAxis dataKey="shortDate" tick={{ fontSize: 10, fill: "#888888" }} />
+                  <YAxis tick={{ fontSize: 10, fill: "#888888" }} tickFormatter={(v) => `$${v >= 1000 ? (v/1000).toFixed(0) + 'k' : v}`} />
+                  <RechartsTooltip 
+                    formatter={(value: any) => [`$${Number(value || 0).toLocaleString("es-MX", { minimumFractionDigits: 2 })} MXN`, "Venta Total"]}
+                    labelFormatter={(label, payload) => payload?.[0]?.payload?.date || label}
+                    contentStyle={{ backgroundColor: "#0f172a", borderRadius: "8px", border: "1px solid #334155", color: "#ffffff", fontSize: "12px" }}
+                  />
+                  <Line type="monotone" dataKey="total" stroke="#10b981" strokeWidth={3} dot={{ r: 4, fill: "#10b981" }} activeDot={{ r: 7 }} />
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
+            
+            <div className="flex justify-between items-center text-[10px] text-gray-400 font-mono pt-1">
+              <span>📅 Período: {sortedSalesDates[0] || "N/A"} al {sortedSalesDates[sortedSalesDates.length - 1] || "N/A"}</span>
+              <span>Promedio Diario: ${salesTrendList.length > 0 ? (totalSalesAmount / salesTrendList.length).toLocaleString("es-MX", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : "0.00"} MXN</span>
+            </div>
+          </div>
+        )}
+      </div>
 
       {/* 2. OPEN CAJA MODAL */}
       {showOpenCajaModal && (
