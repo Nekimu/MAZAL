@@ -84,7 +84,7 @@ Write-Host "====================================================================
 Write-Host " 1. URL Local:            http://localhost/mazal/" -ForegroundColor White
 Write-Host " 2. Sucursal Norte:       BD: mazal_bd  (PIN: norte123)" -ForegroundColor White
 Write-Host " 3. Sucursal Sur:         BD: mazal_bd1 (PIN: sur123)" -ForegroundColor White
-Write-Host " 4. Administrador General: Usuario: admin / Clave: admin030114" -ForegroundColor White
+Write-Host " 4. Administrador General: Usuario: admin / Clave: (Inicializar con npm run seed:admin)" -ForegroundColor White
 Write-Host "==============================================================================" -ForegroundColor Green
 Write-Host ""
 

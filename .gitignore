@@ -40,7 +40,7 @@ mazal/.env.*
 # Databases, SQL Dumps & Local Backups
 backups/
 *.sql
-!scripts/sql/mazal_mysql_schema.sql
+!scripts/sql/*.sql
 *.sqlite
 *.sqlite3
 *.db

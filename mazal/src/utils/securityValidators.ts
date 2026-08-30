@@ -8,9 +8,6 @@
 import { supabase, isSupabaseConfigured, ensureSupabaseConfigured, getSupabaseClient } from "../supabase";
 import { saveUserToMySQL } from "../data";
 
-export const DEFAULT_MASTER_ADMIN_PASSWORD = "admin030114";
-export const MASTER_PASSWORD_STORAGE_KEY = "mazal_master_admin_password";
-
 /**
  * Genera un hash SHA-256 en formato hexadecimal de forma universal y segura.
  */
@@ -63,117 +60,7 @@ export async function verifyPasswordHash(
 }
 
 /**
- * Obtiene la contraseña maestra activa para el Administrador General:
- * Consulta Supabase Cloud primero; si no está disponible, utiliza el almacenamiento local o la clave por defecto.
- */
-export async function getActiveMasterAdminPassword(): Promise<string> {
-  const isConfigured = await ensureSupabaseConfigured();
-
-  // 1. Intentar consultar Supabase Cloud
-  if (isConfigured) {
-    try {
-      const client = getSupabaseClient();
-      const { data, error } = await client
-        .from("users")
-        .select("password")
-        .ilike("username", "admin")
-        .maybeSingle();
-
-      if (!error && data) {
-        if (data.password && data.password.trim()) {
-          try {
-            localStorage.setItem(MASTER_PASSWORD_STORAGE_KEY, data.password.trim());
-          } catch {}
-          return data.password.trim();
-        }
-      }
-    } catch (e) {
-      console.warn("Aviso al consultar contraseña maestra en Supabase:", e);
-    }
-  }
-
-  // 2. Almacenamiento Local (Persistencia offline)
-  try {
-    if (typeof localStorage !== "undefined") {
-      const localPass = localStorage.getItem(MASTER_PASSWORD_STORAGE_KEY);
-      if (localPass && localPass.trim()) {
-        return localPass.trim();
-      }
-    }
-  } catch {}
-
-  // 3. Clave maestra por defecto
-  return DEFAULT_MASTER_ADMIN_PASSWORD;
-}
-
-/**
- * Actualiza la Contraseña Maestra del Administrador General en Supabase Cloud.
- */
-export async function updateMasterAdminPassword(
-  newPassword: string
-): Promise<{ success: boolean; message: string }> {
-  const cleanPass = (newPassword || "").trim();
-  if (!cleanPass) {
-    return { success: false, message: "La contraseña no puede estar vacía." };
-  }
-
-  if (cleanPass.length < 4) {
-    return { success: false, message: "La contraseña debe tener al menos 4 caracteres." };
-  }
-
-  // 1. Guardar en almacenamiento local
-  try {
-    if (typeof localStorage !== "undefined") {
-      localStorage.setItem(MASTER_PASSWORD_STORAGE_KEY, cleanPass);
-    }
-  } catch (e) {
-    console.warn("Error guardando contraseña maestra en localStorage:", e);
-  }
-
-  // 2. Guardar directamente en Supabase Cloud
-  let cloudSynced = false;
-  try {
-    const isConfigured = await ensureSupabaseConfigured();
-    if (isConfigured) {
-      const client = getSupabaseClient();
-      const { error } = await client.from("users").upsert(
-        {
-          id: "USR_ADMIN",
-          username: "admin",
-          name: "Administrador General",
-          password: cleanPass,
-          role: "Administrador",
-          status: "Activo"
-        },
-        { onConflict: "username" }
-      );
-
-      if (!error) {
-        cloudSynced = true;
-      }
-    }
-  } catch (supabaseErr) {
-    console.warn("Excepción al guardar admin en Supabase:", supabaseErr);
-  }
-
-  // 3. Sincronizar en MySQL local
-  saveUserToMySQL({
-    name: "Administrador General",
-    username: "admin",
-    password: cleanPass,
-    role: "Administrador"
-  }).catch((err) => console.warn("Error guardando admin en MySQL local:", err));
-
-  return {
-    success: true,
-    message: cloudSynced
-      ? "¡Contraseña Maestra actualizada y sincronizada en la Nube con éxito!"
-      : "¡Contraseña Maestra actualizada localmente!"
-  };
-}
-
-/**
- * Guarda o actualiza un usuario en Supabase Cloud garantizando consistencia de contraseñas.
+ * Guarda o actualiza un usuario a través del API del servidor Express (Bcrypt + JWT) o fallback
  */
 export async function saveUserToSupabase(user: {
   id?: string;
@@ -185,6 +72,33 @@ export async function saveUserToSupabase(user: {
 }): Promise<boolean> {
   const cleanUser = (user.username || "").trim().toLowerCase();
 
+  // 1. Intentar guardar mediante API Server Express con JWT
+  try {
+    const token = typeof sessionStorage !== "undefined" ? sessionStorage.getItem("mazal_auth_token") : null;
+    const res = await fetch("/api/users", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...(token ? { Authorization: `Bearer ${token}` } : {})
+      },
+      body: JSON.stringify({
+        id: user.id,
+        username: cleanUser,
+        name: user.name.trim(),
+        password: user.password,
+        role: user.role,
+        status: user.status || "Activo"
+      })
+    });
+
+    if (res.ok) {
+      return true;
+    }
+  } catch (apiErr) {
+    // Continuar a fallback directo si no hay API
+  }
+
+  // 2. Fallback Supabase directo si está configurado
   try {
     const isConfigured = await ensureSupabaseConfigured();
     if (isConfigured) {
@@ -198,14 +112,14 @@ export async function saveUserToSupabase(user: {
       };
 
       if (user.password) {
-        rowData.password = user.password;
+        rowData.password_hash = await hashPassword(user.password);
       }
 
       const { error } = await client.from("users").upsert(rowData, { onConflict: "username" });
       if (!error) {
         return true;
       }
-      console.warn("Error guardando usuario en Supabase:", error);
+      console.warn("Aviso al guardar usuario en Supabase:", error);
     }
   } catch (err) {
     console.warn("Excepción al guardar usuario en Supabase:", err);
@@ -215,16 +129,18 @@ export async function saveUserToSupabase(user: {
 }
 
 /**
- * Elimina un usuario de Supabase Cloud de forma segura y permanente.
+ * Elimina un usuario del sistema de forma segura.
  */
 export async function deleteUserFromSupabase(usernameOrId: string, optionalId?: string): Promise<boolean> {
   const cleanUser = (usernameOrId || "").trim();
   if (cleanUser.toLowerCase() === "admin") return false; // Proteger usuario administrador maestro
 
-  // 1. Intento por API Server Express si está disponible
+  // 1. Intento por API Server Express con JWT
   try {
+    const token = typeof sessionStorage !== "undefined" ? sessionStorage.getItem("mazal_auth_token") : null;
     const res = await fetch(`/api/users/${encodeURIComponent(cleanUser.toLowerCase())}`, {
-      method: "DELETE"
+      method: "DELETE",
+      headers: token ? { Authorization: `Bearer ${token}` } : {}
     });
     if (res.ok) {
       return true;
@@ -236,7 +152,6 @@ export async function deleteUserFromSupabase(usernameOrId: string, optionalId?: 
     const isConfigured = await ensureSupabaseConfigured();
     if (isConfigured) {
       const client = getSupabaseClient();
-      // Eliminar por username o por id
       const targetId = optionalId || cleanUser;
       const { error } = await client
         .from("users")

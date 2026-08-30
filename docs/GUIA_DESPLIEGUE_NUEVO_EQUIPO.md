@@ -56,7 +56,7 @@ El sistema detectará automáticamente el equipo y aprovisionará la estructura 
 | :--- | :--- | :--- |
 | **Sucursal Norte (Principal)** | `mazal_bd` | `norte123` |
 | **Sucursal Sur (Secundaria)** | `mazal_bd1` | `sur123` |
-| **Administrador General** | Global | Usuario: `admin` / Contraseña: `admin030114` |
+| **Administrador General** | Global | Usuario: `admin` / Contraseña: *Generada con `npm run seed:admin`* |
 
 ---
 

@@ -531,9 +531,9 @@ function autoMigrateSchema($db, $targetDb) {
         `updated_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;");
 
-    // W. ASEGURAR ADMINISTRADOR GENERAL MAESTRO
+    // W. ASEGURAR ADMINISTRADOR GENERAL BASE
     $db->query("INSERT INTO `usuarios` (`usuario`, `nombrecompleto`, `password`, `rol`, `status`) 
-                SELECT 'admin', 'Administrador General', 'admin030114', 'administrador', 'Activo' 
+                SELECT 'admin', 'Administrador General', '', 'administrador', 'Activo' 
                 WHERE NOT EXISTS (SELECT 1 FROM `usuarios` WHERE `usuario` = 'admin');");
 
     // X. ASEGURAR SUCURSALES BASE
@@ -573,15 +573,11 @@ if ($action === 'login' && $_SERVER['REQUEST_METHOD'] === 'POST') {
             $storedPass = $row['password'];
             $isValid = false;
 
-            if ($passIn === $storedPass) {
+            if (!empty($storedPass) && $passIn === $storedPass) {
                 $isValid = true;
-            } else if (password_verify($passIn, $storedPass)) {
+            } else if (!empty($storedPass) && password_verify($passIn, $storedPass)) {
                 $isValid = true;
-            } else if (hash('sha256', $passIn) === strtolower($storedPass)) {
-                $isValid = true;
-            } else if (strtolower($userIn) === 'admin' && ($passIn === 'admin030114' || $passIn === 'admin' || $passIn === 'norma777')) {
-                $isValid = true;
-            } else if ($row['usuario'] === '0710' && ($passIn === 'norma777' || $passIn === '0710')) {
+            } else if (!empty($storedPass) && hash('sha256', $passIn) === strtolower($storedPass)) {
                 $isValid = true;
             }
 

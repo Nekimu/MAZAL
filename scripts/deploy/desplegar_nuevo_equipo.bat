@@ -79,7 +79,7 @@ echo ===========================================================================
 echo  1. URL del Sistema:       http://localhost/mazal/
 echo  2. Sucursal 1 (Norte):    BD: mazal_bd  (PIN: norte123)
 echo  3. Sucursal 2 (Sur):      BD: mazal_bd1 (PIN: sur123)
-echo  4. Administrador General: Usuario: admin / Clave: admin030114
+echo  4. Administrador General: Usuario: admin / Clave: (Inicializar con npm run seed:admin)
 echo ==============================================================================
 echo.
 echo Abriendo el sistema en tu navegador predeterminado...

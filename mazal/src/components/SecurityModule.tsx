@@ -43,8 +43,6 @@ import { getBranchPasswords, saveBranchPasswords } from "../utils/BranchPassword
 import { authenticateStaff } from "../services/authService";
 import { supabase, isSupabaseConfigured, testSupabaseConnection } from "../supabase";
 import { 
-  getActiveMasterAdminPassword, 
-  updateMasterAdminPassword, 
   saveUserToSupabase, 
   deleteUserFromSupabase,
   verifyPasswordHash
@@ -157,12 +155,6 @@ export default function SecurityModule({ currentUser, onChangeRole }: SecurityMo
     }).catch((e) => {
       setSupabaseStatus("Sin conexión a Supabase: " + String(e));
     });
-
-    // Cargar la Contraseña Maestra activa del Administrador
-    getActiveMasterAdminPassword().then((pass) => {
-      setMasterAdminPass(pass);
-      setConfirmMasterAdminPass(pass);
-    }).catch(() => {});
   }, []);
 
   // State for consolidated audit timeline
@@ -406,13 +398,7 @@ export default function SecurityModule({ currentUser, onChangeRole }: SecurityMo
 
       // 1. Validar Contraseña Anterior / Actual
       let isOldValid = false;
-      if (cleanUsername === "admin") {
-        const activeMaster = await getActiveMasterAdminPassword();
-        isOldValid = (modalOldPassword === activeMaster || modalOldPassword === "admin030114");
-        if (!isOldValid && selectedUserForPass.password) {
-          isOldValid = await verifyPasswordHash(modalOldPassword, selectedUserForPass.password);
-        }
-      } else if (selectedUserForPass.password) {
+      if (selectedUserForPass.password) {
         isOldValid = await verifyPasswordHash(modalOldPassword, selectedUserForPass.password);
       } else {
         isOldValid = true;
@@ -426,14 +412,7 @@ export default function SecurityModule({ currentUser, onChangeRole }: SecurityMo
 
       const finalPass = modalNewPassword.trim();
 
-      // 2. Si es el Administrador General, actualizar Contraseña Maestra
-      if (cleanUsername === "admin") {
-        await updateMasterAdminPassword(finalPass);
-        setMasterAdminPass(finalPass);
-        setConfirmMasterAdminPass(finalPass);
-      }
-
-      // 3. Actualizar en estado local
+      // 2. Actualizar en estado local
       const currentDb = getDatabase();
       const updatedUsers = currentDb.users.map((u: User) => {
         if (u.id === selectedUserForPass.id || (u.username || "").toLowerCase() === cleanUsername) {
@@ -592,21 +571,28 @@ export default function SecurityModule({ currentUser, onChangeRole }: SecurityMo
 
     setMasterPassLoading(true);
     try {
-      const res = await updateMasterAdminPassword(clean);
-      if (res.success) {
+      const saved = await saveUserToSupabase({
+        id: "USR_ADMIN",
+        name: "Administrador General",
+        username: "admin",
+        password: clean,
+        role: "Administrador",
+        status: "Activo"
+      });
+      if (saved) {
         logAction(
           currentUser.name,
           currentUser.role,
           "Modificación de Seguridad",
-          "Actualizó la Contraseña Maestra de Administrador en Supabase y Servidor Local."
+          "Actualizó la Contraseña del Administrador General en el Servidor y Base de Datos."
         );
-        setMasterPassSuccess(res.message);
+        setMasterPassSuccess("¡Contraseña de Administrador actualizada con éxito!");
         setTimeout(() => setMasterPassSuccess(""), 5000);
       } else {
-        setMasterPassError(res.message || "Error al actualizar la contraseña maestra.");
+        setMasterPassError("Error al actualizar la contraseña del Administrador.");
       }
     } catch (err: any) {
-      setMasterPassError("Error al guardar la contraseña maestra: " + (err.message || String(err)));
+      setMasterPassError("Error al guardar la contraseña: " + (err.message || String(err)));
     } finally {
       setMasterPassLoading(false);
     }

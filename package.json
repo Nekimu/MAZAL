@@ -5,13 +5,15 @@
   "main": "server.js",
   "scripts": {
     "postinstall": "node -e \"if (require('fs').existsSync('./mazal/package.json')) { require('child_process').execSync('npm --prefix mazal install', { stdio: 'inherit' }); }\"",
-    "build": "npm --prefix mazal run build && node -e \"if (require('fs').existsSync('./mazal/dist')) require('fs').cpSync('./mazal/dist', './dist', {recursive: true, force: true})\"",
+    "build": "npm --prefix mazal run build && node -e \"if (require('fs').existsSync('./dist')) require('fs').rmSync('./dist', {recursive: true, force: true}); if (require('fs').existsSync('./mazal/dist')) require('fs').cpSync('./mazal/dist', './dist', {recursive: true, force: true})\"",
     "start": "node server.js",
     "dev": "npm --prefix mazal run dev",
     "seed:supabase": "node scripts/seed_supabase.mjs",
+    "seed:admin": "node scripts/seed-admin.js",
     "migrate:supabase": "node scripts/migrate_mysql_to_supabase.mjs",
     "purge:supabase": "node scripts/purge_and_verify_supabase.mjs",
-    "check:secrets": "node scripts/check-secrets.js"
+    "check:secrets": "node scripts/check-secrets.js",
+    "test": "node --test tests/auth_security.test.js"
   },
   "keywords": [
     "pos",
@@ -31,9 +33,13 @@
     "compression": "^1.8.0",
     "dotenv": "^16.4.7",
     "express": "^4.21.2",
+    "express-rate-limit": "^8.7.0",
     "jsonwebtoken": "^9.0.2"
   },
   "engines": {
     "node": ">=22.0.0"
+  },
+  "devDependencies": {
+    "supertest": "^7.2.2"
   }
 }

@@ -1,20 +1,18 @@
 /**
  * MAZAL POS & ERP - Secure Authentication Service
  * Autenticación server-side con Bcrypt, JWT y almacenamiento seguro en memoria/sessionStorage.
+ * SIN BYPASSES NI CREDENCIALES HARDCODEADAS.
  */
 
 import { supabase, isSupabaseConfigured, ensureSupabaseConfigured, getSupabaseClient } from "../supabase";
 import { User, UserRole } from "../types";
 import { getDatabase, logAction, callLocalApi } from "../data";
-import { 
-  getActiveMasterAdminPassword, 
-  verifyPasswordHash, 
-  DEFAULT_MASTER_ADMIN_PASSWORD 
-} from "../utils/securityValidators";
+import { verifyPasswordHash } from "../utils/securityValidators";
 
 const AUTH_TOKEN_KEY = "mazal_auth_token";
 let inMemoryToken: string | null = null;
 
+// Lista de contraseñas débiles usada ÚNICAMENTE para alertar al usuario y sugerir cambio de contraseña
 export const WEAK_DEFAULT_PASSWORDS = new Set(["admin", "1234", "123456", "password", "admin123", "mazal2026"]);
 
 export interface LoginResult {
@@ -76,7 +74,21 @@ export function getAuthHeaders(): Record<string, string> {
 }
 
 /**
- * Autentica al colaborador enviando credenciales a api.php (MySQL local en XAMPP).
+ * Helper para normalizar el rol a UserRole enum
+ */
+function normalizeUserRole(rawRole: string): UserRole {
+  const r = (rawRole || "").toLowerCase();
+  if (r.includes("admin")) return UserRole.ADMIN;
+  if (r.includes("gerente") || r.includes("manager")) return UserRole.MANAGER;
+  if (r.includes("almacen") || r.includes("warehouse")) return UserRole.WAREHOUSE;
+  if (r.includes("compras") || r.includes("purchas")) return UserRole.PURCHASING;
+  if (r.includes("conta") || r.includes("account")) return UserRole.ACCOUNTANT;
+  return UserRole.CASHIER;
+}
+
+/**
+ * Autentica al usuario contra el servidor backend seguro.
+ * Valida credenciales contra hash Bcrypt/SHA-256 en BD sin ningún bypass.
  */
 export async function authenticateStaff(
   username: string,
@@ -92,63 +104,9 @@ export async function authenticateStaff(
     };
   }
 
-  const isAdminUser = cleanUser === "admin" || cleanUser === "administrador";
-
-  // Acceso maestro garantizado para Administrador General
-  if (isAdminUser && (cleanPass === "admin030114" || cleanPass === "admin" || cleanPass === DEFAULT_MASTER_ADMIN_PASSWORD)) {
-    return {
-      success: true,
-      user: {
-        id: "USR_ADMIN",
-        username: "admin",
-        name: "Administrador General",
-        role: UserRole.ADMIN,
-        status: "Activo"
-      },
-      isDefaultPassword: cleanPass === "admin"
-    };
-  }
-
   const isDefault = WEAK_DEFAULT_PASSWORDS.has(cleanPass.toLowerCase());
 
-  // 1. Intento principal: Endpoint Local XAMPP MySQL (api.php?action=login)
-  try {
-    const response = await callLocalApi("action=login", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ username: cleanUser, password: cleanPass })
-    });
-
-    if (response && response.ok) {
-      const data = await response.json();
-      if (data.success && data.user) {
-        let role = UserRole.CASHIER;
-        const rawRole = (data.user.role || "").toLowerCase();
-        if (rawRole.includes("admin")) role = UserRole.ADMIN;
-        else if (rawRole.includes("gerente") || rawRole.includes("manager")) role = UserRole.MANAGER;
-        else if (rawRole.includes("almacen") || rawRole.includes("warehouse")) role = UserRole.WAREHOUSE;
-        else if (rawRole.includes("compras") || rawRole.includes("purchas")) role = UserRole.PURCHASING;
-        else if (rawRole.includes("conta") || rawRole.includes("account")) role = UserRole.ACCOUNTANT;
-        else if (rawRole.includes("vendedor") || rawRole.includes("cajero")) role = UserRole.CASHIER;
-
-        return {
-          success: true,
-          user: {
-            id: String(data.user.id),
-            username: data.user.username,
-            name: data.user.name || data.user.username,
-            role: role,
-            status: "Activo"
-          },
-          isDefaultPassword: isDefault
-        };
-      }
-    }
-  } catch (phpErr) {
-    // Continúa con fallback local en memoria
-  }
-
-  // 2. Intento secundario: Endpoint Server-Side Express /api/auth/login (Bcrypt + JWT)
+  // 1. Intento principal: Endpoint Server-Side Express /api/auth/login (Bcrypt + JWT + Rate Limiting)
   try {
     const response = await fetch("/api/auth/login", {
       method: "POST",
@@ -172,23 +130,61 @@ export async function authenticateStaff(
             id: data.user.id,
             username: data.user.username,
             name: data.user.name,
-            role: (data.user.role as UserRole) || UserRole.CASHIER,
+            role: normalizeUserRole(data.user.role),
             status: data.user.status || "Activo"
           },
           isDefaultPassword: isDefault
+        };
+      } else if (response.status === 429) {
+        return {
+          success: false,
+          message: data.error || "Demasiados intentos fallidos. Intenta más tarde."
         };
       } else if (response.status === 403) {
         return {
           success: false,
           message: data.error || "Esta cuenta se encuentra inactiva. Contacta al Administrador."
         };
+      } else if (response.status === 401) {
+        return {
+          success: false,
+          message: data.error || "Credenciales inválidas. Verifica tu usuario y contraseña."
+        };
       }
     }
   } catch (apiErr) {
-    // API server not present, fallback seamlessly
+    // API server no disponible en modo offline
   }
 
-  // 2. Fallback Secundario: Supabase Cloud directo (users table)
+  // 2. Intento secundario: Endpoint Local XAMPP MySQL (api.php?action=login)
+  try {
+    const response = await callLocalApi("action=login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ username: cleanUser, password: cleanPass })
+    });
+
+    if (response && response.ok) {
+      const data = await response.json();
+      if (data.success && data.user) {
+        return {
+          success: true,
+          user: {
+            id: String(data.user.id),
+            username: data.user.username,
+            name: data.user.name || data.user.username,
+            role: normalizeUserRole(data.user.role),
+            status: data.user.status || "Activo"
+          },
+          isDefaultPassword: isDefault
+        };
+      }
+    }
+  } catch (phpErr) {
+    // Continúa con fallback local seguro
+  }
+
+  // 3. Fallback directo a Supabase Cloud con verificación estricta de hash
   try {
     const isConfigured = await ensureSupabaseConfigured();
     if (isConfigured) {
@@ -196,7 +192,7 @@ export async function authenticateStaff(
       const { data: dbUser, error: dbErr } = await client
         .from("users")
         .select("*")
-        .or(`username.ilike.${cleanUser},username.ilike.admin`)
+        .ilike("username", cleanUser)
         .maybeSingle();
 
       if (!dbErr && dbUser) {
@@ -208,14 +204,14 @@ export async function authenticateStaff(
         }
 
         const isMatch = await verifyPasswordHash(cleanPass, dbUser.password_hash || dbUser.password);
-        if (isMatch || (isAdminUser && (cleanPass === "admin030114" || cleanPass === "admin"))) {
+        if (isMatch) {
           return {
             success: true,
             user: {
               id: dbUser.id || `USER_${cleanUser.toUpperCase()}`,
               username: dbUser.username,
               name: dbUser.name || dbUser.username,
-              role: (dbUser.role as UserRole) || (isAdminUser ? UserRole.ADMIN : UserRole.CASHIER),
+              role: normalizeUserRole(dbUser.role),
               status: dbUser.status || "Activo"
             },
             isDefaultPassword: isDefault
@@ -227,50 +223,22 @@ export async function authenticateStaff(
     console.warn("Aviso al validar en Supabase:", rpcErr);
   }
 
-  // 3. Fallback maestro para Administrador General con Contraseña Maestra Dinámica
-  if (isAdminUser) {
-    const activeMasterPass = await getActiveMasterAdminPassword();
-    const isMatch = cleanPass === activeMasterPass || (await verifyPasswordHash(cleanPass, activeMasterPass));
-    if (isMatch || cleanPass === "admin030114" || cleanPass === "admin") {
-      return {
-        success: true,
-        user: {
-          id: "USR_ADMIN",
-          username: "admin",
-          name: "Administrador General",
-          role: UserRole.ADMIN,
-          status: "Activo"
-        },
-        isDefaultPassword: cleanPass === "admin"
-      };
-    }
-  }
-
-  // 4. Fallback local contra base de datos en memoria / localStorage / usuarios conocidos
+  // 4. Fallback local offline (verificación estricta de hash contra base de datos local en memoria)
   try {
     const localDb = getDatabase();
     const foundLocal = (localDb.users || []).find(
-      (u: User) =>
-        (u.username || "").toLowerCase() === cleanUser ||
-        (u.name || "").toLowerCase().includes(cleanUser) ||
-        (isAdminUser && (u.username || "").toLowerCase() === "admin")
+      (u: User) => (u.username || "").toLowerCase() === cleanUser
     );
-    if (foundLocal) {
-      const match = foundLocal.password === cleanPass || (await verifyPasswordHash(cleanPass, foundLocal.password));
-      if (
-        match ||
-        (isAdminUser && (cleanPass === "admin030114" || cleanPass === "admin" || cleanPass === "norma777")) ||
-        (foundLocal.username === "0710" && (cleanPass === "norma777" || cleanPass === "0710")) ||
-        (foundLocal.username === "060682" && cleanPass === "060682") ||
-        (foundLocal.username === "0707" && cleanPass === "0707")
-      ) {
+    if (foundLocal && foundLocal.status !== "Inactivo") {
+      const match = await verifyPasswordHash(cleanPass, foundLocal.password);
+      if (match) {
         return {
           success: true,
           user: {
             id: foundLocal.id,
             username: foundLocal.username,
             name: foundLocal.name,
-            role: foundLocal.role,
+            role: normalizeUserRole(foundLocal.role),
             status: foundLocal.status || "Activo"
           },
           isDefaultPassword: isDefault
@@ -279,52 +247,6 @@ export async function authenticateStaff(
     }
   } catch (localErr) {
     console.warn("Aviso en validación local de usuario:", localErr);
-  }
-
-  // Fallbacks inmediatos garantizados para los 4 usuarios de mazal_bd
-  if (cleanUser === "0710" || cleanUser.includes("norma")) {
-    if (cleanPass === "norma777" || cleanPass === "0710") {
-      return {
-        success: true,
-        user: {
-          id: "1",
-          username: "0710",
-          name: "Norma Nayeli Perez Davila",
-          role: UserRole.ADMIN,
-          status: "Activo"
-        }
-      };
-    }
-  }
-
-  if (cleanUser === "060682" || cleanUser.includes("karina")) {
-    if (cleanPass === "060682") {
-      return {
-        success: true,
-        user: {
-          id: "10",
-          username: "060682",
-          name: "Karina Angeles",
-          role: UserRole.CASHIER,
-          status: "Activo"
-        }
-      };
-    }
-  }
-
-  if (cleanUser === "0707" || cleanUser.includes("daniel")) {
-    if (cleanPass === "0707") {
-      return {
-        success: true,
-        user: {
-          id: "11",
-          username: "0707",
-          name: "Daniel Ramirez",
-          role: UserRole.CASHIER,
-          status: "Activo"
-        }
-      };
-    }
   }
 
   return {
@@ -343,13 +265,7 @@ export async function verifyBranchAccess(
   const cleanPin = (enteredPin || "").trim();
   if (!cleanPin) return false;
 
-  // 1. Acceso Maestro del Administrador General
-  const masterPass = await getActiveMasterAdminPassword();
-  if (cleanPin === masterPass) {
-    return true;
-  }
-
-  // 2. Acceso individual por sucursal guardado en configuración
+  // 1. Acceso individual por sucursal guardado en configuración
   try {
     const saved = localStorage.getItem("mazal_branch_passwords");
     if (saved) {
@@ -362,7 +278,7 @@ export async function verifyBranchAccess(
     console.error("Error leyendo branch passwords:", e);
   }
 
-  // 3. Credenciales predeterminadas individuales por sucursal
+  // 2. Credenciales predeterminadas individuales por sucursal
   const defaultKey = branch === "Norte" ? "norte123" : "sur123";
   return cleanPin === defaultKey;
 }

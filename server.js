@@ -1,7 +1,7 @@
 /**
  * MAZAL POS & ERP - Production Web Server for Railway & Cloud Hosting
  * Incluye Autenticación Server-Side Segura (Bcrypt + SHA256 Compat + JWT),
- * Gestión de Usuarios, Entrega Dinámica de Configuración e Inyección SPA.
+ * Gestión de Usuarios con RBAC, Rate Limiting, Entrega Dinámica de Configuración e Inyección SPA.
  */
 require('dotenv').config();
 const express = require('express');
@@ -11,6 +11,7 @@ const fs = require('fs');
 const crypto = require('crypto');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
+const rateLimit = require('express-rate-limit');
 const { createClient } = require('@supabase/supabase-js');
 
 const app = express();
@@ -42,6 +43,15 @@ if (SUPABASE_URL && SUPABASE_KEY && !SUPABASE_URL.includes('your-project') && !S
   console.log('[MAZAL POS Server] Modo local/desarrollo activo (Credenciales de Supabase se obtendrán desde variables de entorno).');
 }
 
+// Whitelist de roles permitidos en el sistema
+const ALLOWED_ROLES = ['Administrador', 'Gerente', 'Cajero', 'Almacen', 'Compras', 'Contador'];
+
+function validateAndNormalizeRole(role) {
+  if (!role) return null;
+  const match = ALLOWED_ROLES.find(r => r.toLowerCase() === String(role).trim().toLowerCase());
+  return match || null;
+}
+
 // 1. Middlewares de Seguridad y Parsing
 app.use((req, res, next) => {
   res.setHeader('X-Content-Type-Options', 'nosniff');
@@ -58,7 +68,41 @@ app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 app.use(compression());
 
-// 2. Healthcheck & Config Endpoints
+// Rate Limiter específico para Login (máximo 5 intentos por IP cada 15 minutos)
+const loginRateLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutos
+  max: 5, // Límite de 5 intentos por ventana
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: {
+    error: 'Demasiados intentos fallidos de inicio de sesión. Por favor intenta de nuevo en 15 minutos.'
+  }
+});
+
+// Función de registro de auditoría de autenticación
+async function logAuthAttempt(username, success, ip, details = '') {
+  const timestamp = new Date().toISOString();
+  console.log(`[AUTH LOG] ${timestamp} | IP: ${ip} | User: @${username} | Status: ${success ? 'SUCCESS' : 'FAILED'} | ${details}`);
+  
+  if (supabase) {
+    try {
+      await supabase.from('audit_logs').insert({
+        id: `LOG_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+        user_name: username || 'desconocido',
+        role: success ? 'Autenticado' : 'Sin Sesión',
+        action: success ? 'Login Exitoso' : 'Login Fallido',
+        details: `${details} (IP: ${ip})`,
+        timestamp,
+        ip: ip || 'unknown',
+        branch: 'Server-API'
+      });
+    } catch (logErr) {
+      // Non-blocking log insertion failure
+    }
+  }
+}
+
+// 2. Healthcheck & Config Endpoints (Públicos)
 app.get('/health', (req, res) => {
   res.status(200).json({
     status: 'OK',
@@ -76,11 +120,11 @@ app.get('/api/health', (req, res) => {
   });
 });
 
-// Endpoint público para que los navegadores móviles y clientes obtengan las credenciales en runtime
+// Endpoint público para que los clientes obtengan URL en runtime
 app.get('/api/config', (req, res) => {
   res.status(200).json({
     supabaseUrl: SUPABASE_URL,
-    supabaseAnonKey: process.env.VITE_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY || SUPABASE_KEY || ''
+    supabaseAnonKey: process.env.VITE_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY || ''
   });
 });
 
@@ -114,7 +158,8 @@ function requireAuth(allowedRoles) {
 
 /**
  * Función auxiliar para verificar contraseñas en múltiples formatos
- * (Bcrypt, SHA-256 hexadecimal, o texto plano legado)
+ * (Bcrypt, SHA-256 hexadecimal, o texto plano legado con auto-migración)
+ * NINGÚN ID NI USUARIO POSEE BYPASS AUTOMÁTICO.
  */
 async function verifyUserPassword(cleanPass, targetUser) {
   const sha256Hex = crypto.createHash('sha256').update(cleanPass).digest('hex');
@@ -153,16 +198,12 @@ async function verifyUserPassword(cleanPass, targetUser) {
     }
   }
 
-  // Fallback para Administrador por defecto
-  if (!match && targetUser.id === 'USER_ADMIN_DEFAULT') {
-    match = true;
-  }
-
   return { match, shouldRehash };
 }
 
-// 4. Endpoint Server-Side de Autenticación: POST /api/auth/login
-app.post('/api/auth/login', async (req, res) => {
+// 4. Endpoint Server-Side de Autenticación: POST /api/auth/login (Protegido con Rate Limiting)
+app.post('/api/auth/login', loginRateLimiter, async (req, res) => {
+  const clientIp = req.ip || req.headers['x-forwarded-for'] || req.socket.remoteAddress || 'unknown';
   const { username, password } = req.body || {};
   const cleanUser = (username || '').trim().toLowerCase();
   const cleanPass = (password || '').trim();
@@ -187,39 +228,28 @@ app.post('/api/auth/login', async (req, res) => {
       }
     }
 
-    // Fallback maestro de contingencia para Administrador General
-    if (cleanUser === 'admin') {
-      const defaultAdminPass = process.env.VITE_USER_ADMIN_PASSWORD || 'admin030114';
-      if (cleanPass === defaultAdminPass || cleanPass === 'admin' || (targetUser && targetUser.password === cleanPass)) {
-        targetUser = targetUser || {
-          id: 'USR_ADMIN',
-          username: 'admin',
-          name: 'Administrador General',
-          role: 'Administrador',
-          status: 'Activo',
-          password: cleanPass
-        };
-      }
-    }
-
-    // Si el usuario no existe, responder 401 genérico
+    // Si el usuario no existe, responder 401 genérico y registrar intento fallido
     if (!targetUser) {
+      await logAuthAttempt(cleanUser, false, clientIp, 'Usuario no encontrado');
       return res.status(401).json({ error: 'Credenciales inválidas. Verifica tu usuario y contraseña.' });
     }
 
     // Verificar si la cuenta está inactiva
     if (targetUser.status === 'Inactivo') {
+      await logAuthAttempt(cleanUser, false, clientIp, 'Cuenta inactiva');
       return res.status(403).json({ error: 'Esta cuenta se encuentra inactiva. Contacta al Administrador.' });
     }
 
+    // Verificación estricta de contraseña (Bcrypt / SHA-256) - SIN BYPASS NI FALLBACKS HARDCODEADOS
     const { match: passwordMatch, shouldRehash } = await verifyUserPassword(cleanPass, targetUser);
 
     if (!passwordMatch) {
+      await logAuthAttempt(cleanUser, false, clientIp, 'Contraseña incorrecta');
       return res.status(401).json({ error: 'Credenciales inválidas. Verifica tu usuario y contraseña.' });
     }
 
     // Auto-migración a Bcrypt seguro si se logueó con SHA-256 o texto plano
-    if (shouldRehash && supabase && targetUser.id && targetUser.id !== 'USER_ADMIN_DEFAULT') {
+    if (shouldRehash && supabase && targetUser.id) {
       try {
         const newBcryptHash = await bcrypt.hash(cleanPass, 12);
         await supabase
@@ -243,7 +273,7 @@ app.post('/api/auth/login', async (req, res) => {
     const token = jwt.sign(tokenPayload, JWT_SECRET, { expiresIn: '12h' });
 
     // Actualizar timestamp de última conexión
-    if (supabase && targetUser.id && targetUser.id !== 'USER_ADMIN_DEFAULT') {
+    if (supabase && targetUser.id) {
       supabase
         .from('users')
         .update({ last_login: new Date().toISOString() })
@@ -251,6 +281,8 @@ app.post('/api/auth/login', async (req, res) => {
         .then(() => {})
         .catch(() => {});
     }
+
+    await logAuthAttempt(cleanUser, true, clientIp, 'Autenticación exitosa');
 
     // Responder con token y datos de usuario (SIN password ni password_hash)
     return res.status(200).json({
@@ -271,7 +303,7 @@ app.post('/api/auth/login', async (req, res) => {
   }
 });
 
-// 5. Endpoint para verificar sesión activa: GET /api/auth/me
+// 5. Endpoint para verificar sesión activa: GET /api/auth/me (Requiere Token)
 app.get('/api/auth/me', requireAuth(), (req, res) => {
   res.status(200).json({
     success: true,
@@ -279,8 +311,8 @@ app.get('/api/auth/me', requireAuth(), (req, res) => {
   });
 });
 
-// 6. Endpoints Server-Side para Gestión Segura de Usuarios en Supabase
-app.get('/api/users', async (req, res) => {
+// 6. Endpoints Server-Side Protegidos para Gestión de Usuarios (Solo Administrador)
+app.get('/api/users', requireAuth(['Administrador']), async (req, res) => {
   if (!supabase) {
     return res.status(200).json({ success: true, users: [] });
   }
@@ -297,13 +329,21 @@ app.get('/api/users', async (req, res) => {
   }
 });
 
-app.post('/api/users', async (req, res) => {
+app.post('/api/users', requireAuth(['Administrador']), async (req, res) => {
   const { id, username, name, password, role, status } = req.body || {};
   const cleanUser = (username || '').trim().toLowerCase();
   const cleanPass = (password || '').trim();
 
   if (!cleanUser || !name) {
     return res.status(400).json({ error: 'Nombre y usuario son requeridos.' });
+  }
+
+  // Validación de Whitelist de Roles
+  const normalizedRole = validateAndNormalizeRole(role || 'Cajero');
+  if (!normalizedRole) {
+    return res.status(400).json({
+      error: `Rol inválido especificado. Roles válidos permitidos: ${ALLOWED_ROLES.join(', ')}`
+    });
   }
 
   if (!supabase) {
@@ -321,15 +361,15 @@ app.post('/api/users', async (req, res) => {
       id: userId,
       username: cleanUser,
       name: name.trim(),
-      role: role || 'Cajero',
-      status: status || 'Activo',
+      role: normalizedRole,
+      status: status === 'Inactivo' ? 'Inactivo' : 'Activo',
       ...(passwordHash ? { password_hash: passwordHash, password: '' } : {})
     };
 
     const { data, error } = await supabase
       .from('users')
       .upsert(userPayload, { onConflict: 'username' })
-      .select()
+      .select('id, username, name, role, status')
       .single();
 
     if (error) throw error;
@@ -350,7 +390,7 @@ app.post('/api/users', async (req, res) => {
   }
 });
 
-app.delete('/api/users/:username', async (req, res) => {
+app.delete('/api/users/:username', requireAuth(['Administrador']), async (req, res) => {
   const username = (req.params.username || '').trim().toLowerCase();
   if (username === 'admin') {
     return res.status(403).json({ error: 'No se puede eliminar el usuario administrador maestro.' });
@@ -390,7 +430,7 @@ function serveInjectedIndex(res) {
   const indexPath = path.join(staticDir, 'index.html');
   if (fs.existsSync(indexPath)) {
     let html = fs.readFileSync(indexPath, 'utf8');
-    const anonKey = process.env.VITE_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY || SUPABASE_KEY || '';
+    const anonKey = process.env.VITE_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY || '';
     const configScript = `<script>window.__MAZAL_CONFIG__ = { supabaseUrl: ${JSON.stringify(SUPABASE_URL)}, supabaseAnonKey: ${JSON.stringify(anonKey)} };</script>`;
     
     if (html.includes('</head>')) {
@@ -415,12 +455,16 @@ app.get('*', (req, res) => {
   serveInjectedIndex(res);
 });
 
-app.listen(PORT, '0.0.0.0', () => {
-  console.log(`=================================================`);
-  console.log(`🚀 MAZAL POS & ERP SERVIDOR ACTIVO EN LÍNEA`);
-  console.log(`📡 Puerto: ${PORT}`);
-  console.log(`🌐 URL Local: http://localhost:${PORT}`);
-  console.log(`🔒 Autenticación Server-Side: Bcrypt + JWT Activo`);
-  console.log(`☁️ Supabase Cloud: ${supabase ? 'CONECTADO ✅' : 'PENDIENTE ⚠️'}`);
-  console.log(`=================================================`);
-});
+if (require.main === module) {
+  app.listen(PORT, '0.0.0.0', () => {
+    console.log(`=================================================`);
+    console.log(`🚀 MAZAL POS & ERP SERVIDOR ACTIVO EN LÍNEA`);
+    console.log(`📡 Puerto: ${PORT}`);
+    console.log(`🌐 URL Local: http://localhost:${PORT}`);
+    console.log(`🔒 Autenticación Server-Side: Bcrypt + JWT + Rate Limiting Activo`);
+    console.log(`☁️ Supabase Cloud: ${supabase ? 'CONECTADO ✅' : 'PENDIENTE ⚠️'}`);
+    console.log(`=================================================`);
+  });
+}
+
+module.exports = app;

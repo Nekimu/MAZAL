@@ -144,9 +144,57 @@ Todos los scripts y utilidades están organizados en subcarpetas dedicadas:
 
 ---
 
-## 🧪 Pruebas y Validación de Calidad
+## 🔐 Seguridad y Arquitectura de Autenticación
+
+El sistema implementa un modelo de seguridad por capas diseñado para entornos de producción:
+
+```
+[Navegador / POS SPA]
+       │
+       ▼ (1) POST /api/auth/login (Rate-limited: máx 5 intentos / 15 min)
+[Servidor Express Backend] ──(2) Consulta users ──► [Supabase Cloud PostgreSQL]
+       │                                                      │
+       ├─ (3) bcrypt.compare(pass, hash) (12 rounds)          │ (Row Level Security activo)
+       │                                                      │ (REVOKE ALL on users FROM anon)
+       ▼ (4) Genera JWT firmado (12h)                         ▼
+[Sesión Autenticada con RBAC] ──(5) Bearer JWT ──► [Endpoints Protegidos /api/users]
+```
+
+### 1. Autenticación Server-Side Estricta (Sin Bypasses)
+- **Cero contraseñas hardcodeadas**: Ningún usuario (incluido `admin`) cuenta con contraseñas fijas ni rutas de bypass de contingencia en el código.
+- **Hashing con Bcrypt**: Todas las credenciales se almacenan y verifican exclusivamente mediante hashes Bcrypt con factor de costo 12.
+- **Rate Limiting**: El endpoint `/api/auth/login` está protegido con `express-rate-limit` (máximo 5 intentos por IP cada 15 minutos) para mitigar ataques de fuerza bruta.
+- **Control de Acceso Basado en Roles (RBAC)**: Los endpoints de administración (`GET /api/users`, `POST /api/users`, `DELETE /api/users/:username`) requieren obligatoriamente un token JWT válido con rol `Administrador`. La creación de usuarios valida contra un enum estricto de roles permitidos (`Administrador`, `Gerente`, `Cajero`, `Almacen`, `Compras`, `Contador`).
+
+### 2. Inicialización Segura del Administrador
+Para el primer arranque o recuperación de acceso del Administrador General:
+```bash
+# Ejecutar una sola vez en terminal:
+npm run seed:admin
+```
+Este script:
+1. Genera una contraseña aleatoria de alta entropía con `crypto.randomBytes`.
+2. Genera el hash Bcrypt seguro (12 rondas).
+3. Inserta/actualiza el usuario `admin` en Supabase Cloud.
+4. Imprime la contraseña temporal en la consola del operador (nunca se guarda en archivos ni en Git).
+
+### 3. Row Level Security (RLS) en Supabase
+El script [`scripts/sql/enable_rls.sql`](file:///c:/xampp/htdocs/MAZAL/mazal/scripts/sql/enable_rls.sql) aplica políticas estrictas:
+- **Tablas Críticas Aisladas**: Se revocan todos los permisos de `anon` y `authenticated` sobre `users`, `audit_logs`, `bank_accounts`, `bank_movements`, `budgets`, etc. Todo acceso pasa por el backend Express con `service_role`.
+- **Tablas Operativas del POS**: Catálogos y transacciones cuentan con políticas específicas para soportar la sincronización offline/online del POS.
+
+### 4. Protocolo de Rotación de Credenciales y Producción
+- **Railway**: Configura `JWT_SECRET` como variable de entorno fija de 64 caracteres en tu panel de Railway (evitando que se regenere aleatoriamente en cada reinicio).
+- **Rotación de contraseñas**: Si sospechas que una contraseña estuvo expuesta en el historial de Git, cámbiala inmediatamente mediante `npm run seed:admin` y considera purgar el historial con `git filter-repo`.
+
+---
+
+## 🧪 Pruebas y Validación Automatizada de Seguridad
 
 ```bash
+# Ejecutar suite de pruebas unitarias y de integración de seguridad (Supertest + Node test runner)
+npm test
+
 # Validar que no existan secretos expuestos en Git
 npm run check:secrets
 

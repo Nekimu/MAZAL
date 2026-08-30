@@ -9,6 +9,8 @@ import { fileURLToPath } from "url";
 import { dirname, join } from "path";
 import dotenv from "dotenv";
 
+import bcrypt from "bcryptjs";
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
@@ -18,7 +20,7 @@ dotenv.config({ path: join(__dirname, "../mazal/.env") });
 
 const SUPABASE_URL = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL || "";
 const SUPABASE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.VITE_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY || "";
-const ADMIN_PASSWORD = process.env.VITE_USER_ADMIN_PASSWORD || "admin030114";
+const ADMIN_PASSWORD = process.env.VITE_USER_ADMIN_PASSWORD || "";
 
 console.log("\n=================================================================");
 console.log("   🧹 MAZAL POS & ERP: PURGADO TOTAL DE DATOS & VERIFICACIÓN BD  ");
@@ -170,12 +172,18 @@ async function runPurgeAndVerification() {
     // Eliminar usuarios no administradores
     await supabase.from("users").delete().neq("username", "admin");
 
-    // Upsert Administrador General
+    // Upsert Administrador General con hash bcrypt si se especificó password
+    let passwordHash = null;
+    if (ADMIN_PASSWORD) {
+      passwordHash = await bcrypt.hash(ADMIN_PASSWORD, 12);
+    }
+
     const { error: adminErr } = await supabase.from("users").upsert({
       id: "USR_ADMIN",
       username: "admin",
       name: "Administrador General",
-      password: ADMIN_PASSWORD,
+      password: "",
+      ...(passwordHash ? { password_hash: passwordHash } : {}),
       role: "Administrador",
       status: "Activo"
     }, { onConflict: "username" });
@@ -183,7 +191,7 @@ async function runPurgeAndVerification() {
     if (adminErr) {
       console.warn("   ⚠️ Error al configurar administrador:", adminErr.message);
     } else {
-      console.log(`   ✅ Usuario Administrador General ('admin' / '${ADMIN_PASSWORD}') configurado con éxito.`);
+      console.log(`   ✅ Usuario Administrador General ('admin') preservado. (Para inicializar clave usa: npm run seed:admin)`);
     }
   } catch (e) {
     console.warn("   ❌ Error con usuario administrador:", e.message);
