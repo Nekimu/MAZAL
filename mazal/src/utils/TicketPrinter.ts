@@ -442,3 +442,249 @@ export function generateTicketPDF(sale: Sale, branchName?: string, dbProducts: P
 
   doc.save(`${folio}.pdf`);
 }
+
+/**
+ * Generates thermal HTML for cash session closing (Corte de Caja)
+ */
+export function getThermalCorteTicketHTML(
+  session: any,
+  branchName: string = "MAZAL 1",
+  salesBreakdown?: { cash: number; card: number; transfer: number; credit: number; total: number },
+  expensesList?: any[]
+): string {
+  const sTime = session.startTime || "-";
+  const eTime = session.endTime || new Date().toISOString().replace("T", " ").substring(0, 19);
+  const initial = Number(session.initialCash || 0);
+  const salesCash = Number(session.salesTotal || salesBreakdown?.cash || 0);
+  const expenses = Number(session.expensesTotal || 0);
+  const expected = Number(session.expectedFinalCash || (initial + salesCash - expenses));
+  const counted = Number(session.finalCash !== undefined ? session.finalCash : expected);
+  const diff = counted - expected;
+  const diffLabel = diff === 0 ? "CUADRE EXACTO ($0.00)" : (diff > 0 ? `SOBRANTE (+$${diff.toFixed(2)})` : `FALTANTE (-$${Math.abs(diff).toFixed(2)})`);
+
+  return `
+    <!DOCTYPE html>
+    <html>
+      <head>
+        <meta charset="utf-8">
+        <title>Corte de Caja - ${session.id}</title>
+        <style>
+          @page {
+            size: 80mm auto;
+            margin: 0;
+          }
+          * {
+            box-sizing: border-box;
+            -webkit-print-color-adjust: exact;
+          }
+          body {
+            font-family: 'Courier New', Courier, monospace;
+            width: 76mm;
+            margin: 0 auto;
+            padding: 2mm 1mm 4mm 1.5mm;
+            font-size: 11px;
+            color: #000;
+            line-height: 1.25;
+            background: #fff;
+          }
+          .text-center { text-align: center; }
+          .text-right { text-align: right; }
+          .bold { font-weight: bold; }
+          .bolder { font-weight: 900; }
+          .title { font-size: 14px; letter-spacing: 1px; }
+          .subtitle { font-size: 10px; }
+          .divider {
+            border-top: 1px dashed #000;
+            margin: 4px 0;
+          }
+          .double-divider {
+            border-top: 2px dashed #000;
+            margin: 5px 0;
+          }
+          .row {
+            display: flex;
+            justify-content: space-between;
+            margin: 2px 0;
+          }
+          .metric-box {
+            border: 1px solid #000;
+            padding: 4px;
+            margin: 6px 0;
+          }
+        </style>
+      </head>
+      <body>
+        <div class="text-center">
+          <div class="bold title">M A Z A L</div>
+          <div class="subtitle">${branchName}</div>
+          <div class="bold" style="font-size: 12px; margin-top: 2px;">CORTE Y ARQUEO DE CAJA</div>
+          <div style="font-size: 9px;">DISTRIBUIDORA DE PRODUCTOS</div>
+        </div>
+
+        <div class="divider"></div>
+
+        <div class="row">
+          <span>FOLIO CORTE:</span>
+          <span class="bold">${session.id}</span>
+        </div>
+        <div class="row">
+          <span>RESPONSABLE:</span>
+          <span class="bold">${(session.openedBy || "ADMIN").toUpperCase()}</span>
+        </div>
+        <div class="row">
+          <span>APERTURA:</span>
+          <span>${sTime}</span>
+        </div>
+        <div class="row">
+          <span>CIERRE:</span>
+          <span>${eTime}</span>
+        </div>
+
+        <div class="double-divider"></div>
+
+        <div class="bold" style="margin-bottom: 2px;">DESGLOSE DE MOVIMIENTOS:</div>
+        <div class="row">
+          <span>(+) Fondo Inicial:</span>
+          <span>$${initial.toFixed(2)}</span>
+        </div>
+        <div class="row">
+          <span>(+) Ventas Efectivo:</span>
+          <span class="bold">$${salesCash.toFixed(2)}</span>
+        </div>
+        ${salesBreakdown && salesBreakdown.card > 0 ? `<div class="row"><span>   Ventas Tarjeta:</span><span>$${salesBreakdown.card.toFixed(2)}</span></div>` : ''}
+        ${salesBreakdown && salesBreakdown.transfer > 0 ? `<div class="row"><span>   Ventas Transfer:</span><span>$${salesBreakdown.transfer.toFixed(2)}</span></div>` : ''}
+        ${salesBreakdown && salesBreakdown.credit > 0 ? `<div class="row"><span>   Ventas Crédito:</span><span>$${salesBreakdown.credit.toFixed(2)}</span></div>` : ''}
+        <div class="row">
+          <span>(-) Gastos / Salidas:</span>
+          <span>-$${expenses.toFixed(2)}</span>
+        </div>
+
+        <div class="divider"></div>
+
+        <div class="row bold" style="font-size: 12px;">
+          <span>EFECTIVO ESPERADO:</span>
+          <span>$${expected.toFixed(2)}</span>
+        </div>
+        <div class="row bold" style="font-size: 12px; margin-top: 3px;">
+          <span>EFECTIVO FÍSICO CONTADO:</span>
+          <span>$${counted.toFixed(2)}</span>
+        </div>
+
+        <div class="metric-box text-center">
+          <div style="font-size: 10px;" class="bold">RESULTADO DEL ARQUEO:</div>
+          <div style="font-size: 12px;" class="bolder">${diffLabel}</div>
+        </div>
+
+        ${session.notes ? `<div style="font-size: 9px; margin-top: 4px;"><strong>OBSERVACIONES:</strong> ${session.notes}</div>` : ''}
+
+        <div class="divider" style="margin-top: 15px;"></div>
+        <div class="text-center" style="margin-top: 20px;">
+          <div style="border-top: 1px solid #000; width: 80%; margin: 0 auto;"></div>
+          <div style="font-size: 9px; margin-top: 2px;">FIRMA DE CONFORMIDAD</div>
+          <div style="font-size: 8px; color: #555;">${session.openedBy}</div>
+        </div>
+
+        <div class="text-center" style="margin-top: 10px; font-size: 8px; color: #666;">
+          Fecha de impresión: ${new Date().toLocaleString("es-MX")}
+        </div>
+      </body>
+    </html>
+  `;
+}
+
+/**
+ * Prints thermal corte ticket directly to END-80TEUX / browser print dialog
+ */
+export function printCorteDeCajaTicket(
+  session: any,
+  branchName: string = "MAZAL 1",
+  salesBreakdown?: { cash: number; card: number; transfer: number; credit: number; total: number },
+  expensesList?: any[]
+): void {
+  const html = getThermalCorteTicketHTML(session, branchName, salesBreakdown, expensesList);
+  const printWindow = window.open("", "_blank", "width=380,height=650");
+  if (!printWindow) {
+    alert("Permite ventanas emergentes para imprimir el corte de caja.");
+    return;
+  }
+  printWindow.document.open();
+  printWindow.document.write(html);
+  printWindow.document.close();
+  printWindow.focus();
+  setTimeout(() => {
+    printWindow.print();
+  }, 250);
+}
+
+/**
+ * Generates and downloads PDF for Corte de Caja
+ */
+export function generateCortePDF(
+  session: any,
+  branchName: string = "MAZAL 1",
+  salesBreakdown?: { cash: number; card: number; transfer: number; credit: number; total: number }
+): void {
+  const doc = new jsPDF({
+    orientation: "portrait",
+    unit: "mm",
+    format: [80, 160]
+  });
+
+  const sTime = session.startTime || "-";
+  const eTime = session.endTime || new Date().toISOString().replace("T", " ").substring(0, 19);
+  const initial = Number(session.initialCash || 0);
+  const salesCash = Number(session.salesTotal || salesBreakdown?.cash || 0);
+  const expenses = Number(session.expensesTotal || 0);
+  const expected = Number(session.expectedFinalCash || (initial + salesCash - expenses));
+  const counted = Number(session.finalCash !== undefined ? session.finalCash : expected);
+  const diff = counted - expected;
+  const diffLabel = diff === 0 ? "CUADRE EXACTO" : (diff > 0 ? `SOBRANTE (+$${diff.toFixed(2)})` : `FALTANTE (-$${Math.abs(diff).toFixed(2)})`);
+
+  doc.setFont("courier", "bold");
+  doc.setFontSize(12);
+  doc.text("M A Z A L", 40, 8, { align: "center" });
+
+  doc.setFontSize(8);
+  doc.setFont("courier", "normal");
+  doc.text(branchName, 40, 12, { align: "center" });
+  doc.setFont("courier", "bold");
+  doc.text("CORTE Y ARQUEO DE CAJA", 40, 16, { align: "center" });
+
+  doc.line(2, 19, 78, 19);
+
+  doc.setFontSize(7.5);
+  doc.setFont("courier", "normal");
+  doc.text(`FOLIO: ${session.id}`, 2, 23);
+  doc.text(`RESPONSABLE: ${(session.openedBy || "ADMIN").toUpperCase()}`, 2, 27);
+  doc.text(`APERTURA: ${sTime}`, 2, 31);
+  doc.text(`CIERRE: ${eTime}`, 2, 35);
+
+  doc.line(2, 38, 78, 38);
+
+  doc.setFont("courier", "bold");
+  doc.text("DESGLOSE DE MOVIMIENTOS:", 2, 42);
+  doc.setFont("courier", "normal");
+  doc.text("(+) Fondo Inicial:", 2, 47);
+  doc.text(`$${initial.toFixed(2)}`, 78, 47, { align: "right" });
+  doc.text("(+) Ventas Efectivo:", 2, 51);
+  doc.text(`$${salesCash.toFixed(2)}`, 78, 51, { align: "right" });
+  doc.text("(-) Gastos/Salidas:", 2, 55);
+  doc.text(`-$${expenses.toFixed(2)}`, 78, 55, { align: "right" });
+
+  doc.line(2, 59, 78, 59);
+
+  doc.setFont("courier", "bold");
+  doc.text("EFECTIVO ESPERADO:", 2, 64);
+  doc.text(`$${expected.toFixed(2)}`, 78, 64, { align: "right" });
+  doc.text("EFECTIVO CONTADO:", 2, 69);
+  doc.text(`$${counted.toFixed(2)}`, 78, 69, { align: "right" });
+
+  doc.rect(2, 73, 76, 8);
+  doc.text(`RESULTADO: ${diffLabel}`, 40, 78, { align: "center" });
+
+  doc.line(2, 85, 78, 85);
+  doc.text("FIRMA DE CONFORMIDAD", 40, 105, { align: "center" });
+  doc.line(15, 100, 65, 100);
+
+  doc.save(`CORTE_${session.id}.pdf`);
+}

@@ -27,10 +27,10 @@ import {
   Clock, 
   UserCheck, 
   Eye, 
-  Edit2,
   Lock,
   Unlock,
-  Check
+  Check,
+  Receipt
 } from "lucide-react";
 import { 
   Product, 
@@ -42,7 +42,18 @@ import {
   UserRole,
   formatPrice
 } from "../types";
-import { getDatabase, saveDatabase, subscribeToDb, logAction } from "../data";
+import { 
+  getDatabase, 
+  saveDatabase, 
+  subscribeToDb, 
+  logAction,
+  saveCashSessionToMySQL,
+  activeBranch
+} from "../data";
+import { 
+  printCorteDeCajaTicket, 
+  generateCortePDF 
+} from "../utils/TicketPrinter";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer, Legend } from "recharts";
 
 // Shared Visual Constants
@@ -221,9 +232,19 @@ export default function FinanceModule({ currentUser }: { currentUser: { name: st
 
   const handleOpenCaja = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (activeSession) {
+      alert(`Ya existe una sesión de caja abierta iniciada el ${activeSession.startTime} por ${activeSession.openedBy}. Debe realizar el corte antes de abrir una nueva.`);
+      setShowOpenCajaModal(false);
+      return;
+    }
+
     const fund = parseFloat(openCajaForm.initialFund);
     if (isNaN(fund) || fund < 0) {
-      alert("Introduce un fondo inicial de caja válido.");
+      alert("Introduce un fondo inicial de caja válido mayor o igual a 0.");
+      return;
+    }
+
+    if (!window.confirm(`¿Confirmas abrir la caja con un fondo inicial de $${fund.toFixed(2)} MXN a nombre de "${currentUserName}"?`)) {
       return;
     }
 
@@ -237,12 +258,17 @@ export default function FinanceModule({ currentUser }: { currentUser: { name: st
       initialCash: fund,
       status: "Abierta",
       salesTotal: 0,
-      expensesTotal: 0
+      expensesTotal: 0,
+      expectedFinalCash: fund
     };
 
-    nextDb.cashSessions = [newSess, ...(db.cashSessions || [])];
+    if (!Array.isArray(nextDb.cashSessions)) nextDb.cashSessions = [];
+    nextDb.cashSessions = [newSess, ...nextDb.cashSessions];
+    const branch = activeBranch || "Norte";
+
+    saveCashSessionToMySQL(newSess, branch).catch(() => {});
     await saveDatabase(nextDb);
-    await logAction(currentUserName, currentUserRole, "APERTURA_CAJA", `Apertura de caja con fondo inicial de $${fund} MXN`);
+    await logAction(currentUserName, currentUserRole, "APERTURA_CAJA", `Apertura de caja con fondo inicial de $${fund.toFixed(2)} MXN`);
     setShowOpenCajaModal(false);
   };
 
@@ -255,8 +281,6 @@ export default function FinanceModule({ currentUser }: { currentUser: { name: st
       return;
     }
 
-    // Compute expected cash based on: initialFund + (cash sales) - (cash expenses/withdrawals) + (cash reinforcements)
-    // Find sales during this session's window
     const sessionSales = (db.sales || []).filter((s: Sale) => s.date >= activeSession.startTime && s.paymentMethod === "Efectivo");
     const sessionSalesVal = sessionSales.reduce((acc: number, s: Sale) => acc + s.total, 0);
 
@@ -264,25 +288,53 @@ export default function FinanceModule({ currentUser }: { currentUser: { name: st
     const sessionExpensesVal = sessionExpenses.reduce((acc: number, ex: CashExpense) => acc + ex.amount, 0);
 
     const expected = activeSession.initialCash + sessionSalesVal - sessionExpensesVal;
+    const diff = realCash - expected;
+    const diffMsg = Math.abs(diff) < 0.01 
+      ? "Cuadre Exacto ($0.00)" 
+      : (diff > 0 ? `Sobrante (+${diff.toFixed(2)} MXN)` : `Faltante (-${Math.abs(diff).toFixed(2)} MXN)`);
+
+    if (!window.confirm(
+      `¿Confirmas cerrar la caja y realizar el corte definitivo?\n\n` +
+      `• Responsable: ${activeSession.openedBy}\n` +
+      `• Fondo Inicial: $${activeSession.initialCash.toFixed(2)} MXN\n` +
+      `• Ventas Efectivo: +$${sessionSalesVal.toFixed(2)} MXN\n` +
+      `• Gastos: -$${sessionExpensesVal.toFixed(2)} MXN\n` +
+      `• Efectivo Esperado: $${expected.toFixed(2)} MXN\n` +
+      `• Efectivo Físico Contado: $${realCash.toFixed(2)} MXN\n` +
+      `• Resultado: ${diffMsg}`
+    )) {
+      return;
+    }
+
+    const closedSess: CashSession = {
+      ...activeSession,
+      status: "Cerrada" as const,
+      endTime: new Date().toISOString().replace("T", " ").substring(0, 19),
+      finalCash: realCash,
+      salesTotal: sessionSalesVal,
+      expensesTotal: sessionExpensesVal,
+      expectedFinalCash: expected
+    };
 
     const nextDb = { ...db };
     nextDb.cashSessions = (db.cashSessions || []).map((s: CashSession) => {
       if (s.id === activeSession.id) {
-        return {
-          ...s,
-          status: "Cerrada" as const,
-          endTime: new Date().toISOString().replace("T", " ").substring(0, 19),
-          finalCash: realCash,
-          salesTotal: sessionSalesVal,
-          expensesTotal: sessionExpensesVal,
-          expectedFinalCash: expected
-        };
+        return closedSess;
       }
       return s;
     });
 
+    const branch = activeBranch || "Norte";
+    saveCashSessionToMySQL(closedSess, branch).catch(() => {});
     await saveDatabase(nextDb);
-    await logAction(currentUserName, currentUserRole, "CIERRE_CAJA", `Cierre de caja. Real: $${realCash}. Esperado: $${expected}. Dif: $${realCash - expected}`);
+    await logAction(currentUserName, currentUserRole, "CIERRE_CAJA", `Cierre de caja. Real: $${realCash.toFixed(2)}. Esperado: $${expected.toFixed(2)}. Dif: ${diffMsg}`);
+    
+    // Auto-prompt to print ticket
+    const bName = branch === "Sur" ? "MAZAL 2" : "MAZAL 1";
+    if (window.confirm("¿Deseas imprimir el comprobante térmico del corte de caja ahora?")) {
+      printCorteDeCajaTicket(closedSess, bName);
+    }
+
     setCloseCajaForm({ physicalCash: "" });
     setShowCloseCajaModal(false);
   };
@@ -1375,12 +1427,13 @@ export default function FinanceModule({ currentUser }: { currentUser: { name: st
                     <th className={tableHeader}>Físico Entregado</th>
                     <th className={tableHeader}>Diferencia</th>
                     <th className={tableHeader}>Estado</th>
+                    <th className={`${tableHeader} text-right`}>Acciones</th>
                   </tr>
                 </thead>
                 <tbody>
                   {(db.cashSessions || []).length === 0 ? (
                     <tr>
-                      <td colSpan={10} className="px-4 py-8 text-center text-sm text-gray-400">
+                      <td colSpan={11} className="px-4 py-8 text-center text-sm text-gray-400">
                         Aún no hay cortes registrados en el historial de caja.
                       </td>
                     </tr>
@@ -1418,6 +1471,34 @@ export default function FinanceModule({ currentUser }: { currentUser: { name: st
                             }`}>
                               {cs.status}
                             </span>
+                          </td>
+                          <td className={`${tableCell} text-right`}>
+                            {cs.status === "Cerrada" ? (
+                              <div className="flex items-center justify-end gap-1">
+                                <button
+                                  onClick={() => {
+                                    const b = activeBranch === "Sur" ? "MAZAL 2" : "MAZAL 1";
+                                    printCorteDeCajaTicket(cs, b);
+                                  }}
+                                  title="Imprimir Ticket de Corte"
+                                  className="p-1.5 rounded-lg bg-blue-50 text-blue-600 hover:bg-blue-100 dark:bg-blue-950/40 dark:text-blue-400 cursor-pointer"
+                                >
+                                  <Printer className="h-3.5 w-3.5" />
+                                </button>
+                                <button
+                                  onClick={() => {
+                                    const b = activeBranch === "Sur" ? "MAZAL 2" : "MAZAL 1";
+                                    generateCortePDF(cs, b);
+                                  }}
+                                  title="Descargar PDF de Corte"
+                                  className="p-1.5 rounded-lg bg-amber-50 text-amber-600 hover:bg-amber-100 dark:bg-amber-950/40 dark:text-amber-400 cursor-pointer"
+                                >
+                                  <Receipt className="h-3.5 w-3.5" />
+                                </button>
+                              </div>
+                            ) : (
+                              <span className="text-[10px] text-emerald-600 font-bold">Activa</span>
+                            )}
                           </td>
                         </tr>
                       );

@@ -79,7 +79,8 @@ import {
   setActiveBranch,
   subscribeNetworkStatus,
   syncDatabaseWithSupabase,
-  ensureSupabaseConfigured
+  ensureSupabaseConfigured,
+  saveCashSessionToMySQL
 } from "./data";
 
 export default function App() {
@@ -328,52 +329,57 @@ export default function App() {
 
   // Handle Cash Session toggles
   const handleToggleCashSession = () => {
-    const database = getDatabase();
     if (cashSessionActive) {
-      // Close session
-      database.cashSessions = database.cashSessions.map((s: CashSession) => {
-        if (s.status === "Abierta") {
-          return {
-            ...s,
-            status: "Cerrada",
-            endTime: new Date().toISOString().replace("T", " ").substring(0, 19),
-            finalCash: s.initialCash + (s.salesTotal || 0) - (s.expensesTotal || 0)
-          };
+      if (activeTab !== "pos" && activeTab !== "finances") {
+        if (window.confirm("Hay una sesión de caja activa. ¿Deseas ir al Punto de Venta para realizar el corte y arqueo de caja?")) {
+          setActiveTab("pos");
         }
-        return s;
-      });
-      saveDatabase(database);
-      setCashSessionActive(false);
-      
-      logAction(
-        currentUser.name,
-        currentUser.role,
-        "Cierre de Caja",
-        "Cierre de turno de caja. Sesión guardada."
-      );
+      } else {
+        alert("Para realizar el corte de caja, utiliza el botón 'Realizar Corte de Caja' en la barra superior del Punto de Venta o en el módulo de Finanzas.");
+      }
     } else {
-      // Open session
+      const fundStr = window.prompt("Apertura de Turno de Caja:\nIntroduce el fondo inicial de efectivo ($ MXN):", "1000");
+      if (fundStr === null) return;
+      const fund = parseFloat(fundStr);
+      if (isNaN(fund) || fund < 0) {
+        alert("Introduce un monto de fondo inicial válido mayor o igual a 0.");
+        return;
+      }
+
+      if (!window.confirm(`¿Confirmas abrir la caja con un fondo inicial de $${fund.toFixed(2)} MXN a nombre de "${currentUser.name}"?`)) {
+        return;
+      }
+
+      const database = getDatabase();
+      const dateStr = new Date().toISOString().replace("T", " ").substring(0, 19);
       const newSess: CashSession = {
-        id: "SESS_" + Math.random().toString(36).substring(2, 8).toUpperCase(),
-        startTime: new Date().toISOString().replace("T", " ").substring(0, 19),
+        id: "SESS_" + Math.random().toString(36).substring(2, 9).toUpperCase(),
+        startTime: dateStr,
         openedBy: currentUser.name,
-        initialCash: 1000.00,
+        initialCash: fund,
         status: "Abierta",
         salesTotal: 0,
-        expensesTotal: 0
+        expensesTotal: 0,
+        expectedFinalCash: fund
       };
+
+      if (!Array.isArray(database.cashSessions)) database.cashSessions = [];
       database.cashSessions.unshift(newSess);
-      saveDatabase(database);
+      
+      const branch = currentBranch || "Norte";
+      saveCashSessionToMySQL(newSess, branch).catch(() => {});
+      saveDatabase(database).catch(() => {});
       setCashSessionActive(true);
 
       logAction(
         currentUser.name,
         currentUser.role,
         "Apertura de Caja",
-        "Abrió sesión de caja con fondo de contingencia de $1,000.00 MXN"
-      );
+        `Abrió sesión de caja con fondo inicial de $${fund.toFixed(2)} MXN`
+      ).catch(() => {});
+      
+      reloadDb();
     }
-    reloadDb();
   };
 
   // Callback to simulate role changes

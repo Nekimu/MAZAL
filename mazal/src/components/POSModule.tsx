@@ -25,7 +25,11 @@ import {
   X,
   Printer,
   ChevronLeft,
-  ChevronRight
+  ChevronRight,
+  Lock,
+  Unlock,
+  Clock,
+  RefreshCw
 } from "lucide-react";
 import { 
   Product, 
@@ -34,6 +38,7 @@ import {
   CustomerRole, 
   CartItem, 
   Sale, 
+  CashSession,
   ProductUnit,
   UserRole,
   formatPrice
@@ -73,7 +78,9 @@ import {
   printThermalTicket, 
   generateTicketPDF, 
   calculateTotalArticles, 
-  formatItemQuantityLine 
+  formatItemQuantityLine,
+  printCorteDeCajaTicket,
+  generateCortePDF
 } from "../utils/TicketPrinter";
 
 interface POSModuleProps {
@@ -172,6 +179,146 @@ export default function POSModule({
   const [infoProduct, setInfoProduct] = useState<Product | null>(null);
   const [viewMode, setViewMode] = useState<"catalog" | "sales">("catalog");
   const [localQuantities, setLocalQuantities] = useState<Record<string, string>>({});
+
+  // Cash Session State & Modals
+  const [showOpenCajaModal, setShowOpenCajaModal] = useState(false);
+  const [showCloseCajaModal, setShowCloseCajaModal] = useState(false);
+  const [openCajaFund, setOpenCajaFund] = useState("1000");
+  const [closeCajaPhysicalCash, setCloseCajaPhysicalCash] = useState("");
+  const [closeCajaNotes, setCloseCajaNotes] = useState("");
+  const [lastClosedSession, setLastClosedSession] = useState<any | null>(null);
+  const [showCorteReceiptModal, setShowCorteReceiptModal] = useState(false);
+
+  // Active Session and Calculations
+  const activeCashSession = useMemo(() => {
+    return (db.cashSessions || []).find((s: any) => s.status === "Abierta");
+  }, [db.cashSessions]);
+
+  const isCajaOpen = Boolean(activeCashSession);
+
+  const sessionSales = useMemo(() => {
+    if (!activeCashSession) return [];
+    return (db.sales || []).filter((s: Sale) => s.date >= activeCashSession.startTime);
+  }, [db.sales, activeCashSession]);
+
+  const cashSalesTotal = useMemo(() => {
+    return sessionSales
+      .filter((s: Sale) => s.paymentMethod === PaymentMethod.CASH)
+      .reduce((sum: number, s: Sale) => sum + s.total, 0);
+  }, [sessionSales]);
+
+  const otherSalesTotal = useMemo(() => {
+    return sessionSales
+      .filter((s: Sale) => s.paymentMethod !== PaymentMethod.CASH)
+      .reduce((sum: number, s: Sale) => sum + s.total, 0);
+  }, [sessionSales]);
+
+  const sessionExpensesTotal = useMemo(() => {
+    if (!activeCashSession) return 0;
+    return (db.expenses || [])
+      .filter((ex: any) => ex.date >= activeCashSession.startTime.substring(0, 10))
+      .reduce((sum: number, ex: any) => sum + (Number(ex.amount) || 0), 0);
+  }, [db.expenses, activeCashSession]);
+
+  const expectedCashInDrawer = useMemo(() => {
+    if (!activeCashSession) return 0;
+    return (Number(activeCashSession.initialCash) || 0) + cashSalesTotal - sessionExpensesTotal;
+  }, [activeCashSession, cashSalesTotal, sessionExpensesTotal]);
+
+  const handleOpenCajaSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (activeCashSession) {
+      alert(`Ya existe una sesión de caja abierta iniciada el ${activeCashSession.startTime} por ${activeCashSession.openedBy}. Debe realizar el corte antes de abrir una nueva.`);
+      setShowOpenCajaModal(false);
+      return;
+    }
+
+    const fund = parseFloat(openCajaFund);
+    if (isNaN(fund) || fund < 0) {
+      alert("Introduce un monto de fondo inicial válido mayor o igual a 0.");
+      return;
+    }
+
+    if (!window.confirm(`¿Confirmas abrir la caja con un fondo inicial de $${fund.toFixed(2)} MXN a nombre de "${currentUser.name}"?`)) {
+      return;
+    }
+
+    const nowStr = new Date().toISOString().replace("T", " ").substring(0, 19);
+    const newSess: CashSession = {
+      id: "SESS_" + Math.random().toString(36).substring(2, 9).toUpperCase(),
+      startTime: nowStr,
+      openedBy: currentUser.name,
+      initialCash: fund,
+      status: "Abierta",
+      salesTotal: 0,
+      expensesTotal: 0,
+      expectedFinalCash: fund
+    };
+
+    const currentBranch = activeBranch || "Norte";
+    const nextDb = { ...db };
+    if (!Array.isArray(nextDb.cashSessions)) nextDb.cashSessions = [];
+    nextDb.cashSessions = [newSess, ...nextDb.cashSessions];
+
+    saveCashSessionToMySQL(newSess, currentBranch).catch((err) => console.warn("Error guardando sesión en MySQL:", err));
+    saveDatabase(nextDb).catch(() => {});
+    logAction(currentUser.name, currentUser.role, "Apertura de Caja", `Apertura de turno de caja con fondo inicial de $${fund.toFixed(2)} MXN`).catch(() => {});
+
+    setShowOpenCajaModal(false);
+  };
+
+  const handleCloseCajaSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!activeCashSession) return;
+
+    const realCash = parseFloat(closeCajaPhysicalCash);
+    if (isNaN(realCash) || realCash < 0) {
+      alert("Por favor introduce el monto físico contado en caja.");
+      return;
+    }
+
+    const expected = expectedCashInDrawer;
+    const diff = realCash - expected;
+    const diffMsg = Math.abs(diff) < 0.01 
+      ? "Cuadre Exacto ($0.00)" 
+      : (diff > 0 ? `Sobrante (+${diff.toFixed(2)} MXN)` : `Faltante (-${Math.abs(diff).toFixed(2)} MXN)`);
+
+    if (!window.confirm(
+      `¿Confirmas cerrar la caja y realizar el corte definitivo?\n\n` +
+      `• Responsable: ${activeCashSession.openedBy}\n` +
+      `• Fondo Inicial: $${activeCashSession.initialCash.toFixed(2)} MXN\n` +
+      `• Total Ventas Efectivo: +$${cashSalesTotal.toFixed(2)} MXN\n` +
+      `• Total Gastos: -$${sessionExpensesTotal.toFixed(2)} MXN\n` +
+      `• Efectivo Esperado: $${expected.toFixed(2)} MXN\n` +
+      `• Efectivo Físico Contado: $${realCash.toFixed(2)} MXN\n` +
+      `• Resultado Arqueo: ${diffMsg}`
+    )) {
+      return;
+    }
+
+    const nowStr = new Date().toISOString().replace("T", " ").substring(0, 19);
+    const closedSess: CashSession = {
+      ...activeCashSession,
+      status: "Cerrada",
+      endTime: nowStr,
+      finalCash: realCash,
+      salesTotal: cashSalesTotal,
+      expensesTotal: sessionExpensesTotal,
+      expectedFinalCash: expected
+    };
+
+    const currentBranch = activeBranch || "Norte";
+    const nextDb = { ...db };
+    nextDb.cashSessions = (db.cashSessions || []).map((s: CashSession) => s.id === activeCashSession.id ? closedSess : s);
+
+    saveCashSessionToMySQL(closedSess, currentBranch).catch((err) => console.warn("Error guardando corte en MySQL:", err));
+    saveDatabase(nextDb).catch(() => {});
+    logAction(currentUser.name, currentUser.role, "Cierre de Caja", `Corte realizado. Esperado: $${expected.toFixed(2)} | Contado: $${realCash.toFixed(2)} | Dif: ${diffMsg}`).catch(() => {});
+
+    setShowCloseCajaModal(false);
+    setLastClosedSession(closedSess);
+    setShowCorteReceiptModal(true);
+  };
 
   useEffect(() => {
     if (onlyPOSMode) {
@@ -789,7 +936,71 @@ export default function POSModule({
   };
 
   return (
-    <div className="flex flex-col lg:flex-row gap-6" id="pos-module-root">
+    <div className="space-y-4" id="pos-module-root">
+      {/* CASH SESSION STATUS BAR */}
+      <div className={`p-4 rounded-2xl border transition-all flex flex-col md:flex-row items-start md:items-center justify-between gap-4 ${
+        isCajaOpen
+          ? "bg-emerald-50/70 dark:bg-emerald-950/20 border-emerald-200/80 dark:border-emerald-850"
+          : "bg-amber-50/80 dark:bg-amber-950/20 border-amber-200 dark:border-amber-900"
+      }`}>
+        <div className="flex items-center gap-3">
+          <div className={`p-2.5 rounded-xl ${
+            isCajaOpen 
+              ? "bg-emerald-600 text-white shadow-xs" 
+              : "bg-amber-500 text-white shadow-xs"
+          }`}>
+            {isCajaOpen ? <Unlock className="h-5 w-5" /> : <Lock className="h-5 w-5" />}
+          </div>
+          <div>
+            <div className="flex items-center gap-2">
+              <span className={`inline-flex px-2 py-0.5 rounded-md text-[11px] font-black uppercase tracking-wider ${
+                isCajaOpen
+                  ? "bg-emerald-200 text-emerald-900 dark:bg-emerald-900/60 dark:text-emerald-200"
+                  : "bg-amber-200 text-amber-900 dark:bg-amber-900/60 dark:text-amber-200"
+              }`}>
+                {isCajaOpen ? "🟢 Turno de Caja Abierto" : "🔒 Caja Cerrada"}
+              </span>
+              {isCajaOpen && activeCashSession && (
+                <span className="text-xs text-gray-500 dark:text-slate-400 font-mono">
+                  (Iniciada: {activeCashSession.startTime.substring(11, 16)} por <strong className="uppercase">{activeCashSession.openedBy}</strong>)
+                </span>
+              )}
+            </div>
+            <p className="text-xs text-gray-600 dark:text-slate-300 mt-0.5">
+              {isCajaOpen && activeCashSession
+                ? `Fondo inicial: $${activeCashSession.initialCash.toFixed(2)} | Ventas Efvo: +$${cashSalesTotal.toFixed(2)} | Gastos: -$${sessionExpensesTotal.toFixed(2)} | En Caja: $${expectedCashInDrawer.toFixed(2)} MXN`
+                : "Es obligatorio abrir el turno de caja con un fondo inicial para poder registrar ventas y cobrar en el POS."}
+            </p>
+          </div>
+        </div>
+
+        <div>
+          {isCajaOpen && activeCashSession ? (
+            <button
+              onClick={() => {
+                setCloseCajaPhysicalCash("");
+                setCloseCajaNotes("");
+                setShowCloseCajaModal(true);
+              }}
+              className="px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs rounded-xl shadow-xs transition-all cursor-pointer flex items-center gap-1.5"
+            >
+              <Lock className="h-4 w-4" /> Realizar Corte y Cerrar Caja
+            </button>
+          ) : (
+            <button
+              onClick={() => {
+                setOpenCajaFund("1000");
+                setShowOpenCajaModal(true);
+              }}
+              className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl shadow-md transition-all cursor-pointer flex items-center gap-1.5 animate-pulse"
+            >
+              <Unlock className="h-4 w-4" /> Abrir Caja con Fondo Inicial
+            </button>
+          )}
+        </div>
+      </div>
+
+      <div className="flex flex-col lg:flex-row gap-6">
       
       {/* LEFT: Product Catalog & Fast Scanner OR Recent Sales List */}
       <div className="flex-1 space-y-4">
@@ -1532,23 +1743,38 @@ export default function POSModule({
           </div>
 
           {/* Main Action Button */}
-          <button
-            onClick={handleCheckout}
-            id="checkout-trigger-btn"
-            disabled={cart.length === 0}
-            className={`
-              w-full mt-3.5 py-3 rounded-xl font-bold text-sm shadow-xs transition-all text-center flex items-center justify-center gap-2
-              ${cart.length > 0 
-                ? "bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white cursor-pointer active:scale-98" 
-                : "bg-gray-100 dark:bg-slate-850 text-gray-400 dark:text-slate-600 cursor-not-allowed"
-              }
-            `}
-          >
-            <Receipt className="h-4.5 w-4.5" />
-            <span>Vender Ahora (Cobrar)</span>
-          </button>
+          {!isCajaOpen ? (
+            <button
+              onClick={() => {
+                setOpenCajaFund("1000");
+                setShowOpenCajaModal(true);
+              }}
+              id="checkout-open-caja-btn"
+              className="w-full mt-3.5 py-3 rounded-xl font-bold text-sm shadow-md transition-all text-center flex items-center justify-center gap-2 bg-gradient-to-r from-amber-500 to-orange-600 hover:from-amber-600 hover:to-orange-700 text-white cursor-pointer active:scale-98 animate-pulse"
+            >
+              <Unlock className="h-4.5 w-4.5" />
+              <span>Abrir Turno de Caja para Cobrar</span>
+            </button>
+          ) : (
+            <button
+              onClick={handleCheckout}
+              id="checkout-trigger-btn"
+              disabled={cart.length === 0}
+              className={`
+                w-full mt-3.5 py-3 rounded-xl font-bold text-sm shadow-xs transition-all text-center flex items-center justify-center gap-2
+                ${cart.length > 0 
+                  ? "bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white cursor-pointer active:scale-98" 
+                  : "bg-gray-100 dark:bg-slate-850 text-gray-400 dark:text-slate-600 cursor-not-allowed"
+                }
+              `}
+            >
+              <Receipt className="h-4.5 w-4.5" />
+              <span>Vender Ahora (Cobrar)</span>
+            </button>
+          )}
         </div>
       </div>
+    </div>
 
       {/* TICKET RECEIPT MODAL */}
       {showReceipt && lastCompletedSale && (
@@ -1818,6 +2044,279 @@ export default function POSModule({
                 className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold flex items-center justify-center gap-2 shadow-xs transition-colors cursor-pointer"
               >
                 <Plus className="h-4 w-4" /> Agregar al Carrito de Ventas
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* --- 1. OPEN CAJA MODAL --- */}
+      {showOpenCajaModal && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center z-50 p-4 animate-fadeIn">
+          <div className="bg-white dark:bg-slate-900 rounded-2xl max-w-md w-full p-6 shadow-2xl border border-gray-200 dark:border-slate-800 animate-scaleIn">
+            <div className="flex items-center justify-between pb-3 border-b border-gray-100 dark:border-slate-800">
+              <div className="flex items-center gap-2">
+                <div className="p-2 rounded-xl bg-emerald-50 dark:bg-emerald-950/50 text-emerald-600">
+                  <Unlock className="h-5 w-5" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-gray-900 dark:text-white">Apertura de Caja (Turno)</h3>
+                  <p className="text-xs text-gray-500">Inicia tu turno para poder procesar ventas</p>
+                </div>
+              </div>
+              <button onClick={() => setShowOpenCajaModal(false)} className="text-gray-400 hover:text-gray-600 dark:hover:text-white text-xl">✕</button>
+            </div>
+
+            <form onSubmit={handleOpenCajaSubmit} className="mt-4 space-y-4">
+              <div className="bg-gray-50 dark:bg-slate-950/50 p-3 rounded-xl border border-gray-100 dark:border-slate-800 space-y-1.5 text-xs text-gray-600 dark:text-slate-300">
+                <div className="flex justify-between">
+                  <span>Responsable:</span>
+                  <span className="font-bold text-gray-900 dark:text-white uppercase">{currentUser.name} ({currentUser.role})</span>
+                </div>
+                <div className="flex justify-between">
+                  <span>Sucursal:</span>
+                  <span className="font-bold text-gray-900 dark:text-white">{activeBranch || "Norte"}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span>Fecha y Hora:</span>
+                  <span className="font-mono">{new Date().toLocaleString("es-MX")}</span>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-gray-700 dark:text-slate-300 uppercase tracking-wider mb-1">
+                  Fondo Inicial de Efectivo en Caja ($ MXN)
+                </label>
+                <div className="relative">
+                  <span className="absolute left-3 top-2.5 text-gray-400 font-bold">$</span>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    required
+                    value={openCajaFund}
+                    onChange={(e) => setOpenCajaFund(e.target.value)}
+                    placeholder="1000.00"
+                    className="w-full pl-8 pr-4 py-2.5 rounded-xl border border-gray-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-gray-900 dark:text-white font-bold text-lg focus:ring-2 focus:ring-emerald-500"
+                  />
+                </div>
+                <p className="text-[11px] text-gray-500 mt-1">Efectivo con el que inicias para dar cambio a los clientes.</p>
+              </div>
+
+              <div className="flex gap-2 pt-2 border-t border-gray-100 dark:border-slate-800">
+                <button
+                  type="button"
+                  onClick={() => setShowOpenCajaModal(false)}
+                  className="flex-1 py-2.5 rounded-xl bg-gray-100 hover:bg-gray-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-gray-700 dark:text-slate-300 font-bold text-xs transition-colors"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  className="flex-1 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs transition-all shadow-md flex items-center justify-center gap-1"
+                >
+                  <Unlock className="h-4 w-4" /> Confirmar Apertura
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* --- 2. CLOSE CAJA / CORTE MODAL --- */}
+      {showCloseCajaModal && activeCashSession && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center z-50 p-4 animate-fadeIn">
+          <div className="bg-white dark:bg-slate-900 rounded-2xl max-w-lg w-full p-6 shadow-2xl border border-gray-200 dark:border-slate-800 animate-scaleIn flex flex-col max-h-[90vh]">
+            <div className="flex items-center justify-between pb-3 border-b border-gray-100 dark:border-slate-800">
+              <div className="flex items-center gap-2">
+                <div className="p-2 rounded-xl bg-rose-50 dark:bg-rose-950/50 text-rose-600">
+                  <Lock className="h-5 w-5" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-gray-900 dark:text-white">Corte y Cierre de Caja</h3>
+                  <p className="text-xs text-gray-500">Arqueo final del turno {activeCashSession.id}</p>
+                </div>
+              </div>
+              <button onClick={() => setShowCloseCajaModal(false)} className="text-gray-400 hover:text-gray-600 dark:hover:text-white text-xl">✕</button>
+            </div>
+
+            <form onSubmit={handleCloseCajaSubmit} className="mt-4 space-y-4 overflow-y-auto flex-1 pr-1">
+              {/* Financial breakdown */}
+              <div className="bg-gray-50 dark:bg-slate-950/50 p-4 rounded-xl border border-gray-100 dark:border-slate-800 space-y-2 text-xs">
+                <div className="flex justify-between text-gray-600 dark:text-slate-400">
+                  <span>(+) Fondo Inicial de Apertura:</span>
+                  <span className="font-bold text-gray-900 dark:text-white">${activeCashSession.initialCash.toFixed(2)}</span>
+                </div>
+                <div className="flex justify-between text-emerald-600 font-semibold">
+                  <span>(+) Total Ventas en Efectivo:</span>
+                  <span className="font-bold">+${cashSalesTotal.toFixed(2)}</span>
+                </div>
+                {otherSalesTotal > 0 && (
+                  <div className="flex justify-between text-blue-600">
+                    <span>(Info) Ventas Tarjeta / Transfer / Crédito:</span>
+                    <span>${otherSalesTotal.toFixed(2)}</span>
+                  </div>
+                )}
+                <div className="flex justify-between text-rose-600 font-semibold">
+                  <span>(-) Total Gastos / Salidas en Efectivo:</span>
+                  <span className="font-bold">-${sessionExpensesTotal.toFixed(2)}</span>
+                </div>
+                <div className="pt-2 border-t border-dashed border-gray-300 dark:border-slate-700 flex justify-between text-sm font-black text-gray-900 dark:text-white">
+                  <span>(=) TOTAL EFECTIVO ESPERADO EN CAJA:</span>
+                  <span className="text-emerald-700 dark:text-emerald-400">${expectedCashInDrawer.toFixed(2)} MXN</span>
+                </div>
+              </div>
+
+              {/* Physical Cash Input */}
+              <div>
+                <label className="block text-xs font-bold text-gray-700 dark:text-slate-300 uppercase tracking-wider mb-1">
+                  Efectivo Físico Arqueado / Contado ($ MXN) *
+                </label>
+                <div className="relative">
+                  <span className="absolute left-3 top-2.5 text-gray-400 font-bold">$</span>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    required
+                    value={closeCajaPhysicalCash}
+                    onChange={(e) => setCloseCajaPhysicalCash(e.target.value)}
+                    placeholder="Monto real contado en el cajón"
+                    className="w-full pl-8 pr-4 py-2.5 rounded-xl border border-gray-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-gray-900 dark:text-white font-bold text-lg focus:ring-2 focus:ring-rose-500"
+                  />
+                </div>
+
+                {/* Live difference preview */}
+                {closeCajaPhysicalCash !== "" && (
+                  (() => {
+                    const counted = parseFloat(closeCajaPhysicalCash) || 0;
+                    const diff = counted - expectedCashInDrawer;
+                    return (
+                      <div className={`mt-2 p-2.5 rounded-xl border text-xs font-bold flex justify-between items-center ${
+                        Math.abs(diff) < 0.01 
+                          ? "bg-emerald-50 text-emerald-800 border-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-300"
+                          : diff > 0 
+                            ? "bg-blue-50 text-blue-800 border-blue-200 dark:bg-blue-950/40 dark:text-blue-300"
+                            : "bg-rose-50 text-rose-800 border-rose-200 dark:bg-rose-950/40 dark:text-rose-300"
+                      }`}>
+                        <span>Resultado del Arqueo:</span>
+                        <span>
+                          {Math.abs(diff) < 0.01 
+                            ? "🟢 Cuadre Exacto ($0.00)" 
+                            : diff > 0 
+                              ? `🔵 Sobrante (+${diff.toFixed(2)} MXN)` 
+                              : `🔴 Faltante (-${Math.abs(diff).toFixed(2)} MXN)`}
+                        </span>
+                      </div>
+                    );
+                  })()
+                )}
+              </div>
+
+              {/* Notes */}
+              <div>
+                <label className="block text-xs font-bold text-gray-700 dark:text-slate-300 uppercase tracking-wider mb-1">
+                  Observaciones / Comentarios del Corte
+                </label>
+                <textarea
+                  rows={2}
+                  value={closeCajaNotes}
+                  onChange={(e) => setCloseCajaNotes(e.target.value)}
+                  placeholder="Turno sin incidentes, entrega de valores a gerencia..."
+                  className="w-full px-3 py-2 rounded-xl border border-gray-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs text-gray-900 dark:text-white"
+                />
+              </div>
+
+              <div className="flex gap-2 pt-2 border-t border-gray-100 dark:border-slate-800">
+                <button
+                  type="button"
+                  onClick={() => setShowCloseCajaModal(false)}
+                  className="flex-1 py-2.5 rounded-xl bg-gray-100 hover:bg-gray-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-gray-700 dark:text-slate-300 font-bold text-xs transition-colors"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  className="flex-1 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs transition-all shadow-md flex items-center justify-center gap-1"
+                >
+                  <Lock className="h-4 w-4" /> Confirmar Cierre y Corte
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* --- 3. CORTE RECEIPT / PRINT MODAL --- */}
+      {showCorteReceiptModal && lastClosedSession && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center z-50 p-4 animate-fadeIn">
+          <div className="bg-white dark:bg-slate-900 rounded-2xl max-w-md w-full p-6 shadow-2xl border border-gray-200 dark:border-slate-800 animate-scaleIn flex flex-col max-h-[90vh]">
+            <div className="text-center pb-2 border-b border-dashed border-gray-200">
+              <div className="mx-auto h-12 w-12 rounded-full bg-emerald-50 dark:bg-emerald-950 flex items-center justify-center text-emerald-600 mb-2">
+                <CheckCircle className="h-6 w-6" />
+              </div>
+              <h3 className="font-bold text-gray-800 dark:text-slate-200">¡Corte de Caja Finalizado!</h3>
+              <p className="text-xs text-gray-500 mt-0.5">La sesión de caja ha sido cerrada y guardada en MySQL</p>
+            </div>
+
+            <div className="flex-1 overflow-y-auto my-4 bg-white p-6 rounded-xl border border-gray-200 font-mono text-[11px] text-gray-900 leading-relaxed shadow-sm">
+              <div className="text-center space-y-1 pb-2 border-b border-dashed border-gray-400">
+                <span className="text-base font-black tracking-wider">M A Z A L</span>
+                <p className="font-bold text-[10px]">CORTE Y ARQUEO DE CAJA</p>
+              </div>
+
+              <div className="py-2 border-b border-dashed border-gray-400 space-y-1">
+                <div className="flex justify-between"><span>FOLIO:</span><span className="font-bold">{lastClosedSession.id}</span></div>
+                <div className="flex justify-between"><span>RESPONSABLE:</span><span className="font-bold uppercase">{lastClosedSession.openedBy}</span></div>
+                <div className="flex justify-between"><span>APERTURA:</span><span>{lastClosedSession.startTime}</span></div>
+                <div className="flex justify-between"><span>CIERRE:</span><span>{lastClosedSession.endTime}</span></div>
+              </div>
+
+              <div className="py-2 space-y-1 border-b border-dashed border-gray-400">
+                <div className="flex justify-between"><span>(+) Fondo Inicial:</span><span>${lastClosedSession.initialCash.toFixed(2)}</span></div>
+                <div className="flex justify-between text-emerald-700 font-bold"><span>(+) Ventas Efectivo:</span><span>${(lastClosedSession.salesTotal || 0).toFixed(2)}</span></div>
+                <div className="flex justify-between text-rose-700"><span>(-) Gastos/Salidas:</span><span>-${(lastClosedSession.expensesTotal || 0).toFixed(2)}</span></div>
+              </div>
+
+              <div className="py-2 space-y-1.5 border-b border-dashed border-gray-400">
+                <div className="flex justify-between font-bold"><span>EFECTIVO ESPERADO:</span><span>${(lastClosedSession.expectedFinalCash || 0).toFixed(2)}</span></div>
+                <div className="flex justify-between font-bold text-emerald-800"><span>EFECTIVO CONTADO:</span><span>${(lastClosedSession.finalCash || 0).toFixed(2)}</span></div>
+                <div className="flex justify-between font-black pt-1 border-t border-dotted border-gray-300">
+                  <span>DIFERENCIA:</span>
+                  <span>{((lastClosedSession.finalCash || 0) - (lastClosedSession.expectedFinalCash || 0)) >= 0 ? "+" : ""}${((lastClosedSession.finalCash || 0) - (lastClosedSession.expectedFinalCash || 0)).toFixed(2)} MXN</span>
+                </div>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-3 gap-2 mt-1">
+              <button
+                onClick={() => {
+                  const active = localStorage.getItem("mazal_active_branch");
+                  const bName = active === "Sur" ? "MAZAL 2" : "MAZAL 1";
+                  printCorteDeCajaTicket(lastClosedSession, bName);
+                }}
+                className="py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-bold text-[11px] rounded-xl shadow-xs transition-all cursor-pointer flex items-center justify-center gap-1"
+              >
+                <Printer className="h-3.5 w-3.5" /> Imprimir
+              </button>
+              <button
+                onClick={() => {
+                  const active = localStorage.getItem("mazal_active_branch");
+                  const bName = active === "Sur" ? "MAZAL 2" : "MAZAL 1";
+                  generateCortePDF(lastClosedSession, bName);
+                }}
+                className="py-2.5 bg-amber-600 hover:bg-amber-700 text-white font-bold text-[11px] rounded-xl shadow-xs transition-all cursor-pointer flex items-center justify-center gap-1"
+              >
+                <Receipt className="h-3.5 w-3.5" /> PDF
+              </button>
+              <button
+                onClick={() => {
+                  setShowCorteReceiptModal(false);
+                  setLastClosedSession(null);
+                }}
+                className="py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-[11px] rounded-xl shadow-xs transition-all cursor-pointer text-center flex items-center justify-center"
+              >
+                Finalizar
               </button>
             </div>
           </div>
