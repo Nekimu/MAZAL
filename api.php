@@ -694,9 +694,18 @@ function autoMigrateSchema($db, $targetDb) {
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;");
 
     // W. ASEGURAR ADMINISTRADOR GENERAL BASE
-    $db->query("INSERT INTO `usuarios` (`usuario`, `nombrecompleto`, `password`, `rol`, `status`) 
-                SELECT 'admin', 'Administrador General', '', 'administrador', 'Activo' 
-                WHERE NOT EXISTS (SELECT 1 FROM `usuarios` WHERE `usuario` = 'admin');");
+    $resAdmin = $db->query("SELECT id, password FROM `usuarios` WHERE `usuario` = 'admin'");
+    if ($resAdmin && $resAdmin->num_rows === 0) {
+        $tempPass = bin2hex(random_bytes(6)); // contraseña temporal legible
+        $tempHash = password_hash($tempPass, PASSWORD_BCRYPT, ['cost' => 12]);
+        $stmtSeed = $db->prepare("INSERT INTO usuarios (usuario, nombrecompleto, password, rol, status) VALUES ('admin', 'Administrador General', ?, 'administrador', 'Activo')");
+        if ($stmtSeed) {
+            $stmtSeed->bind_param("s", $tempHash);
+            $stmtSeed->execute();
+            $stmtSeed->close();
+            error_log("MAZAL: Usuario 'admin' creado por primera vez. Contraseña temporal: {$tempPass} — cámbiala de inmediato.");
+        }
+    }
 
     // X. ASEGURAR SUCURSALES BASE
     $db->query("INSERT INTO `sucursales` (`id`, `name`, `code`, `address`, `manager`, `status`, `is_central`)
@@ -724,53 +733,78 @@ if ($action === 'login' && $_SERVER['REQUEST_METHOD'] === 'POST') {
         exit;
     }
 
-    $likeUser = '%' . $userIn . '%';
-    $stmt = $mysqli->prepare("SELECT id, usuario, nombrecompleto, password, rol, status FROM usuarios WHERE LOWER(usuario) = LOWER(?) OR LOWER(nombrecompleto) LIKE LOWER(?) OR (LOWER(?) = 'admin' AND LOWER(rol) = 'administrador') ORDER BY id ASC");
-    $stmt->bind_param("sss", $userIn, $likeUser, $userIn);
+    $stmt = $mysqli->prepare("SELECT id, usuario, nombrecompleto, password, rol, status FROM usuarios WHERE usuario = ? LIMIT 1");
+    if (!$stmt) {
+        echo json_encode(["success" => false, "error" => "Error interno del servidor."]);
+        exit;
+    }
+
+    $stmt->bind_param("s", $userIn);
     $stmt->execute();
     $res = $stmt->get_result();
+    $row = $res ? $res->fetch_assoc() : null;
+    $stmt->close();
 
-    if ($res) {
-        while ($row = $res->fetch_assoc()) {
-            $storedPass = $row['password'];
-            $isValid = false;
+    $isValid = false;
+    $shouldRehash = false;
 
-            if (!empty($storedPass) && $passIn === $storedPass) {
-                $isValid = true;
-            } else if (!empty($storedPass) && password_verify($passIn, $storedPass)) {
-                $isValid = true;
-            } else if (!empty($storedPass) && hash('sha256', $passIn) === strtolower($storedPass)) {
-                $isValid = true;
+    if ($row) {
+        $storedPass = $row['password'];
+
+        // 1. Formato Bcrypt (ya migrado)
+        if (!empty($storedPass) && password_verify($passIn, $storedPass)) {
+            $isValid = true;
+        }
+        // 2. Texto plano legado (contraseñas actuales de los usuarios existentes)
+        else if (!empty($storedPass) && hash_equals($storedPass, $passIn)) {
+            $isValid = true;
+            $shouldRehash = true;
+        }
+        // 3. SHA-256 legado
+        else if (!empty($storedPass) && preg_match('/^[a-f0-9]{64}$/i', $storedPass) 
+                  && hash_equals(strtolower($storedPass), hash('sha256', $passIn))) {
+            $isValid = true;
+            $shouldRehash = true;
+        }
+
+        if ($isValid && $shouldRehash) {
+            $newHash = password_hash($passIn, PASSWORD_BCRYPT, ['cost' => 12]);
+            $upd = $mysqli->prepare("UPDATE usuarios SET password = ? WHERE id = ?");
+            if ($upd) {
+                $upd->bind_param("si", $newHash, $row['id']);
+                $upd->execute();
+                $upd->close();
             }
-
-            if ($isValid) {
-                $now = date("Y-m-d H:i:s");
-                $uId = (int)$row['id'];
-                $mysqli->query("UPDATE usuarios SET last_login = '{$now}' WHERE id = {$uId}");
-
-                $userRole = $row['rol'] ?: 'vendedor';
-                $userName = $row['usuario'];
-                recordAuditLog($mysqli, $userName, $userRole, 'LOGIN_EXITOSO', "Inicio de sesión autorizado para @{$userName}", $branch);
-
-                echo json_encode([
-                    "success" => true,
-                    "message" => "Acceso autorizado.",
-                    "user" => [
-                        "id" => (string)$row['id'],
-                        "username" => $row['usuario'],
-                        "name" => $row['nombrecompleto'] ?: $row['usuario'],
-                        "role" => $userRole,
-                        "branch" => $branch,
-                        "database" => $dbname
-                    ]
-                ]);
-                exit;
-            }
+            error_log("MAZAL: Contraseña de @{$row['usuario']} migrada a Bcrypt exitosamente.");
         }
     }
 
-    recordAuditLog($mysqli, $userIn, 'Desconocido', 'LOGIN_FALLIDO', "Intento fallido de inicio de sesión para el usuario @{$userIn}", $branch);
-    echo json_encode(["success" => false, "error" => "Credenciales incorrectas."]);
+    if (!$isValid) {
+        recordAuditLog($mysqli, $userIn, 'Desconocido', 'LOGIN_FALLIDO', "Intento fallido para @{$userIn}", $branch);
+        echo json_encode(["success" => false, "error" => "Credenciales incorrectas."]);
+        exit;
+    }
+
+    $now = date("Y-m-d H:i:s");
+    $uId = (int)$row['id'];
+    $mysqli->query("UPDATE usuarios SET last_login = '{$now}' WHERE id = {$uId}");
+
+    $userRole = $row['rol'] ?: 'vendedor';
+    $userName = $row['usuario'];
+    recordAuditLog($mysqli, $userName, $userRole, 'LOGIN_EXITOSO', "Inicio de sesión autorizado para @{$userName}", $branch);
+
+    echo json_encode([
+        "success" => true,
+        "message" => "Acceso autorizado.",
+        "user" => [
+            "id" => (string)$row['id'],
+            "username" => $row['usuario'],
+            "name" => $row['nombrecompleto'] ?: $row['usuario'],
+            "role" => $userRole,
+            "branch" => $branch,
+            "database" => $dbname
+        ]
+    ]);
     exit;
 }
 
@@ -1934,8 +1968,8 @@ if ($action === 'save_user' && $_SERVER['REQUEST_METHOD'] === 'POST') {
     $pass    = (string)($postData['password'] ?? '');
     $rol     = sanitizeString($postData['role'] ?? ($postData['rol'] ?? 'vendedor'), 50);
 
-    if (empty($usuario) || empty($pass)) {
-        echo json_encode(["success" => false, "error" => "El nombre de usuario y contraseña son obligatorios."]);
+    if (empty($usuario)) {
+        echo json_encode(["success" => false, "error" => "El nombre de usuario es obligatorio."]);
         exit;
     }
 
@@ -1949,7 +1983,7 @@ if ($action === 'save_user' && $_SERVER['REQUEST_METHOD'] === 'POST') {
 
     $userId = 0;
     try {
-        $stmtCheck = $mysqli->prepare("SELECT id FROM usuarios WHERE usuario = ?");
+        $stmtCheck = $mysqli->prepare("SELECT id, password FROM usuarios WHERE usuario = ?");
         if ($stmtCheck) {
             $stmtCheck->bind_param("s", $usuario);
             $stmtCheck->execute();
@@ -1958,17 +1992,33 @@ if ($action === 'save_user' && $_SERVER['REQUEST_METHOD'] === 'POST') {
             if ($resCheck && $resCheck->num_rows > 0) {
                 $rowU = $resCheck->fetch_assoc();
                 $userId = (int)$rowU['id'];
-                $stmtUp = $mysqli->prepare("UPDATE usuarios SET nombrecompleto = ?, password = ?, rol = ? WHERE id = ?");
-                if ($stmtUp) {
-                    $stmtUp->bind_param("sssi", $nombre, $pass, $rol, $userId);
-                    $stmtUp->execute();
-                    $stmtUp->close();
+
+                if (!empty($pass)) {
+                    $passHash = password_hash($pass, PASSWORD_BCRYPT, ['cost' => 12]);
+                    $stmtUp = $mysqli->prepare("UPDATE usuarios SET nombrecompleto = ?, password = ?, rol = ? WHERE id = ?");
+                    if ($stmtUp) {
+                        $stmtUp->bind_param("sssi", $nombre, $passHash, $rol, $userId);
+                        $stmtUp->execute();
+                        $stmtUp->close();
+                    }
+                } else {
+                    $stmtUp = $mysqli->prepare("UPDATE usuarios SET nombrecompleto = ?, rol = ? WHERE id = ?");
+                    if ($stmtUp) {
+                        $stmtUp->bind_param("ssi", $nombre, $rol, $userId);
+                        $stmtUp->execute();
+                        $stmtUp->close();
+                    }
                 }
                 recordAuditLog($mysqli, 'Admin', 'Administrador', 'MODIFICAR_USUARIO', "Usuario @{$usuario} actualizado (Rol: {$rol})", $branch);
             } else {
+                if (empty($pass)) {
+                    echo json_encode(["success" => false, "error" => "La contraseña es obligatoria para nuevos usuarios."]);
+                    exit;
+                }
+                $passHash = password_hash($pass, PASSWORD_BCRYPT, ['cost' => 12]);
                 $stmtIns = $mysqli->prepare("INSERT INTO usuarios (usuario, nombrecompleto, password, rol) VALUES (?, ?, ?, ?)");
                 if ($stmtIns) {
-                    $stmtIns->bind_param("ssss", $usuario, $nombre, $pass, $rol);
+                    $stmtIns->bind_param("ssss", $usuario, $nombre, $passHash, $rol);
                     $stmtIns->execute();
                     $userId = (int)$mysqli->insert_id;
                     $stmtIns->close();
