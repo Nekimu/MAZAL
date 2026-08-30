@@ -5,8 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "vite --port=3000 --host=0.0.0.0",
-    "build": "vite build",
-    "build:xampp": "vite build && xcopy /E /Y /I dist\\* C:\\xampp\\htdocs\\mazal\\",
+    "build": "vite build && xcopy /E /Y /I dist\\* ..\\",
+    "build:xampp": "vite build && xcopy /E /Y /I dist\\* ..\\ && xcopy /E /Y /I dist\\* C:\\xampp\\htdocs\\MAZAL\\",
     "preview": "vite preview",
     "clean": "rm -rf dist server.js",
     "lint": "tsc --noEmit"
