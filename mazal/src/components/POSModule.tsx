@@ -43,6 +43,7 @@ import {
   UserRole,
   formatPrice
 } from "../types";
+import { calculateCashSessionMetrics, getExpenseTimestamp } from "../domain/finance/cashSessionCalculations";
 import { 
   getDatabase, 
   saveDatabase, 
@@ -196,34 +197,19 @@ export default function POSModule({
 
   const isCajaOpen = Boolean(activeCashSession);
 
-  const sessionSales = useMemo(() => {
-    if (!activeCashSession) return [];
-    return (db.sales || []).filter((s: Sale) => s.date >= activeCashSession.startTime);
-  }, [db.sales, activeCashSession]);
+  const sessionMetrics = useMemo(() => {
+    return calculateCashSessionMetrics(
+      activeCashSession,
+      db.sales || [],
+      db.expenses || [],
+      closeCajaPhysicalCash !== "" ? parseFloat(closeCajaPhysicalCash) : undefined
+    );
+  }, [activeCashSession, db.sales, db.expenses, closeCajaPhysicalCash]);
 
-  const cashSalesTotal = useMemo(() => {
-    return sessionSales
-      .filter((s: Sale) => s.paymentMethod === PaymentMethod.CASH)
-      .reduce((sum: number, s: Sale) => sum + s.total, 0);
-  }, [sessionSales]);
-
-  const otherSalesTotal = useMemo(() => {
-    return sessionSales
-      .filter((s: Sale) => s.paymentMethod !== PaymentMethod.CASH)
-      .reduce((sum: number, s: Sale) => sum + s.total, 0);
-  }, [sessionSales]);
-
-  const sessionExpensesTotal = useMemo(() => {
-    if (!activeCashSession) return 0;
-    return (db.expenses || [])
-      .filter((ex: any) => ex.date >= activeCashSession.startTime.substring(0, 10))
-      .reduce((sum: number, ex: any) => sum + (Number(ex.amount) || 0), 0);
-  }, [db.expenses, activeCashSession]);
-
-  const expectedCashInDrawer = useMemo(() => {
-    if (!activeCashSession) return 0;
-    return (Number(activeCashSession.initialCash) || 0) + cashSalesTotal - sessionExpensesTotal;
-  }, [activeCashSession, cashSalesTotal, sessionExpensesTotal]);
+  const cashSalesTotal = sessionMetrics.cashSalesTotal;
+  const otherSalesTotal = sessionMetrics.cardSalesTotal + sessionMetrics.transferSalesTotal + sessionMetrics.creditSalesTotal;
+  const sessionExpensesTotal = sessionMetrics.expensesTotal;
+  const expectedCashInDrawer = sessionMetrics.expectedFinalCash;
 
   const handleOpenCajaSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -260,14 +246,18 @@ export default function POSModule({
     if (!Array.isArray(nextDb.cashSessions)) nextDb.cashSessions = [];
     nextDb.cashSessions = [newSess, ...nextDb.cashSessions];
 
-    saveCashSessionToMySQL(newSess, currentBranch).catch((err) => console.warn("Error guardando sesión en MySQL:", err));
-    saveDatabase(nextDb).catch(() => {});
-    logAction(currentUser.name, currentUser.role, "Apertura de Caja", `Apertura de turno de caja con fondo inicial de $${fund.toFixed(2)} MXN`).catch(() => {});
-
-    setShowOpenCajaModal(false);
+    try {
+      saveCashSessionToMySQL(newSess, currentBranch).catch((err) => console.warn("Error guardando sesión en MySQL:", err));
+      saveDatabase(nextDb).catch(() => {});
+      logAction(currentUser.name, currentUser.role, "Apertura de Caja", `Apertura de turno de caja con fondo inicial de $${fund.toFixed(2)} MXN`).catch(() => {});
+      setShowOpenCajaModal(false);
+    } catch (err) {
+      console.error("Error al abrir caja:", err);
+      alert("Ocurrió un error al registrar la apertura de caja. Intente nuevamente.");
+    }
   };
 
-  const handleCloseCajaSubmit = (e: React.FormEvent) => {
+  const handleCloseCajaSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!activeCashSession) return;
 
@@ -304,20 +294,30 @@ export default function POSModule({
       finalCash: realCash,
       salesTotal: cashSalesTotal,
       expensesTotal: sessionExpensesTotal,
-      expectedFinalCash: expected
+      expectedFinalCash: expected,
+      notes: closeCajaNotes || activeCashSession.notes
     };
 
     const currentBranch = activeBranch || "Norte";
     const nextDb = { ...db };
     nextDb.cashSessions = (db.cashSessions || []).map((s: CashSession) => s.id === activeCashSession.id ? closedSess : s);
 
-    saveCashSessionToMySQL(closedSess, currentBranch).catch((err) => console.warn("Error guardando corte en MySQL:", err));
-    saveDatabase(nextDb).catch(() => {});
-    logAction(currentUser.name, currentUser.role, "Cierre de Caja", `Corte realizado. Esperado: $${expected.toFixed(2)} | Contado: $${realCash.toFixed(2)} | Dif: ${diffMsg}`).catch(() => {});
+    try {
+      saveCashSessionToMySQL(closedSess, currentBranch).catch((err) => console.warn("Error guardando corte en MySQL:", err));
+      await saveDatabase(nextDb);
+      logAction(currentUser.name, currentUser.role, "Cierre de Caja", `Corte realizado. Esperado: $${expected.toFixed(2)} | Contado: $${realCash.toFixed(2)} | Dif: ${diffMsg}`).catch(() => {});
 
-    setShowCloseCajaModal(false);
-    setLastClosedSession(closedSess);
-    setShowCorteReceiptModal(true);
+      setShowCloseCajaModal(false);
+      setLastClosedSession(closedSess);
+      setShowCorteReceiptModal(true);
+      if (onSaleComplete) onSaleComplete();
+    } catch (err) {
+      console.error("Error al guardar corte de caja:", err);
+      // Fallback: update in-memory and proceed to let user see/print the receipt
+      setShowCloseCajaModal(false);
+      setLastClosedSession(closedSess);
+      setShowCorteReceiptModal(true);
+    }
   };
 
   useEffect(() => {

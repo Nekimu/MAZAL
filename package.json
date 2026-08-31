@@ -1,7 +1,7 @@
 {
   "name": "mazal-pos-erp",
   "version": "2.5.0",
-  "description": "Sistema MAZAL POS & ERP con Base de Datos en Supabase Cloud y Despliegue en Railway",
+  "description": "Sistema Integral MAZAL POS & ERP (MySQL Localhost XAMPP / Apache + Supabase Cloud Contingencia)",
   "main": "server.js",
   "scripts": {
     "postinstall": "node -e \"if (require('fs').existsSync('./mazal/package.json')) { require('child_process').execSync('npm --prefix mazal install', { stdio: 'inherit' }); }\"",
@@ -14,15 +14,19 @@
     "migrate:supabase": "node scripts/migrate_mysql_to_supabase.mjs",
     "purge:supabase": "node scripts/purge_and_verify_supabase.mjs",
     "check:secrets": "node scripts/check-secrets.js",
-    "test": "node --test tests/auth_security.test.js"
+    "test": "node --test tests/auth_security.test.js tests/api_php_security.test.js",
+    "test:php": "node --test tests/api_php_security.test.js",
+    "test:node": "node --test tests/auth_security.test.js"
   },
   "keywords": [
     "pos",
     "erp",
+    "mysql",
+    "xampp",
+    "php",
     "supabase",
     "react",
     "vite",
-    "railway",
     "retail",
     "abarrotes"
   ],

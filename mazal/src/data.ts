@@ -538,7 +538,7 @@ export const callLocalApi = async (queryString: string, options?: RequestInit): 
   let authToken: string | null = null;
   try {
     if (typeof sessionStorage !== "undefined") {
-      authToken = sessionStorage.getItem("mazal_auth_token");
+      authToken = sessionStorage.getItem("mazal_auth_token") || sessionStorage.getItem("mazal_session_token");
     }
   } catch (e) {}
 
@@ -558,6 +558,14 @@ export const callLocalApi = async (queryString: string, options?: RequestInit): 
         ...mergedOptions,
         signal: options?.signal || AbortSignal.timeout(4000)
       });
+      if (res.status === 401 && !queryString.includes("action=login") && !queryString.includes("action=ping")) {
+        try {
+          if (typeof sessionStorage !== "undefined") {
+            sessionStorage.removeItem("mazal_auth_token");
+            sessionStorage.removeItem("mazal_session_token");
+          }
+        } catch (e) {}
+      }
       if (res.ok) return res;
     } catch (e) {
       // Continue to next endpoint candidate

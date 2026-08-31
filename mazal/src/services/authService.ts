@@ -52,8 +52,10 @@ export function setAuthToken(token: string | null) {
     if (typeof sessionStorage !== "undefined") {
       if (token) {
         sessionStorage.setItem(AUTH_TOKEN_KEY, token);
+        sessionStorage.setItem("mazal_session_token", token);
       } else {
         sessionStorage.removeItem(AUTH_TOKEN_KEY);
+        sessionStorage.removeItem("mazal_session_token");
       }
     }
   } catch (e) {}

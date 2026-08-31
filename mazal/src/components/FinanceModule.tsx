@@ -43,6 +43,7 @@ import {
   UserRole,
   formatPrice
 } from "../types";
+import { calculateCashSessionMetrics } from "../domain/finance/cashSessionCalculations";
 import { 
   getDatabase, 
   saveDatabase, 
@@ -282,17 +283,17 @@ export default function FinanceModule({ currentUser }: { currentUser: { name: st
       return;
     }
 
-    const sessionSales = (db.sales || []).filter((s: Sale) => s.date >= activeSession.startTime && s.paymentMethod === "Efectivo");
-    const sessionSalesVal = sessionSales.reduce((acc: number, s: Sale) => acc + s.total, 0);
+    const metrics = calculateCashSessionMetrics(
+      activeSession,
+      db.sales || [],
+      db.expenses || [],
+      realCash
+    );
 
-    const sessionExpenses = (db.expenses || []).filter((ex: CashExpense) => ex.date + " " + (ex.time || "00:00:00") >= activeSession.startTime);
-    const sessionExpensesVal = sessionExpenses.reduce((acc: number, ex: CashExpense) => acc + ex.amount, 0);
-
-    const expected = activeSession.initialCash + sessionSalesVal - sessionExpensesVal;
-    const diff = realCash - expected;
-    const diffMsg = Math.abs(diff) < 0.01 
-      ? "Cuadre Exacto ($0.00)" 
-      : (diff > 0 ? `Sobrante (+${diff.toFixed(2)} MXN)` : `Faltante (-${Math.abs(diff).toFixed(2)} MXN)`);
+    const sessionSalesVal = metrics.cashSalesTotal;
+    const sessionExpensesVal = metrics.expensesTotal;
+    const expected = metrics.expectedFinalCash;
+    const diffMsg = metrics.diffFormatted || "Cuadre Exacto ($0.00)";
 
     if (!window.confirm(
       `¿Confirmas cerrar la caja y realizar el corte definitivo?\n\n` +
@@ -314,7 +315,8 @@ export default function FinanceModule({ currentUser }: { currentUser: { name: st
       finalCash: realCash,
       salesTotal: sessionSalesVal,
       expensesTotal: sessionExpensesVal,
-      expectedFinalCash: expected
+      expectedFinalCash: expected,
+      notes: activeSession.notes || "Cierre de turno en Finanzas"
     };
 
     const nextDb = { ...db };
@@ -326,9 +328,13 @@ export default function FinanceModule({ currentUser }: { currentUser: { name: st
     });
 
     const branch = activeBranch || "Norte";
-    saveCashSessionToMySQL(closedSess, branch).catch(() => {});
-    await saveDatabase(nextDb);
-    await logAction(currentUserName, currentUserRole, "CIERRE_CAJA", `Cierre de caja. Real: $${realCash.toFixed(2)}. Esperado: $${expected.toFixed(2)}. Dif: ${diffMsg}`);
+    try {
+      saveCashSessionToMySQL(closedSess, branch).catch(() => {});
+      await saveDatabase(nextDb);
+      await logAction(currentUserName, currentUserRole, "CIERRE_CAJA", `Cierre de caja. Real: $${realCash.toFixed(2)}. Esperado: $${expected.toFixed(2)}. Dif: ${diffMsg}`);
+    } catch (err) {
+      console.error("Error al persistir corte en finanzas:", err);
+    }
     
     // Auto-prompt to print ticket
     const bName = branch === "Sur" ? "MAZAL 2" : "MAZAL 1";
