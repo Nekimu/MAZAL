@@ -77,7 +77,35 @@ describe('🛡️ MAZAL api.php - Server-Side Security & Access Control Verifica
     }
   });
 
-  it('5. Solo "login" y "ping" operan como endpoints públicos por diseño', () => {
+  it('5. Los endpoints de lectura sensible están protegidos con requireAuth() y control de rol', () => {
+    const apiCode = fs.readFileSync(apiPhpPath, 'utf8');
+
+    // get_native_tables (contiene hashes de contraseñas de usuarios, solo administrador)
+    const nativeIdx = apiCode.indexOf("if ($action === 'get_native_tables'");
+    assert.ok(nativeIdx !== -1, 'get_native_tables debe estar definido');
+    const nativeSlice = apiCode.substring(nativeIdx, nativeIdx + 300);
+    assert.ok(nativeSlice.includes('requireAuth(') && nativeSlice.includes('administrador'), 'get_native_tables debe exigir requireAuth con rol administrador');
+
+    // get_state (estado completo de sucursales)
+    const stateIdx = apiCode.indexOf("if ($action === 'get_state'");
+    assert.ok(stateIdx !== -1, 'get_state debe estar definido');
+    const stateSlice = apiCode.substring(stateIdx, stateIdx + 300);
+    assert.ok(stateSlice.includes('requireAuth('), 'get_state debe exigir requireAuth()');
+
+    // get_historical_sales (ventas históricas)
+    const salesIdx = apiCode.indexOf("if ($action === 'get_historical_sales'");
+    assert.ok(salesIdx !== -1, 'get_historical_sales debe estar definido');
+    const salesSlice = apiCode.substring(salesIdx, salesIdx + 300);
+    assert.ok(salesSlice.includes('requireAuth('), 'get_historical_sales debe exigir requireAuth()');
+
+    // get_permissions (matriz de permisos por rol)
+    const permIdx = apiCode.indexOf("if ($action === 'get_permissions'");
+    assert.ok(permIdx !== -1, 'get_permissions debe estar definido');
+    const permSlice = apiCode.substring(permIdx, permIdx + 300);
+    assert.ok(permSlice.includes('requireAuth('), 'get_permissions debe exigir requireAuth()');
+  });
+
+  it('6. Solo "login" y "ping" operan como endpoints públicos por diseño', () => {
     const apiCode = fs.readFileSync(apiPhpPath, 'utf8');
     const loginIdx = apiCode.indexOf("if ($action === 'login'");
     const loginSlice = apiCode.substring(loginIdx, loginIdx + 300);
@@ -88,7 +116,7 @@ describe('🛡️ MAZAL api.php - Server-Side Security & Access Control Verifica
     assert.ok(!pingSlice.includes('requireAuth('), 'ping es para comprobación de latencia de red');
   });
 
-  it('6. .htaccess y manifest.json están configurados correctamente para PWA sin 403', () => {
+  it('7. .htaccess y manifest.json están configurados correctamente para PWA sin 403', () => {
     assert.ok(fs.existsSync(htaccessPath), '.htaccess debe existir');
     const htaccess = fs.readFileSync(htaccessPath, 'utf8');
     assert.ok(htaccess.includes('manifest.json'), '.htaccess debe permitir manifest.json');

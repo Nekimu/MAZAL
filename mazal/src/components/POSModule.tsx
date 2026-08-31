@@ -211,7 +211,7 @@ export default function POSModule({
   const sessionExpensesTotal = sessionMetrics.expensesTotal;
   const expectedCashInDrawer = sessionMetrics.expectedFinalCash;
 
-  const handleOpenCajaSubmit = (e: React.FormEvent) => {
+  const handleOpenCajaSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (activeCashSession) {
       alert(`Ya existe una sesión de caja abierta iniciada el ${activeCashSession.startTime} por ${activeCashSession.openedBy}. Debe realizar el corte antes de abrir una nueva.`);
@@ -247,8 +247,11 @@ export default function POSModule({
     nextDb.cashSessions = [newSess, ...nextDb.cashSessions];
 
     try {
-      saveCashSessionToMySQL(newSess, currentBranch).catch((err) => console.warn("Error guardando sesión en MySQL:", err));
-      saveDatabase(nextDb).catch(() => {});
+      const savedMySQL = await saveCashSessionToMySQL(newSess, currentBranch);
+      if (!savedMySQL) {
+        console.warn("Aviso: Apertura guardada localmente, pendiente sincronizar en MySQL");
+      }
+      await saveDatabase(nextDb);
       logAction(currentUser.name, currentUser.role, "Apertura de Caja", `Apertura de turno de caja con fondo inicial de $${fund.toFixed(2)} MXN`).catch(() => {});
       setShowOpenCajaModal(false);
     } catch (err) {
@@ -303,9 +306,13 @@ export default function POSModule({
     nextDb.cashSessions = (db.cashSessions || []).map((s: CashSession) => s.id === activeCashSession.id ? closedSess : s);
 
     try {
-      saveCashSessionToMySQL(closedSess, currentBranch).catch((err) => console.warn("Error guardando corte en MySQL:", err));
+      const savedMySQL = await saveCashSessionToMySQL(closedSess, currentBranch);
       await saveDatabase(nextDb);
       logAction(currentUser.name, currentUser.role, "Cierre de Caja", `Corte realizado. Esperado: $${expected.toFixed(2)} | Contado: $${realCash.toFixed(2)} | Dif: ${diffMsg}`).catch(() => {});
+
+      if (!savedMySQL) {
+        alert("⚠️ Aviso: El corte se registró y guardó en la memoria local, pero no pudo confirmarse de inmediato en la base de datos MySQL (revisa tu sesión o conexión). Se mantendrá en cola de sincronización.");
+      }
 
       setShowCloseCajaModal(false);
       setLastClosedSession(closedSess);

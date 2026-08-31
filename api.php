@@ -1109,6 +1109,7 @@ if ($action === 'ping') {
 // 2. OBTENER PERMISOS
 // ------------------------------------------------------------------------------
 if ($action === 'get_permissions') {
+    $session = requireAuth($mysqli, 'consulta de permisos');
     $res = $mysqli->query("SELECT * FROM roles_permisos");
     $permissions = [];
     
@@ -1422,6 +1423,7 @@ if ($action === 'save_state' && $_SERVER['REQUEST_METHOD'] === 'POST') {
 // 5. CARGAR ESTADO DESDE SQL
 // ------------------------------------------------------------------------------
 if ($action === 'get_state') {
+    $session = requireAuth($mysqli, 'consulta de estado');
     $id = 1;
     if ($branch === 'Sur') $id = 2;
     if ($branch === 'Centro') $id = 3;
@@ -1455,7 +1457,8 @@ if ($action === 'get_state') {
 // 6. CARGAR TABLAS NATIVAS DE MYSQL
 // ------------------------------------------------------------------------------
 if ($action === 'get_native_tables') {
-    $fetchRows = function($sql) use ($mysqli) {
+    $sessionOk = requireAuth($mysqli, 'consulta de tablas nativas', ['administrador']);
+    $fetchRowsOk = function($sql) use ($mysqli) {
         $rows = [];
         $r = $mysqli->query($sql);
         if ($r) {
@@ -1466,10 +1469,10 @@ if ($action === 'get_native_tables') {
         return $rows;
     };
 
-    $usuarios = $fetchRows("SELECT id, usuario, nombrecompleto, password, rol, status, last_login FROM usuarios ORDER BY id ASC");
-    $clientes = $fetchRows("SELECT id_cliente, nombre_c, tel, ROUND(cant_ade, 4) as cant_ade, email, direccion, rfc, limite_credito, dias_credito, notas, status, raw_data FROM clientes");
-    $proveedores = $fetchRows("SELECT id, nombre, tel, empresa, ROUND(adeudo, 4) as adeudo, email, direccion, rfc, contacto, raw_data FROM proveedor");
-    $abonos = $fetchRows("SELECT * FROM abonos_credito ORDER BY date DESC LIMIT 300");
+    $usuarios = $fetchRowsOk("SELECT id, usuario, nombrecompleto, password, rol, status, last_login FROM usuarios ORDER BY id ASC");
+    $clientes = $fetchRowsOk("SELECT id_cliente, nombre_c, tel, ROUND(cant_ade, 4) as cant_ade, email, direccion, rfc, limite_credito, dias_credito, notas, status, raw_data FROM clientes");
+    $proveedores = $fetchRowsOk("SELECT id, nombre, tel, empresa, ROUND(adeudo, 4) as adeudo, email, direccion, rfc, contacto, raw_data FROM proveedor");
+    $abonos = $fetchRowsOk("SELECT * FROM abonos_credito ORDER BY date DESC LIMIT 300");
 
     $productos = [];
     $resP = $mysqli->query("
@@ -1511,30 +1514,30 @@ if ($action === 'get_native_tables') {
         }
     }
 
-    $movements = $fetchRows("SELECT * FROM movimientos_inventario ORDER BY date DESC LIMIT 300");
-    $cashSessions = $fetchRows("SELECT * FROM sesiones_caja ORDER BY start_time DESC LIMIT 50");
+    $movements = $fetchRowsOk("SELECT * FROM movimientos_inventario ORDER BY date DESC LIMIT 300");
+    $cashSessions = $fetchRowsOk("SELECT * FROM sesiones_caja ORDER BY start_time DESC LIMIT 50");
     // Gastos tradicionales de mazal_base y gastos de caja
-    $gastosTrad = $fetchRows("SELECT id_gasto as id, gasto as description, costo as amount, 'General' as category, fecha as date, 'Admin' as user_name, 'Norte' as sucursal, NULL as raw_data FROM gastos ORDER BY fecha DESC LIMIT 500");
-    $gastosCaja = $fetchRows("SELECT * FROM gastos_caja ORDER BY date DESC LIMIT 100");
+    $gastosTrad = $fetchRowsOk("SELECT id_gasto as id, gasto as description, costo as amount, 'General' as category, fecha as date, 'Admin' as user_name, 'Norte' as sucursal, NULL as raw_data FROM gastos ORDER BY fecha DESC LIMIT 500");
+    $gastosCaja = $fetchRowsOk("SELECT * FROM gastos_caja ORDER BY date DESC LIMIT 100");
     $expenses = array_merge($gastosCaja, $gastosTrad);
 
-    $adeudos = $fetchRows("SELECT a.*, p.nombre as proveedor_nombre, pr.nom_p as producto_nombre FROM adeudos a LEFT JOIN proveedor p ON a.id_proveedor = p.id LEFT JOIN productos pr ON a.id_producto = pr.id ORDER BY a.fecha DESC LIMIT 500");
-    $pagos = $fetchRows("SELECT pg.*, u.nombrecompleto as usuario_nombre FROM pagos pg LEFT JOIN usuarios u ON pg.id_usuario = u.id ORDER BY pg.fecha_pago DESC LIMIT 500");
-    $empleados = $fetchRows("SELECT * FROM empleados ORDER BY empleado_id ASC");
-    $nomina = $fetchRows("SELECT n.*, e.nombre, e.apellido FROM nomina n LEFT JOIN empleados e ON n.empleado_id = e.empleado_id ORDER BY n.fecha_pago DESC LIMIT 500");
+    $adeudos = $fetchRowsOk("SELECT a.*, p.nombre as proveedor_nombre, pr.nom_p as producto_nombre FROM adeudos a LEFT JOIN proveedor p ON a.id_proveedor = p.id LEFT JOIN productos pr ON a.id_producto = pr.id ORDER BY a.fecha DESC LIMIT 500");
+    $pagos = $fetchRowsOk("SELECT pg.*, u.nombrecompleto as usuario_nombre FROM pagos pg LEFT JOIN usuarios u ON pg.id_usuario = u.id ORDER BY pg.fecha_pago DESC LIMIT 500");
+    $empleados = $fetchRowsOk("SELECT * FROM empleados ORDER BY empleado_id ASC");
+    $nomina = $fetchRowsOk("SELECT n.*, e.nombre, e.apellido FROM nomina n LEFT JOIN empleados e ON n.empleado_id = e.empleado_id ORDER BY n.fecha_pago DESC LIMIT 500");
 
-    $purchaseOrders = $fetchRows("SELECT * FROM ordenes_compra ORDER BY date DESC LIMIT 100");
-    $bankAccounts = $fetchRows("SELECT * FROM cuentas_bancarias ORDER BY id ASC");
-    $bankMovements = $fetchRows("SELECT * FROM movimientos_bancarios ORDER BY date DESC LIMIT 200");
-    $budgets = $fetchRows("SELECT * FROM presupuestos ORDER BY id ASC");
-    $costCenters = $fetchRows("SELECT * FROM centros_costos ORDER BY id ASC");
-    $vehicles = $fetchRows("SELECT * FROM vehiculos ORDER BY id ASC");
-    $auditLogs = $fetchRows("SELECT * FROM auditoria ORDER BY timestamp DESC LIMIT 200");
-    $branches = $fetchRows("SELECT * FROM sucursales ORDER BY id ASC");
-    $branchInventory = $fetchRows("SELECT * FROM inventario_sucursal ORDER BY id ASC");
-    $transfers = $fetchRows("SELECT * FROM transferencias ORDER BY date DESC LIMIT 100");
-    $replenishments = $fetchRows("SELECT * FROM solicitudes_reabastecimiento ORDER BY request_date DESC LIMIT 100");
-    $distributions = $fetchRows("SELECT * FROM distribuciones ORDER BY date DESC LIMIT 100");
+    $purchaseOrders = $fetchRowsOk("SELECT * FROM ordenes_compra ORDER BY date DESC LIMIT 100");
+    $bankAccounts = $fetchRowsOk("SELECT * FROM cuentas_bancarias ORDER BY id ASC");
+    $bankMovements = $fetchRowsOk("SELECT * FROM movimientos_bancarios ORDER BY date DESC LIMIT 200");
+    $budgets = $fetchRowsOk("SELECT * FROM presupuestos ORDER BY id ASC");
+    $costCenters = $fetchRowsOk("SELECT * FROM centros_costos ORDER BY id ASC");
+    $vehicles = $fetchRowsOk("SELECT * FROM vehiculos ORDER BY id ASC");
+    $auditLogs = $fetchRowsOk("SELECT * FROM auditoria ORDER BY timestamp DESC LIMIT 200");
+    $branches = $fetchRowsOk("SELECT * FROM sucursales ORDER BY id ASC");
+    $branchInventory = $fetchRowsOk("SELECT * FROM inventario_sucursal ORDER BY id ASC");
+    $transfers = $fetchRowsOk("SELECT * FROM transferencias ORDER BY date DESC LIMIT 100");
+    $replenishments = $fetchRowsOk("SELECT * FROM solicitudes_reabastecimiento ORDER BY request_date DESC LIMIT 100");
+    $distributions = $fetchRowsOk("SELECT * FROM distribuciones ORDER BY date DESC LIMIT 100");
 
     $totalVentas = 0;
     $resV = $mysqli->query("SELECT count(*) as total FROM ventas");
@@ -1588,6 +1591,7 @@ if ($action === 'get_native_tables') {
 // 7. CARGAR HISTORIAL DE VENTAS
 // ------------------------------------------------------------------------------
 if ($action === 'get_historical_sales') {
+    $session = requireAuth($mysqli, 'consulta de ventas');
     $ventas = [];
     $resV = $mysqli->query("
         SELECT v.id_venta, v.ticket_number, v.id_producto, p.nom_p, p.clave, p.des, p.unidad,
@@ -2111,20 +2115,60 @@ if ($action === 'save_cash_session' && $_SERVER['REQUEST_METHOD'] === 'POST') {
     $expTot = isset($postData['expensesTotal']) ? (float)$postData['expensesTotal'] : (isset($postData['expenses_total']) ? (float)$postData['expenses_total'] : 0);
     $expFinal = isset($postData['expectedFinalCash']) ? (float)$postData['expectedFinalCash'] : (isset($postData['expected_final_cash']) ? (float)$postData['expected_final_cash'] : 0);
     $csSucursal = isset($postData['sucursal']) ? trim($postData['sucursal']) : $branch;
+
+    // Recalcular y verificar totales server-side al cerrar la sesión de caja
+    if ($csStatus === 'Cerrada' && !empty($sTime)) {
+        $escStart = $mysqli->real_escape_string($sTime);
+        $escEnd = !empty($eTime) ? $mysqli->real_escape_string($eTime) : date("Y-m-d H:i:s");
+        
+        $calcSales = 0.0;
+        $qV = "SELECT COALESCE(SUM(total), 0) as tot FROM ventas WHERE (metodo_pago = 'Efectivo' OR metodo_pago = 'CASH' OR metodo_pago = 'efectivo') AND fecha >= '{$escStart}' AND fecha <= '{$escEnd}'";
+        $resV = $mysqli->query($qV);
+        if ($resV && $rowV = $resV->fetch_assoc()) {
+            $calcSales = (float)$rowV['tot'];
+        }
+
+        $calcExpenses = 0.0;
+        $qE = "SELECT COALESCE(SUM(amount), 0) as tot FROM gastos_caja WHERE date >= '{$escStart}' AND date <= '{$escEnd}'";
+        $resE = $mysqli->query($qE);
+        if ($resE && $rowE = $resE->fetch_assoc()) {
+            $calcExpenses = (float)$rowE['tot'];
+        }
+
+        // Si existen ventas/gastos registrados en MySQL, auditar si hay discrepancia relevante (> $1.00)
+        $serverExpected = $initCash + ($calcSales > 0 ? $calcSales : $salesTot) - ($calcExpenses > 0 ? $calcExpenses : $expTot);
+        if (abs($serverExpected - $expFinal) > 1.0) {
+            recordAuditLog($mysqli, $openedBy, $session['rol'] ?? 'Cajero', 'AUDITORIA_CORTE_CAJA', "Corte de caja #{$csId} procesado con discrepancia. Cliente reportó: esperaban \${$expFinal}. Servidor calculó: \${$serverExpected} (Ventas Efectivo DB: \${$calcSales}, Gastos DB: \${$calcExpenses}).", $csSucursal);
+        }
+    }
+
     $csRaw = json_encode($postData);
 
     try {
         $stmtCS = $mysqli->prepare("INSERT INTO sesiones_caja (id, start_time, end_time, opened_by, initial_cash, final_cash, status, sales_total, expenses_total, expected_final_cash, sucursal, raw_data) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE start_time=VALUES(start_time), end_time=VALUES(end_time), opened_by=VALUES(opened_by), initial_cash=VALUES(initial_cash), final_cash=VALUES(final_cash), status=VALUES(status), sales_total=VALUES(sales_total), expenses_total=VALUES(expenses_total), expected_final_cash=VALUES(expected_final_cash), sucursal=VALUES(sucursal), raw_data=VALUES(raw_data)");
-        if ($stmtCS) {
-            $stmtCS->bind_param("ssssddsdddss", $csId, $sTime, $eTime, $openedBy, $initCash, $finalCash, $csStatus, $salesTot, $expTot, $expFinal, $csSucursal, $csRaw);
-            $stmtCS->execute();
-            $stmtCS->close();
+        if (!$stmtCS) {
+            http_response_code(500);
+            echo json_encode(["success" => false, "error" => "Error preparando inserción de sesión en MySQL: " . $mysqli->error]);
+            exit;
         }
-    } catch (Throwable $e) {}
+        $stmtCS->bind_param("ssssddsdddss", $csId, $sTime, $eTime, $openedBy, $initCash, $finalCash, $csStatus, $salesTot, $expTot, $expFinal, $csSucursal, $csRaw);
+        if (!$stmtCS->execute()) {
+            $err = $stmtCS->error;
+            $stmtCS->close();
+            http_response_code(500);
+            echo json_encode(["success" => false, "error" => "Error al ejecutar guardado de sesión en MySQL: " . $err]);
+            exit;
+        }
+        $stmtCS->close();
+    } catch (Throwable $e) {
+        http_response_code(500);
+        echo json_encode(["success" => false, "error" => "Excepción al guardar sesión de caja: " . $e->getMessage()]);
+        exit;
+    }
 
     echo json_encode([
         "success" => true,
-        "message" => "Sesión de caja guardada en MySQL ({$dbname}).",
+        "message" => "Sesión de caja guardada exitosamente en MySQL ({$dbname}).",
         "id" => $csId,
         "branch" => $branch,
         "database" => $dbname

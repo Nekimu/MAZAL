@@ -268,10 +268,18 @@ export default function FinanceModule({ currentUser }: { currentUser: { name: st
     nextDb.cashSessions = [newSess, ...nextDb.cashSessions];
     const branch = activeBranch || "Norte";
 
-    saveCashSessionToMySQL(newSess, branch).catch(() => {});
-    await saveDatabase(nextDb);
-    await logAction(currentUserName, currentUserRole, "APERTURA_CAJA", `Apertura de caja con fondo inicial de $${fund.toFixed(2)} MXN`);
-    setShowOpenCajaModal(false);
+    try {
+      const savedMySQL = await saveCashSessionToMySQL(newSess, branch);
+      if (!savedMySQL) {
+        console.warn("Aviso: Apertura guardada localmente, pendiente sincronizar en MySQL");
+      }
+      await saveDatabase(nextDb);
+      await logAction(currentUserName, currentUserRole, "APERTURA_CAJA", `Apertura de caja con fondo inicial de $${fund.toFixed(2)} MXN`);
+      setShowOpenCajaModal(false);
+    } catch (err) {
+      console.error("Error al abrir caja:", err);
+      alert("Ocurrió un error al registrar la apertura de caja.");
+    }
   };
 
   const handleCloseCaja = async (e: React.FormEvent) => {
@@ -329,9 +337,13 @@ export default function FinanceModule({ currentUser }: { currentUser: { name: st
 
     const branch = activeBranch || "Norte";
     try {
-      saveCashSessionToMySQL(closedSess, branch).catch(() => {});
+      const savedMySQL = await saveCashSessionToMySQL(closedSess, branch);
       await saveDatabase(nextDb);
       await logAction(currentUserName, currentUserRole, "CIERRE_CAJA", `Cierre de caja. Real: $${realCash.toFixed(2)}. Esperado: $${expected.toFixed(2)}. Dif: ${diffMsg}`);
+      
+      if (!savedMySQL) {
+        alert("⚠️ Aviso: El corte se guardó de forma local, pero no pudo confirmarse de inmediato en la base de datos MySQL (revisa tu sesión o conexión). Se mantendrá en cola de sincronización.");
+      }
     } catch (err) {
       console.error("Error al persistir corte en finanzas:", err);
     }
