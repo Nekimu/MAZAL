@@ -194,7 +194,7 @@ export default function App() {
     }
   }, [theme]);
 
-  const handleLoginSuccess = (user: { name: string; role: any }, onlyPOS: boolean = false) => {
+  const handleLoginSuccess = async (user: { name: string; role: any }, onlyPOS: boolean = false) => {
     const normalizedUser = {
       name: user.name || "Administrador General",
       role: normalizeUserRole(user.role)
@@ -205,6 +205,14 @@ export default function App() {
       localStorage.setItem("mazal_session", JSON.stringify(normalizedUser));
       localStorage.setItem("mazal_only_pos", onlyPOS ? "true" : "false");
     } catch (e) {}
+
+    // Recargar el estado real desde MySQL ahora que sí hay token válido
+    try {
+      await loadDatabaseFromMySQL(currentBranch || "Norte");
+      setDb(getDatabase());
+    } catch (e) {
+      console.error("Error al recargar datos tras login:", e);
+    }
 
     if (onlyPOS || normalizedUser.role === UserRole.CASHIER || String(normalizedUser.role).toLowerCase().includes("cajer")) {
       setActiveTab("pos");
